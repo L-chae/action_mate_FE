@@ -1,31 +1,32 @@
-import { StyleSheet } from 'react-native';
+import React from "react";
+import { View, Text } from "react-native";
+import { Screen } from "~/shared/layout/Screen";
+import { Card } from "~/shared/ui/Card";
+import { Button } from "~/shared/ui/Button";
+import { Badge } from "~/shared/ui/Badge";
+import { useAppTheme } from "~/shared/hooks/useAppTheme";
 
-import EditScreenInfo from '@/components/EditScreenInfo';
-import { Text, View } from '@/components/Themed';
+export default function HomeScreen() {
+  const t = useAppTheme();
 
-export default function TabOneScreen() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Tab One</Text>
-      <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/(tabs)/index.tsx" />
-    </View>
+    <Screen>
+      <Text style={[t.typography.titleLarge, { marginBottom: 12 }]}>
+        Action Mate (Light)
+      </Text>
+
+      <Card style={{ gap: 12 } as any}>
+        <Badge label="D-2 마감임박" tone="warning" />
+        <Text style={t.typography.bodyMedium}>
+          테마/공통 UI 적용 테스트 화면
+        </Text>
+
+        <View style={{ flexDirection: "row", gap: 10 } as any}>
+          <Button title="참여하기" onPress={() => {}} />
+          <Button title="상세" variant="outlined" onPress={() => {}} />
+          <Button title="더보기" variant="text" onPress={() => {}} />
+        </View>
+      </Card>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  separator: {
-    marginVertical: 30,
-    height: 1,
-    width: '80%',
-  },
-});
