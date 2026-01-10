@@ -1,32 +1,39 @@
 import React from "react";
-import { View, Text } from "react-native";
+import { Text, Pressable, View } from "react-native";
 import { Screen } from "~/shared/layout/Screen";
-import { Card } from "~/shared/ui/Card";
-import { Button } from "~/shared/ui/Button";
-import { Badge } from "~/shared/ui/Badge";
+import { useMeetupsStore } from "~/features/meetups/store";
 import { useAppTheme } from "~/shared/hooks/useAppTheme";
 
 export default function HomeScreen() {
   const t = useAppTheme();
+  const meetups = useMeetupsStore((s) => s.meetups);
+  const joinMeetup = useMeetupsStore((s) => s.joinMeetup);
 
   return (
     <Screen>
-      <Text style={[t.typography.titleLarge, { marginBottom: 12 }]}>
-        Action Mate (Light)
-      </Text>
+      <Text style={[t.typography.titleLarge, { marginBottom: 12 }]}>홈 (mock)</Text>
 
-      <Card style={{ gap: 12 } as any}>
-        <Badge label="D-2 마감임박" tone="warning" />
-        <Text style={t.typography.bodyMedium}>
-          테마/공통 UI 적용 테스트 화면
-        </Text>
+      {meetups.map((m) => {
+        const remain = m.capacity - m.joinedCount;
+        return (
+          <View key={m.id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderColor: t.colors.border }}>
+            <Text style={t.typography.titleSmall}>{m.title}</Text>
+            <Text style={t.typography.bodySmall}>
+              {m.category} · 남은자리 {remain} · 상태 {m.joinStatus}
+            </Text>
 
-        <View style={{ flexDirection: "row", gap: 10 } as any}>
-          <Button title="참여하기" onPress={() => {}} />
-          <Button title="상세" variant="outlined" onPress={() => {}} />
-          <Button title="더보기" variant="text" onPress={() => {}} />
-        </View>
-      </Card>
+            <Pressable
+              onPress={() => joinMeetup(m.id)}
+              disabled={m.joinStatus === "joined" || remain <= 0}
+              style={{ marginTop: 8 }}
+            >
+              <Text style={[t.typography.labelLarge, { color: t.colors.primary }]}>
+                참여하기(테스트)
+              </Text>
+            </Pressable>
+          </View>
+        );
+      })}
     </Screen>
   );
 }
