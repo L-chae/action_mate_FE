@@ -19,7 +19,7 @@ export function createTheme(mode: ThemeMode) {
   const typography = createTypography({
     main: textMain,
     sub: textSub,
-    fontFamily: "Pretendard", // 폰트 넣을 계획이면 유지, 아니면 지워도 됨
+    fontFamily: "Pretendard",
   });
 
   return {

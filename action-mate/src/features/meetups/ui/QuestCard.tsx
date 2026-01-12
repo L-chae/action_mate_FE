@@ -4,6 +4,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "~/shared/hooks/useAppTheme";
 
 export type QuestCardData = {
+  id: string;
   title: string;
   tags: string[];         // ["#친목", "#초보만"]
   timeLabel: string;      // "오늘 19:00"

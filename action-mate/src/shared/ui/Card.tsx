@@ -1,34 +1,50 @@
 import React from "react";
-import { View, ViewProps, Platform, ViewStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, View, ViewStyle } from "react-native";
 import { useAppTheme } from "../hooks/useAppTheme";
 
-type Props = ViewProps & { padded?: boolean };
+type Props = {
+  children: React.ReactNode;
+  style?: ViewStyle;
+  padded?: boolean;
+  onPress?: () => void; // 있으면 눌리는 카드
+};
 
-export function Card({ padded = true, style, ...rest }: Props) {
-  const t = useAppTheme();
-  const isDark = t.mode === "dark";
+export function Card({ children, style, padded = true, onPress }: Props) {
+  const { colors, spacing } = useAppTheme();
 
-  const base: ViewStyle = {
-    backgroundColor: t.colors.surface,
-    borderRadius: t.spacing.radiusMd,
-    borderWidth: isDark ? 1 : 0,
-    borderColor: isDark ? t.colors.border : "transparent",
-    padding: padded ? 16 : 0,
-  };
+  const Container: any = onPress ? Pressable : View;
 
-  // ✅ RN(iOS/Android) + Web 경고 회피(웹은 boxShadow)
-  const shadow: ViewStyle =
-    Platform.OS === "web"
-      ? ({ boxShadow: isDark ? "none" : "0px 4px 10px rgba(0,0,0,0.10)" } as any)
-      : isDark
-        ? { elevation: 0 }
-        : {
-            shadowColor: "#000",
-            shadowOpacity: 0.1,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 2,
-          };
-
-  return <View {...rest} style={[base, shadow, style]} />;
+  return (
+    <Container
+      onPress={onPress}
+      style={[
+        styles.base,
+        styles.shadow,
+        {
+          backgroundColor: colors.surface,
+          borderRadius: spacing.radiusLg,
+          borderWidth: spacing.borderWidth,
+          borderColor: colors.border,
+          padding: padded ? spacing.pagePaddingH : 0,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </Container>
+  );
 }
+
+const styles = StyleSheet.create({
+  base: {},
+  shadow: Platform.select({
+    ios: {
+      shadowColor: "#000",
+      shadowOpacity: 0.06,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 6 },
+    },
+    android: { elevation: 2 },
+    default: {},
+  }),
+});

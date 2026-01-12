@@ -1,33 +1,66 @@
 import React from "react";
-import { View, Text, ViewStyle } from "react-native";
+import { StyleSheet, Text, View, ViewStyle } from "react-native";
 import { useAppTheme } from "../hooks/useAppTheme";
 
-type Tone = "default" | "primary" | "warning" | "danger" | "success" | "info";
+type Tone = "default" | "primary" | "point" | "success" | "warning" | "error";
+type Size = "sm" | "md";
 
-export function Badge({ label, tone = "default" }: { label: string; tone?: Tone }) {
-  const t = useAppTheme();
+export function Badge({
+  label,
+  tone = "default",
+  size = "sm",
+  style,
+}: {
+  label: string;
+  tone?: Tone;
+  size?: Size;
+  style?: ViewStyle;
+}) {
+  const { colors, spacing, typography } = useAppTheme();
 
-  const bg =
-    tone === "primary" ? t.colors.primary :
-    tone === "warning" ? t.colors.warning :
-    tone === "danger" ? t.colors.error :
-    tone === "success" ? t.colors.success :
-    tone === "info" ? t.colors.info :
-    t.mode === "dark" ? "rgba(255,255,255,0.10)" : "#F3F3F3";
+  const s = size === "md"
+    ? { py: 6, px: 10, radius: spacing.radiusMd, typo: typography.labelMedium }
+    : { py: 4, px: 8, radius: spacing.radiusSm, typo: typography.labelSmall };
 
-  const fg = tone === "default" ? t.colors.textMain : "#FFFFFF";
-
-  const container: ViewStyle = {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: t.spacing.radiusMd,
-    backgroundColor: bg,
-  };
+  const toneStyle = (() => {
+    // “soft background”는 현재 토큰에 없으니 간단히 연한 배경으로 처리
+    const soft = (hex: string) => hex + "22"; // 대충 13% 알파 느낌(문자열 hex에 22 추가)
+    switch (tone) {
+      case "primary":
+        return { bg: soft(colors.primary), fg: colors.primary };
+      case "point":
+        return { bg: soft(colors.point), fg: colors.primaryDark };
+      case "success":
+        return { bg: soft(colors.success), fg: colors.success };
+      case "warning":
+        return { bg: soft(colors.warning), fg: colors.warning };
+      case "error":
+        return { bg: soft(colors.error), fg: colors.error };
+      default:
+        return { bg: colors.border, fg: colors.textSub };
+    }
+  })();
 
   return (
-    <View style={container}>
-      <Text style={[t.typography.labelSmall, { color: fg }]}>{label}</Text>
+    <View
+      style={[
+        styles.base,
+        {
+          paddingVertical: s.py,
+          paddingHorizontal: s.px,
+          borderRadius: s.radius,
+          backgroundColor: toneStyle.bg,
+        },
+        style,
+      ]}
+    >
+      <Text style={[s.typo, { color: toneStyle.fg }]} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  base: { alignSelf: "flex-start" },
+});

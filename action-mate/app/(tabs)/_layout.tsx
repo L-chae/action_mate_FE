@@ -1,59 +1,61 @@
-import React from 'react';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Link, Tabs } from 'expo-router';
-import { Pressable } from 'react-native';
-
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
-
-// You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
-function TabBarIcon(props: {
-  name: React.ComponentProps<typeof FontAwesome>['name'];
-  color: string;
-}) {
-  return <FontAwesome size={28} style={{ marginBottom: -3 }} {...props} />;
-}
+import React from "react";
+import { View } from "react-native";
+import { Tabs } from "expo-router";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useAppTheme } from "~/shared/hooks/useAppTheme";
+import { router } from "expo-router";
+import { Fab } from "~/shared/ui/Fab";
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const t = useAppTheme();
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable>
-                {({ pressed }) => (
-                  <FontAwesome
-                    name="info-circle"
-                    size={25}
-                    color={Colors[colorScheme ?? 'light'].text}
-                    style={{ marginRight: 15, opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
-          ),
+    <View style={{ flex: 1 }}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: t.colors.primary,
+          tabBarInactiveTintColor: t.colors.textSub,
+          tabBarStyle: {
+            backgroundColor: t.colors.surface,
+            borderTopColor: t.colors.border,
+            borderTopWidth: 1,
+            height: 68,
+            paddingTop: 6,
+            paddingBottom: 8,
+          },
+          tabBarLabelStyle: { fontSize: 12 },
         }}
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "홈",
+            tabBarIcon: ({ color }) => <MaterialIcons name="home-filled" size={24} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="map"
+          options={{
+            title: "지도",
+            tabBarIcon: ({ color }) => <MaterialIcons name="map" size={24} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="my"
+          options={{
+            title: "마이",
+            tabBarIcon: ({ color }) => <MaterialIcons name="person" size={24} color={color} />,
+          }}
+        />
+      </Tabs>
+
+      {/* ✅ 전역 FAB: 어디서든 모임 만들기 */}
+      <Fab
+        onPress={() => router.push("/meetups/create")}
+        // 탭바 위로 살짝 올리고 싶으면 bottom 조절
+        style={{ bottom: 84 }}
       />
-      <Tabs.Screen
-        name="two"
-        options={{
-          title: 'Tab Two',
-          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
-        }}
-      />
-    </Tabs>
+    </View>
   );
 }

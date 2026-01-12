@@ -1,12 +1,11 @@
 import { useMemo } from "react";
 import { useColorScheme } from "react-native";
-import { ActionMateTheme } from "../theme";
+import { ActionMateTheme, type ThemeMode, type AppTheme } from "../theme";
 
-export function useAppTheme() {
+export function useAppTheme(): AppTheme {
   const scheme = useColorScheme(); // "light" | "dark" | null
 
-  // ✅ 라이트 기본
-  const mode = scheme === "dark" ? "dark" : "light";
+  const mode: ThemeMode = scheme === "dark" ? "dark" : "light";
 
-  return useMemo(() => (mode === "dark" ? ActionMateTheme.dark : ActionMateTheme.light), [mode]);
+  return useMemo(() => ActionMateTheme[mode], [mode]);
 }

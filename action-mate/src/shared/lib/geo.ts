@@ -1,17 +1,26 @@
-export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const R = 6371; // km
-  const dLat = deg2rad(b.lat - a.lat);
-  const dLng = deg2rad(b.lng - a.lng);
+export type LatLng = { lat: number; lng: number };
 
-  const s =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(deg2rad(a.lat)) * Math.cos(deg2rad(b.lat)) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-  return R * c;
+function toRad(deg: number) {
+  return (deg * Math.PI) / 180;
 }
 
-function deg2rad(deg: number) {
-  return deg * (Math.PI / 180);
+// Haversine distance (km)
+export function distanceKm(a: LatLng, b: LatLng) {
+  const R = 6371; // km
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+export function formatKm(km: number) {
+  if (!Number.isFinite(km)) return "-";
+  if (km < 1) return `${Math.round(km * 1000)}m`;
+  return `${km.toFixed(1)}km`;
 }
