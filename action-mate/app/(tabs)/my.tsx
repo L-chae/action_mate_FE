@@ -1,9 +1,9 @@
 import { View, Text } from "react-native";
 
-export default function HomeTab() {
+export default function MyTab() {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-      <Text>Home</Text>
+      <Text>My</Text>
     </View>
   );
 }
