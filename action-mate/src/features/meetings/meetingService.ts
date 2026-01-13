@@ -1,6 +1,41 @@
-import type { MeetingPost, CategoryKey, MembershipStatus } from "./types";
+import type { MeetingPost, CategoryKey, MembershipStatus, HostSummary } from "./types";
 
-// ✅ 1. Mock Data (메모리상에서 변경 가능하도록 let으로 선언)
+// ✅ Mock Hosts (다양한 호스트 프로필 생성)
+const HOST_USERS: Record<string, HostSummary> = {
+  "user1": {
+    id: "u1",
+    nickname: "민수",
+    mannerTemp: 37.5,
+    kudosCount: 12,
+    intro: "운동 끝나고 맥주 한잔 좋아해요 🍺",
+    avatarUrl: "https://i.pravatar.cc/150?u=u1" // 랜덤 아바타
+  },
+  "user2": {
+    id: "u2",
+    nickname: "보드게임마스터",
+    mannerTemp: 42.0,
+    kudosCount: 56,
+    intro: "전략 게임 전문입니다. 초보 환영!",
+    avatarUrl: "https://i.pravatar.cc/150?u=u2"
+  },
+  "user3": {
+    id: "u3",
+    nickname: "새벽러너",
+    mannerTemp: 36.5,
+    kudosCount: 3,
+    intro: "매일 아침 6시 뜁니다.",
+  },
+  "user4": {
+    id: "u4",
+    nickname: "맛집탐방러",
+    mannerTemp: 38.2,
+    kudosCount: 20,
+    intro: "맛없는 건 안 먹어요 🙅‍♂️",
+    avatarUrl: "https://i.pravatar.cc/150?u=u4"
+  }
+};
+
+// ✅ 1. Mock Data (host 정보 포함하여 업데이트)
 let _MOCK_DATA: MeetingPost[] = [
   {
     id: "1",
@@ -16,6 +51,7 @@ let _MOCK_DATA: MeetingPost[] = [
     hostMemo: "라켓 여분 있어요! 몸만 오세요.",
     myState: { membershipStatus: "NONE", canJoin: true },
     durationHours: 2,
+    host: HOST_USERS["user1"], // ✅ 호스트 추가
   },
   {
     id: "2",
@@ -30,6 +66,7 @@ let _MOCK_DATA: MeetingPost[] = [
     status: "FULL",
     myState: { membershipStatus: "NONE", canJoin: false, reason: "정원마감" },
     durationHours: 1.5,
+    host: HOST_USERS["user4"], // ✅ 호스트 추가
   },
   {
     id: "3",
@@ -45,6 +82,7 @@ let _MOCK_DATA: MeetingPost[] = [
     hostMemo: "룰 몰라도 알려드려요 😉",
     myState: { membershipStatus: "NONE", canJoin: true },
     durationHours: 3,
+    host: HOST_USERS["user2"], // ✅ 호스트 추가
   },
   {
     id: "4",
@@ -59,6 +97,7 @@ let _MOCK_DATA: MeetingPost[] = [
     status: "OPEN",
     myState: { membershipStatus: "NONE", canJoin: true },
     durationHours: 1,
+    host: HOST_USERS["user3"], // ✅ 호스트 추가
   },
   {
     id: "5",
@@ -74,6 +113,7 @@ let _MOCK_DATA: MeetingPost[] = [
     hostMemo: "카메라 기종 상관없어요 폰카 가능",
     myState: { membershipStatus: "NONE", canJoin: true },
     durationHours: 2,
+    host: HOST_USERS["user1"], // ✅ 호스트 추가
   },
   {
     id: "6",
@@ -88,6 +128,7 @@ let _MOCK_DATA: MeetingPost[] = [
     status: "OPEN",
     myState: { membershipStatus: "NONE", canJoin: true },
     durationHours: 1,
+    host: HOST_USERS["user4"], // ✅ 호스트 추가
   },
   {
     id: "7",
@@ -103,6 +144,7 @@ let _MOCK_DATA: MeetingPost[] = [
     hostMemo: "3시간 정도 집중해요",
     myState: { membershipStatus: "NONE", canJoin: true },
     durationHours: 3,
+    host: HOST_USERS["user3"], // ✅ 호스트 추가
   },
   {
     id: "8",
@@ -114,9 +156,10 @@ let _MOCK_DATA: MeetingPost[] = [
     capacityJoined: 2,
     capacityTotal: 2,
     joinMode: "INSTANT",
-    status: "OPEN",
-    myState: { membershipStatus: "NONE", canJoin: true },
+    status: "ENDED",
+    myState: { membershipStatus: "NONE", canJoin: false, reason: "종료됨" },
     durationHours: 2,
+    host: HOST_USERS["user2"], // ✅ 호스트 추가
   }
 ];
 

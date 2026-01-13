@@ -1,15 +1,18 @@
-// ✅ UI의 CategoryChips와 키값 일치 ("STUDY" 추가)
+// ✅ UI의 CategoryChips와 키값 일치
 export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 
 export type JoinMode = "INSTANT" | "APPROVAL";
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
 export type MembershipStatus = "NONE" | "JOINED" | "PENDING" | "CANCELED";
 
-// 호스트 정보 (리스트에서는 닉네임 정도만 필요하거나, 아예 없어도 됨)
+// ✅ 호스트 정보 (상세 화면 & 프로필 모달용)
 export type HostSummary = {
-  userId: string;
+  id: string;
   nickname: string;
-  kudosCount?: number; // 칭찬 횟수
+  avatarUrl?: string; // 프로필 이미지 (없으면 기본 아이콘)
+  mannerTemp: number; // 매너 온도 (기본 36.5)
+  kudosCount: number; // 받은 칭찬 수
+  intro?: string;     // 한줄 소개
 };
 
 // 내 참여 상태 (MVP 핵심)
@@ -21,11 +24,11 @@ export type MyState = {
 
 export type MeetingPost = {
   id: string;
-  
+
   // ✅ MVP: 객체 대신 Key string만 사용 (가벼움)
   // 아이콘/이름은 프론트엔드 상수(CATEGORIES)에서 매핑
   category: CategoryKey; 
-  
+
   title: string;
   content?: string;
 
@@ -47,6 +50,8 @@ export type MeetingPost = {
   hostMemo?: string;        // "라켓 빌려드려요"
   memoUpdatedAtText?: string;
 
-  host?: HostSummary;       // 상세 화면용 (리스트에선 Optional)
+  // ✅ 상세 화면에서 사용할 호스트 정보 (리스트에선 없을 수도 있음 -> Optional)
+  host?: HostSummary;       
+  
   myState?: MyState;        // 로그인 유저와의 관계
 };

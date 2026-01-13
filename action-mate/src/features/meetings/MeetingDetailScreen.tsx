@@ -8,7 +8,9 @@ import {
   View, 
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform 
+  Platform,
+  Pressable,
+  Image
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +28,7 @@ import {
   updateHostMemo 
 } from "./meetingService";
 import type { MeetingPost } from "./types";
+import { ProfileDetailModal } from "./components/ProfileDetailModal";
 
 export default function MeetingDetailScreen() {
   const t = useAppTheme();
@@ -35,6 +38,9 @@ export default function MeetingDetailScreen() {
   const [post, setPost] = useState<MeetingPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [memoDraft, setMemoDraft] = useState("");
+  
+  // ✅ 프로필 모달 상태 추가
+  const [profileVisible, setProfileVisible] = useState(false);
 
   // 데이터 로드
   useEffect(() => {
@@ -46,7 +52,6 @@ export default function MeetingDetailScreen() {
         setPost(m);
         setMemoDraft(m?.hostMemo ?? "");
       } catch (e) {
-        // ✅ Fix: 에러 변수 e를 사용하여 ESLint 경고 해결
         console.error("Failed to load meeting:", e);
         Alert.alert("오류", "모임 정보를 불러오지 못했습니다.");
         router.back();
@@ -58,7 +63,6 @@ export default function MeetingDetailScreen() {
     return () => { alive = false; };
   }, [id, router]);
 
-  // 로딩 상태
   if (loading || !post) {
     return (
       <AppLayout>
@@ -73,18 +77,13 @@ export default function MeetingDetailScreen() {
   const membership = post.myState?.membershipStatus ?? "NONE";
   const canJoin = post.myState?.canJoin ?? (post.status === "OPEN");
 
-  // 참여 버튼 액션 핸들러
   const handleJoin = async () => {
     const r = await joinMeeting(post.id);
     setPost(r.post);
     if (r.membershipStatus === "JOINED") {
       Alert.alert("환영합니다! 🎉", "모임방으로 이동할까요?", [
         { text: "나중에", style: "cancel" },
-        { 
-          text: "이동", 
-          // ✅ Fix: 타입 에러 회피를 위해 as any 사용 (경로가 생성되기 전이라도 작동하도록)
-          onPress: () => router.push(`/chat/${post.id}` as any) 
-        },
+        { text: "이동", onPress: () => router.push(`/chat/${post.id}` as any) },
       ]);
     } else if (r.membershipStatus === "PENDING") {
       Alert.alert("신청 완료", "호스트의 승인을 기다려주세요.");
@@ -101,13 +100,22 @@ export default function MeetingDetailScreen() {
         }} 
       />
 
+      {/* ✅ 프로필 상세 모달 (데이터가 있을 때만 렌더링) */}
+      {post.host && (
+        <ProfileDetailModal 
+          visible={profileVisible} 
+          user={post.host} 
+          onClose={() => setProfileVisible(false)} 
+        />
+      )}
+
       <AppLayout padded={false}>
         <KeyboardAvoidingView 
           behavior={Platform.OS === "ios" ? "padding" : undefined} 
           style={{ flex: 1 }}
         >
           <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
-            {/* 1. 이미지/지도 Placeholder 영역 */}
+            {/* 1. 이미지/지도 Placeholder */}
             <View style={[styles.mapPlaceholder, { backgroundColor: t.colors.neutral[100] }]}>
               <Ionicons name="map" size={48} color={t.colors.neutral[300]} />
               <Text style={[t.typography.bodySmall, { color: t.colors.neutral[400], marginTop: 8 }]}>
@@ -115,8 +123,49 @@ export default function MeetingDetailScreen() {
               </Text>
             </View>
 
-            <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingTop: 24 }}>
-              {/* 2. 헤더: 카테고리 & 제목 */}
+            <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingTop: 20 }}>
+              
+              {/* ✅ 2. 호스트 프로필 섹션 (New) */}
+              <Pressable 
+                onPress={() => setProfileVisible(true)}
+                style={({ pressed }) => [
+                  styles.hostRow, 
+                  { 
+                    backgroundColor: t.colors.surface, 
+                    borderColor: t.colors.neutral[100],
+                    opacity: pressed ? 0.7 : 1 
+                  }
+                ]}
+              >
+                {/* 아바타 */}
+                <View style={[styles.hostAvatar, { backgroundColor: t.colors.neutral[100] }]}>
+                  {post.host?.avatarUrl ? (
+                    <Image source={{ uri: post.host.avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                  ) : (
+                    <Ionicons name="person" size={20} color={t.colors.neutral[400]} />
+                  )}
+                </View>
+
+                {/* 정보 */}
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>
+                      {post.host?.nickname}
+                    </Text>
+                    <View style={{ backgroundColor: t.colors.primaryLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                      <Text style={{ fontSize: 10, color: t.colors.primary, fontWeight: '700' }}>HOST</Text>
+                    </View>
+                  </View>
+                  <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+                    매너온도 {post.host?.mannerTemp}°C · 칭찬 {post.host?.kudosCount}
+                  </Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={20} color={t.colors.neutral[400]} />
+              </Pressable>
+
+
+              {/* 3. 헤더: 카테고리 & 제목 */}
               <View style={styles.headerSection}>
                 <View style={styles.badgeRow}>
                   <Badge label={post.category} tone="default" />
@@ -131,7 +180,7 @@ export default function MeetingDetailScreen() {
                 </Text>
               </View>
 
-              {/* 3. 정보 요약 박스 */}
+              {/* 4. 정보 요약 박스 */}
               <View style={[styles.infoBox, { backgroundColor: t.colors.neutral[50], borderColor: t.colors.neutral[100] }]}>
                 {/* 시간 */}
                 <View style={styles.infoRow}>
@@ -143,9 +192,7 @@ export default function MeetingDetailScreen() {
                     </Text>
                   </View>
                 </View>
-                
                 <View style={[styles.divider, { backgroundColor: t.colors.neutral[200] }]} />
-
                 {/* 장소 */}
                 <View style={styles.infoRow}>
                   <Ionicons name="location-outline" size={20} color={t.colors.textMain} />
@@ -156,9 +203,7 @@ export default function MeetingDetailScreen() {
                     </Text>
                   </View>
                 </View>
-
                 <View style={[styles.divider, { backgroundColor: t.colors.neutral[200] }]} />
-
                 {/* 인원 */}
                 <View style={styles.infoRow}>
                   <Ionicons name="people-outline" size={20} color={t.colors.textMain} />
@@ -175,11 +220,10 @@ export default function MeetingDetailScreen() {
                 </View>
               </View>
 
-              {/* 4. 호스트 메모 */}
+              {/* 5. 호스트 메모 */}
               <View style={styles.section}>
                 <Text style={[t.typography.titleMedium, { marginBottom: 12 }]}>호스트의 한마디</Text>
                 <View style={[styles.bubble, { backgroundColor: t.colors.primaryLight }]}>
-                  {/* ✅ Fix: 따옴표 에러 해결을 위해 템플릿 리터럴 사용 */}
                   <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
                     {`"${post.hostMemo || "별도의 공지사항이 없습니다. 편하게 오세요!"}"`}
                   </Text>
@@ -187,7 +231,7 @@ export default function MeetingDetailScreen() {
                 </View>
               </View>
 
-              {/* --- (테스트용) 호스트 기능 영역 --- */}
+              {/* --- 호스트/개발자 모드 --- */}
               <View style={[styles.devBox, { borderColor: t.colors.neutral[200] }]}>
                 <Text style={[t.typography.labelSmall, { color: t.colors.neutral[400], marginBottom: 8 }]}>
                   🛠 호스트/개발자 모드
@@ -200,9 +244,7 @@ export default function MeetingDetailScreen() {
                 />
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                   <Button 
-                    title="메모 저장" 
-                    size="sm" 
-                    variant="secondary"
+                    title="메모 저장" size="sm" variant="secondary"
                     onPress={async () => {
                       const r = await updateHostMemo(post.id, memoDraft.trim());
                       setPost(r.post);
@@ -210,9 +252,7 @@ export default function MeetingDetailScreen() {
                     }} 
                   />
                   <Button 
-                    title="모임 취소" 
-                    size="sm" 
-                    variant="danger"
+                    title="모임 취소" size="sm" variant="danger"
                     onPress={async () => {
                       const r = await cancelMeeting(post.id);
                       setPost(r.post);
@@ -225,34 +265,28 @@ export default function MeetingDetailScreen() {
             </View>
           </ScrollView>
 
-          {/* 5. Sticky Bottom Action Bar */}
+          {/* Sticky Bottom Bar */}
           <View style={[styles.bottomBar, { backgroundColor: t.colors.surface, borderTopColor: t.colors.neutral[200] }]}>
             {membership === "JOINED" ? (
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <Button 
-                  title="참여 취소" 
-                  variant="secondary" 
-                  style={{ flex: 1 }}
+                  title="참여 취소" variant="secondary" style={{ flex: 1 }}
                   onPress={async () => setPost((await cancelJoin(post.id)).post)}
                 />
                 <Button 
-                  title="대화방 입장" 
-                  style={{ flex: 2 }}
-                  // ✅ Fix: 타입 에러 회피
+                  title="대화방 입장" style={{ flex: 2 }}
                   onPress={() => router.push(`/chat/${post.id}` as any)}
                 />
               </View>
             ) : membership === "PENDING" ? (
               <Button 
-                title="승인 대기중 (취소하기)" 
-                variant="secondary"
+                title="승인 대기중 (취소하기)" variant="secondary"
                 onPress={async () => setPost((await cancelJoin(post.id)).post)}
               />
             ) : (
               <Button 
                 title={canJoin ? "참여하기" : post.myState?.reason || "참여 불가"} 
-                disabled={!canJoin}
-                size="lg"
+                disabled={!canJoin} size="lg"
                 onPress={handleJoin}
               />
             )}
@@ -270,6 +304,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  // ✅ 호스트 프로필 섹션 스타일
+  hostRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  hostAvatar: {
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    justifyContent: "center", 
+    alignItems: "center",
+    marginRight: 12,
+  },
   headerSection: { marginBottom: 24 },
   badgeRow: { flexDirection: "row", gap: 8 },
   infoBox: {
@@ -280,11 +331,7 @@ const styles = StyleSheet.create({
   },
   infoRow: { flexDirection: "row", alignItems: "center" },
   infoTextCtx: { marginLeft: 14, gap: 2 },
-  divider: {
-    height: 1,
-    marginVertical: 16,
-    marginLeft: 34,
-  },
+  divider: { height: 1, marginVertical: 16, marginLeft: 34 },
   section: { marginBottom: 32 },
   bubble: {
     padding: 20,
@@ -311,11 +358,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     opacity: 0.8,
   },
-  input: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-  },
+  input: { borderWidth: 1, borderRadius: 8, padding: 10 },
   bottomBar: {
     paddingHorizontal: 16,
     paddingTop: 16,
