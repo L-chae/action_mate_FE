@@ -2,10 +2,10 @@ import React, { useEffect, useState } from "react";
 import { Alert, FlatList, Pressable, StyleSheet, Text, View, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 
-import AppLayout from "../../shared/ui/AppLayout";
-import { Card } from "../../shared/ui/Card";
-import { Fab } from "../../shared/ui/Fab";
-import { useAppTheme } from "../../shared/hooks/useAppTheme";
+import AppLayout from "@/shared/ui/AppLayout";
+import { Card } from "@/shared/ui/Card";
+import { Fab } from "@/shared/ui/Fab";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 import CategoryChips from "../meetings/components/CategoryChips";
 import MeetingCard from "../meetings/components/MeetingCard";
