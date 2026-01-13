@@ -1,5 +1,9 @@
 import React from "react";
+<<<<<<< Updated upstream
 import { Platform, Pressable, StyleSheet, View, ViewStyle } from "react-native";
+=======
+import { Platform, Pressable, StyleSheet, View, type ViewStyle } from "react-native";
+>>>>>>> Stashed changes
 import { useAppTheme } from "../hooks/useAppTheme";
 
 type Props = {

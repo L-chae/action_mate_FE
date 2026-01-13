@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 import React, { useMemo, useState } from "react";
 import { FlatList, Pressable, ScrollView, Text, View, StyleSheet } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -191,3 +192,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#E53935",
   },
 });
+=======
+import { View, Text } from "react-native";
+
+export default function HomeTab() {
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <Text>Home</Text>
+    </View>
+  );
+}
+>>>>>>> Stashed changes

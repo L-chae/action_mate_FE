@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 import React, { useMemo } from "react";
 import { Text, View } from "react-native";
 
@@ -80,5 +81,14 @@ export default function MyScreen() {
         )}
       </Card>
     </Screen>
+=======
+import { View, Text } from "react-native";
+
+export default function MyTab() {
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <Text>My</Text>
+    </View>
+>>>>>>> Stashed changes
   );
 }

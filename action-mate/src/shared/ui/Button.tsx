@@ -24,6 +24,7 @@ type Props = {
   style?: ViewStyle;
 };
 
+
 export function Button({
   title,
   onPress,
@@ -129,3 +130,4 @@ const styles = StyleSheet.create({
   left: { marginRight: 8 },
   right: { marginLeft: 8 },
 });
+

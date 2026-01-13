@@ -48,3 +48,4 @@ export function createTypography(params: { main: string; sub: string; fontFamily
     labelSmall: { ...ff, fontSize: 11, lineHeight: 11 * 1.27, fontWeight: "600", color: sub },
   };
 }
+export type { Typo };

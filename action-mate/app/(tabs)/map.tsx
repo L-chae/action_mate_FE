@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 import React, { useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
@@ -126,5 +127,14 @@ export default function MapScreen() {
         </Text>
       </Card>
     </Screen>
+=======
+import { View, Text } from "react-native";
+
+export default function MapTab() {
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <Text>Map</Text>
+    </View>
+>>>>>>> Stashed changes
   );
 }
