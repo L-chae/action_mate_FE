@@ -192,10 +192,10 @@ export async function joinMeeting(id: string): Promise<{ post: MeetingPost; memb
   if (index === -1) throw new Error("Not found");
 
   const target = _MOCK_DATA[index];
-  
+
   // 로직 시뮬레이션: 승인제면 PENDING, 선착순이면 JOINED
   const newStatus: MembershipStatus = target.joinMode === "APPROVAL" ? "PENDING" : "JOINED";
-  
+
   // 인원 증가 (JOINED일 때만)
   let newJoinedCount = target.capacityJoined;
   if (newStatus === "JOINED") {
@@ -278,4 +278,54 @@ export async function cancelMeeting(id: string): Promise<{ post: MeetingPost }> 
   };
 
   return { post: _MOCK_DATA[index] };
+}
+
+// ✅ 8. 모임 생성 (필드 확장)
+export async function createMeeting(data: {
+  title: string;
+  category: CategoryKey;
+  meetingTimeText: string;
+  locationText: string;
+  capacityTotal: number;
+  content: string;
+  joinMode: "INSTANT" | "APPROVAL"; // 추가됨
+  conditions?: string; // 추가됨 (승인제 조건)
+  durationMinutes: number;
+  items?: string;
+}): Promise<MeetingPost> {
+  await delay(500);
+
+  const newId = Date.now().toString();
+
+  // 승인 조건이 있으면 호스트 메모 앞에 덧붙여서 저장 (간단 구현)
+  const finalMemo = data.conditions
+    ? `[조건: ${data.conditions}]\n${data.content}`
+    : data.content;
+
+  const newMeeting: MeetingPost = {
+    id: newId,
+    category: data.category,
+    title: data.title,
+    meetingTimeText: data.meetingTimeText,
+    distanceText: "0.1km",
+    locationText: data.locationText,
+    capacityJoined: 1,
+    capacityTotal: data.capacityTotal,
+    joinMode: data.joinMode, // 선택한 모드 적용
+    status: "OPEN",
+    hostMemo: finalMemo,
+    myState: { membershipStatus: "JOINED", canJoin: false, reason: "호스트" },
+    durationHours: 2,
+    host: {
+      id: "me",
+      nickname: "나(호스트)",
+      mannerTemp: 36.5,
+      kudosCount: 0,
+      intro: "방금 만든 모임입니다!",
+    },
+  };
+
+  _MOCK_DATA.unshift(newMeeting); // 리스트 맨 앞에 추가
+
+  return newMeeting;
 }

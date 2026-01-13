@@ -27,7 +27,7 @@ export type MeetingPost = {
 
   // ✅ MVP: 객체 대신 Key string만 사용 (가벼움)
   // 아이콘/이름은 프론트엔드 상수(CATEGORIES)에서 매핑
-  category: CategoryKey; 
+  category: CategoryKey;
 
   title: string;
   content?: string;
@@ -49,9 +49,9 @@ export type MeetingPost = {
 
   hostMemo?: string;        // "라켓 빌려드려요"
   memoUpdatedAtText?: string;
-
+  items?: string;
   // ✅ 상세 화면에서 사용할 호스트 정보 (리스트에선 없을 수도 있음 -> Optional)
-  host?: HostSummary;       
-  
+  host?: HostSummary;
+
   myState?: MyState;        // 로그인 유저와의 관계
 };
