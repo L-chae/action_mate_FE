@@ -1,29 +1,28 @@
 import React from "react";
-import { SafeAreaView, StyleSheet, View, type ViewStyle } from "react-native";
+import { StyleSheet, View, ViewStyle } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppTheme } from "../hooks/useAppTheme";
 
-type Props = {
+export default function AppLayout({
+  children,
+  style,
+  padded = true,
+}: {
   children: React.ReactNode;
-  padded?: boolean;
   style?: ViewStyle;
-};
-
-/**
- * 화면 공통 레이아웃
- * - SafeArea 적용
- * - 기본 배경색(theme.background)
- * - 기본 패딩 옵션
- */
-export default function AppLayout({ children, padded = true, style }: Props) {
+  padded?: boolean;
+}) {
   const t = useAppTheme();
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: t.colors.background }]}>
+    <SafeAreaView
+      style={[styles.safe, { backgroundColor: t.colors.background }, style]}
+      edges={["top", "left", "right"]} // ✅ top safe area
+    >
       <View
         style={[
-          styles.container,
+          styles.body,
           padded && { paddingHorizontal: t.spacing.pagePaddingH, paddingVertical: t.spacing.pagePaddingV },
-          style,
         ]}
       >
         {children}
@@ -34,5 +33,5 @@ export default function AppLayout({ children, padded = true, style }: Props) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  container: { flex: 1 },
+  body: { flex: 1 },
 });

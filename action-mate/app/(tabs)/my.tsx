@@ -1,9 +1,2 @@
-import { View, Text } from "react-native";
-
-export default function MyTab() {
-  return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-      <Text>My</Text>
-    </View>
-  );
-}
+import MyScreen from "../../src/features/my/MyScreen";
+export default MyScreen; 

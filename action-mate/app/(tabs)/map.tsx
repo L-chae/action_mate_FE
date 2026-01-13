@@ -1,9 +1,2 @@
-import { View, Text } from "react-native";
-
-export default function MapTab() {
-  return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-      <Text>Map</Text>
-    </View>
-  );
-}
+import MapScreen from "../../src/features/map/MapScreen";
+export default MapScreen;
