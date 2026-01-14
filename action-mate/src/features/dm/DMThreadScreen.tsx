@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -6,12 +6,16 @@ import {
   FlatList,
   TextInput,
   Pressable,
-  KeyboardAvoidingView,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Keyboard,
+  Animated,
+  EmitterSubscription,
+  LayoutChangeEvent,
 } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
@@ -21,6 +25,7 @@ import type { DMMessage } from "./types";
 
 export default function DMThreadScreen() {
   const t = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { threadId, nickname } = useLocalSearchParams<{ threadId: string; nickname: string }>();
 
   const [messages, setMessages] = useState<DMMessage[]>([]);
@@ -28,12 +33,25 @@ export default function DMThreadScreen() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
 
-  // 메시지 로드
+  const listRef = useRef<FlatList<DMMessage>>(null);
+
+  // ✅ 키보드 높이/리프트(리스트 여백 계산 + 입력창 이동용)
+  const [keyboardLift, setKeyboardLift] = useState(0);
+
+  // ✅ 입력창(컴포저) 높이: 메시지가 입력창에 안 가리게 padding 계산
+  const [composerHeight, setComposerHeight] = useState(0);
+
+  // ✅ 입력창 translateY 애니메이션 값
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  // ✅ 하단 시스템 영역(제스처바/내비바) 겹침 방지
+  const bottomSafe = Math.max(insets.bottom, 8);
+
   useEffect(() => {
     const load = async () => {
       try {
         const data = await getDMMessages(threadId);
-        setMessages(data); // 서비스에서 이미 역순(최신이 [0])으로 온다고 가정하거나, 여기서 reverse
+        setMessages(data); // inverted: 최신이 [0]이라고 가정
       } catch (e) {
         console.error(e);
       } finally {
@@ -43,19 +61,65 @@ export default function DMThreadScreen() {
     load();
   }, [threadId]);
 
-  // 메시지 전송
+  // ✅ 키보드 이벤트:
+  // - 입력창은 translateY로 올리고
+  // - 리스트는 paddingTop을 keyboardLift만큼 추가해서 말풍선도 같이 위로 보이게 함
+  useEffect(() => {
+    let showSub: EmitterSubscription | undefined;
+    let hideSub: EmitterSubscription | undefined;
+
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    showSub = Keyboard.addListener(showEvent, (e) => {
+      const h = e.endCoordinates?.height ?? 0;
+
+      // iOS는 bottom inset이 중복되는 경우가 있어 보정
+      const lift = Platform.OS === "ios" ? Math.max(0, h - insets.bottom) : h;
+
+      setKeyboardLift(lift);
+
+      Animated.timing(translateY, {
+        toValue: -lift,
+        duration: Platform.OS === "ios" ? 220 : 160,
+        useNativeDriver: true,
+      }).start();
+
+      // ✅ 키보드 올라올 때 최신 메시지 쪽 유지 (선택)
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      });
+    });
+
+    hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardLift(0);
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: Platform.OS === "ios" ? 220 : 160,
+        useNativeDriver: true,
+      }).start();
+    });
+
+    return () => {
+      showSub?.remove();
+      hideSub?.remove();
+    };
+  }, [insets.bottom, translateY]);
+
   const handleSend = async () => {
     if (!text.trim() || sending) return;
+
     const content = text.trim();
-    setText(""); // UI 즉시 초기화
+    setText("");
     setSending(true);
 
     try {
       const newMsg = await sendDMMessage(threadId, content);
-      setMessages((prev) => [newMsg, ...prev]); // 최신 메시지를 앞에 추가 (Inverted List)
+      setMessages((prev) => [newMsg, ...prev]); // inverted -> 앞에 추가
+      requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
     } catch (e) {
       console.error(e);
-      setText(content); // 실패 시 복구
+      setText(content);
     } finally {
       setSending(false);
     }
@@ -67,76 +131,100 @@ export default function DMThreadScreen() {
     return (
       <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
         {!isMe && (
-           <View style={[styles.avatar, { backgroundColor: t.colors.neutral[200] }]}>
-             <Ionicons name="person" size={16} color={t.colors.neutral[400]} />
-           </View>
+          <View style={[styles.avatar, { backgroundColor: t.colors.neutral[200] }]}>
+            <Ionicons name="person" size={16} color={t.colors.neutral[400]} />
+          </View>
         )}
-        
+
         <View
           style={[
             styles.bubble,
-            isMe 
-              ? { backgroundColor: t.colors.primary, borderBottomRightRadius: 4 } 
-              : { backgroundColor: t.colors.neutral[100], borderBottomLeftRadius: 4 }
+            isMe
+              ? { backgroundColor: t.colors.primary, borderBottomRightRadius: 4 }
+              : { backgroundColor: t.colors.neutral[100], borderBottomLeftRadius: 4 },
           ]}
         >
-          <Text style={[
-            t.typography.bodyMedium, 
-            { color: isMe ? "white" : t.colors.textMain }
-          ]}>
+          <Text style={[t.typography.bodyMedium, { color: isMe ? "white" : t.colors.textMain }]}>
             {item.text}
           </Text>
         </View>
-        
+
         <Text style={[t.typography.labelSmall, styles.timeText, { color: t.colors.neutral[400] }]}>
-          {new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: '2-digit', minute: '2-digit' })}
+          {new Date(item.createdAt).toLocaleTimeString("ko-KR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
         </Text>
       </View>
     );
   };
 
+  const onComposerLayout = (e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    if (h !== composerHeight) setComposerHeight(h);
+  };
+
+  // ✅ 핵심:
+  // inverted에서는 “아래(최신 메시지 위치)” 공간이 paddingTop으로 생김
+  // 키보드가 올라오면 keyboardLift만큼 더 띄워서 말풍선도 같이 위로 올라오게 함
+  const listContentStyle = useMemo(() => {
+    return {
+      paddingHorizontal: 16,
+      paddingBottom: 16,
+      paddingTop: composerHeight + bottomSafe + 12 + keyboardLift,
+    } as const;
+  }, [composerHeight, bottomSafe, keyboardLift]);
+
   return (
     <>
-      <Stack.Screen 
-        options={{ 
-          title: nickname || "대화", 
-          headerBackTitle: " ", 
+      <Stack.Screen
+        options={{
+          title: nickname || "대화",
+          headerBackTitle: " ",
           headerStyle: { backgroundColor: t.colors.background },
           headerShadowVisible: false,
-        }} 
+        }}
       />
 
       <AppLayout padded={false}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
-        >
+        <View style={{ flex: 1, backgroundColor: t.colors.background }}>
           {loading ? (
             <View style={styles.center}>
               <ActivityIndicator color={t.colors.primary} />
             </View>
           ) : (
             <FlatList
+              ref={listRef}
               data={messages}
               renderItem={renderMessage}
               keyExtractor={(item) => item.id}
-              inverted // ✅ 최신 메시지가 아래에 오도록 역순 렌더링
-              contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 16 }}
-              style={{ flex: 1, backgroundColor: t.colors.background }}
+              inverted
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={listContentStyle}
             />
           )}
 
-          {/* 입력창 */}
-          <View style={[styles.inputContainer, { backgroundColor: t.colors.surface, borderTopColor: t.colors.neutral[200] }]}>
+          {/* ✅ 입력창: absolute + translateY로 키보드 위에 고정 */}
+          <Animated.View
+            onLayout={onComposerLayout}
+            style={[
+              styles.inputContainer,
+              {
+                backgroundColor: t.colors.surface,
+                borderTopColor: t.colors.neutral[200],
+                paddingBottom: 12 + bottomSafe,
+                transform: [{ translateY }],
+              },
+            ]}
+          >
             <TextInput
               style={[
-                styles.input, 
-                { 
-                  backgroundColor: t.colors.neutral[50], 
+                styles.input,
+                {
+                  backgroundColor: t.colors.neutral[50],
                   color: t.colors.textMain,
-                  borderColor: t.colors.neutral[200]
-                }
+                  borderColor: t.colors.neutral[200],
+                },
               ]}
               placeholder="메시지를 입력하세요"
               placeholderTextColor={t.colors.textSub}
@@ -144,12 +232,13 @@ export default function DMThreadScreen() {
               onChangeText={setText}
               multiline
             />
-            <Pressable 
+
+            <Pressable
               onPress={handleSend}
               disabled={!text.trim() || sending}
               style={[
-                styles.sendBtn, 
-                { backgroundColor: text.trim() ? t.colors.primary : t.colors.neutral[200] }
+                styles.sendBtn,
+                { backgroundColor: text.trim() ? t.colors.primary : t.colors.neutral[200] },
               ]}
             >
               {sending ? (
@@ -158,8 +247,8 @@ export default function DMThreadScreen() {
                 <Ionicons name="arrow-up" size={20} color="white" />
               )}
             </Pressable>
-          </View>
-        </KeyboardAvoidingView>
+          </Animated.View>
+        </View>
       </AppLayout>
     </>
   );
@@ -167,17 +256,11 @@ export default function DMThreadScreen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  msgRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    marginBottom: 12,
-  },
-  msgRowMe: {
-    flexDirection: "row-reverse",
-  },
-  msgRowOther: {
-    flexDirection: "row",
-  },
+
+  msgRow: { flexDirection: "row", alignItems: "flex-end", marginBottom: 12 },
+  msgRowMe: { flexDirection: "row-reverse" },
+  msgRowOther: { flexDirection: "row" },
+
   avatar: {
     width: 32,
     height: 32,
@@ -186,23 +269,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 8,
   },
+
   bubble: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 18,
     maxWidth: "70%",
   },
-  timeText: {
-    marginHorizontal: 6,
-    marginBottom: 2,
-    fontSize: 10,
-  },
+
+  timeText: { marginHorizontal: 6, marginBottom: 2, fontSize: 10 },
+
   inputContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: "row",
     alignItems: "flex-end",
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
   },
+
   input: {
     flex: 1,
     minHeight: 40,
@@ -213,6 +301,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderWidth: 1,
   },
+
   sendBtn: {
     width: 40,
     height: 40,

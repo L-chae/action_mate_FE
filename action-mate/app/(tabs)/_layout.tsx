@@ -1,26 +1,33 @@
 import { Tabs } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabsLayout() {
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
+
+  const TAB_BAR_HEIGHT = 56; // 기본 탭바 높이 느낌
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-
-        // ✅ active(선택됨) 아이콘/라벨 색
         tabBarActiveTintColor: theme.colors.primary,
-
-        // ✅ inactive(비선택) 아이콘/라벨 색 (sub 텍스트 톤 쓰면 자연스러움)
         tabBarInactiveTintColor: theme.colors.textSub,
 
-        // (선택) 탭바 배경/보더도 테마에 맞춤
+        // ✅ 핵심: 하단 시스템 영역(insets.bottom)만큼 탭바를 "위로" 쓰도록 공간 확보
         tabBarStyle: {
           backgroundColor: theme.colors.background,
           borderTopColor: theme.colors.border,
+
+          height: TAB_BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom,
+          paddingTop: 6,
         },
+
+        // (선택) 키보드 올라올 때 탭바 처리
+        tabBarHideOnKeyboard: true,
       }}
     >
       <Tabs.Screen
@@ -44,7 +51,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="dm"
         options={{
-          title: "모임",
+          title: "채팅",
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="message" color={color} size={size} />
           ),
