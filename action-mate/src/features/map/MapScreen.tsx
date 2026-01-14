@@ -1,14 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  ActivityIndicator,
-  Alert,
-} from "react-native";
+import {Pressable, StyleSheet, Text, View, ActivityIndicator, Alert,} from "react-native";
 import { useRouter } from "expo-router";
-import MapView, { Marker, PROVIDER_GOOGLE, Region, Callout } from "react-native-maps";
+import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 
@@ -20,14 +13,16 @@ import { useAppTheme } from "../../shared/hooks/useAppTheme";
 import { fetchMapMeetings } from "./mapService";
 import type { Meeting, CategoryKey } from "../meetings/types";
 
-// ✅ 카테고리별 색상 설정 (아이콘 제거됨)
-const CATEGORY_COLORS: Record<CategoryKey, string> = {
-  SPORTS: "#4A90E2", // 파랑
-  GAMES: "#9B59B6",  // 보라
-  MEAL: "#FF9F43",   // 주황
-  STUDY: "#2ECC71",  // 초록
-  ETC: "#95A5A6",    // 회색
-};
+/**
+ * ✅ 최종 안정화(안드로이드 "1/4 잘림" 완전 회피) 버전
+ * - Marker children(View/Ionicons/Image) 완전 제거
+ * - 네이티브 마커(pinColor)만 사용 → Google Maps SDK가 직접 그려서 잘림 이슈 사실상 0%
+ * - 알바앱 UX처럼 "마커 탭 → 하단 카드"로 정보 제공
+ *
+ * ⚠️ 제약:
+ * - 커스텀 원형 아이콘 디자인은 포기(대신 안정성 최우선)
+ * - 커스텀 디자인이 꼭 필요하면 결국 Marker.image(PNG)로 가야 0%에 수렴
+ */
 
 const MAP_STYLE = [
   { featureType: "poi", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
@@ -41,31 +36,30 @@ const INITIAL_REGION: Region = {
   longitudeDelta: 0.015,
 };
 
-/**
- * 🛠️ [Simple Dot Marker]
- * 텍스트/이미지를 제거하고 순수 View(도형)로만 구성하여
- * 안드로이드 렌더링 이슈를 원천 차단했습니다.
- */
-const MarkerDot = React.memo(function MarkerDot(props: {
+// ✅ 카테고리별 색상 (pinColor에 사용)
+const CATEGORY_COLORS: Record<CategoryKey, string> = {
+  SPORTS: "#4A90E2",
+  GAMES: "#9B59B6",
+  MEAL: "#FF9F43",
+  STUDY: "#2ECC71",
+  ETC: "#95A5A6",
+};
+
+// ✅ 하단 카드 표시용 아이콘(이건 지도 마커가 아니라 카드에서만 사용)
+const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
+  SPORTS: "basketball",
+  GAMES: "game-controller",
+  MEAL: "restaurant",
+  STUDY: "book",
+  ETC: "ellipsis-horizontal",
+};
+
+const MeetingMarkerNative = React.memo(function MeetingMarkerNative(props: {
   meeting: Meeting;
-  isSelected: boolean;
+  selected: boolean;
   onPress: (id: string) => void;
-  onGoDetail: (id: string) => void;
 }) {
-  const { meeting: m, isSelected, onPress, onGoDetail } = props;
-  const color = CATEGORY_COLORS[m.category] || CATEGORY_COLORS.ETC;
-
-  // ✅ 텍스트가 없으므로 렌더링 딜레이를 짧게 잡아도 안전함
-  const [tracksViewChanges, setTracksViewChanges] = useState(true);
-
-  useEffect(() => {
-    setTracksViewChanges(true);
-    // 도형 렌더링은 매우 빠르므로 200ms면 충분 (안드로이드 안전장치)
-    const timer = setTimeout(() => {
-      setTracksViewChanges(false);
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [isSelected]);
+  const { meeting: m, selected, onPress } = props;
 
   const coordinate = useMemo(
     () => ({
@@ -75,48 +69,17 @@ const MarkerDot = React.memo(function MarkerDot(props: {
     [m.lat, m.lng]
   );
 
+  const color = CATEGORY_COLORS[m.category] ?? CATEGORY_COLORS.ETC;
+
+  // ✅ 선택 강조: zIndex + (원하면 색상 변경도 가능)
+  // 여기선 색상 동일, zIndex만 올림 (안정적)
   return (
     <Marker
       coordinate={coordinate}
       onPress={() => onPress(m.id)}
-      zIndex={isSelected ? 999 : 1}
-      // 원형 마커이므로 anchor를 정중앙(0.5, 0.5)으로 설정
-      anchor={{ x: 0.5, y: 0.5 }}
-      tracksViewChanges={tracksViewChanges}
-      tracksInfoWindowChanges={false}
-      stopPropagation={true}
-    >
-      {/* ✅ collapsable={false} 유지 (안드로이드 뷰 뭉개짐 방지)
-         간단한 구조: [선택시 외곽링] + [내부 색상원] 
-      */}
-      <View collapsable={false} style={styles.markerRoot}>
-        {isSelected && (
-          <View style={[styles.glowRing, { backgroundColor: color }]} />
-        )}
-        <View
-          style={[
-            styles.dotCircle,
-            {
-              backgroundColor: color,
-              width: isSelected ? 22 : 16,  // 선택 시 좀 더 커짐
-              height: isSelected ? 22 : 16,
-              borderRadius: isSelected ? 11 : 8,
-            },
-          ]}
-        />
-      </View>
-
-      {/* 말풍선 */}
-      <Callout tooltip onPress={() => onGoDetail(m.id)}>
-        <View style={styles.calloutContainer}>
-          <Text style={styles.calloutTitle} numberOfLines={1}>
-            {m.title}
-          </Text>
-          <Text style={styles.calloutDesc}>터치해서 상세보기 👉</Text>
-          <View style={styles.calloutArrow} />
-        </View>
-      </Callout>
-    </Marker>
+      pinColor={color}
+      zIndex={selected ? 999 : 1}
+    />
   );
 });
 
@@ -147,6 +110,7 @@ export default function MapScreen() {
     [router]
   );
 
+  // ✅ 로딩 깜빡임 방지(300ms 지연 표시)
   useEffect(() => {
     if (loading) {
       loadingTimerRef.current = setTimeout(() => setShowLoading(true), 300);
@@ -171,6 +135,7 @@ export default function MapScreen() {
     }
   }, []);
 
+  // ✅ 최초 진입: 권한/현재 위치/로드
   useEffect(() => {
     (async () => {
       try {
@@ -201,9 +166,11 @@ export default function MapScreen() {
   const handleMarkerPress = useCallback(
     (id: string) => {
       setSelectedId(id);
+
       const target = list.find((m) => m.id === id);
       if (!target?.lat || !target?.lng) return;
 
+      // ✅ 마커 중심으로 줌인 (네이티브 마커에서도 안정적)
       mapRef.current?.animateToRegion(
         {
           latitude: target.lat,
@@ -248,17 +215,17 @@ export default function MapScreen() {
     regionRef.current = r;
   }, []);
 
-  const markers = useMemo(() => {
-    return list.map((m) => (
-      <MarkerDot
+  const renderMarker = useCallback(
+    (m: Meeting) => (
+      <MeetingMarkerNative
         key={m.id}
         meeting={m}
-        isSelected={selectedId === m.id}
+        selected={selectedId === m.id}
         onPress={handleMarkerPress}
-        onGoDetail={goToDetail}
       />
-    ));
-  }, [list, selectedId, handleMarkerPress, goToDetail]);
+    ),
+    [selectedId, handleMarkerPress]
+  );
 
   return (
     <AppLayout padded={false}>
@@ -281,7 +248,7 @@ export default function MapScreen() {
           }}
           moveOnMarkerPress={false}
         >
-          {markers}
+          {list.map(renderMarker)}
         </MapView>
 
         {/* 상단 재검색 버튼 */}
@@ -320,18 +287,24 @@ export default function MapScreen() {
               <Pressable onPress={() => goToDetail(selectedMeeting.id)}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                   <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text
-                      style={[
-                        t.typography.labelSmall,
-                        {
-                          color: CATEGORY_COLORS[selectedMeeting.category],
-                          marginBottom: 2,
-                          fontWeight: "bold",
-                        },
-                      ]}
-                    >
-                      {selectedMeeting.category}
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4, gap: 4 }}>
+                      <Ionicons
+                        name={CATEGORY_ICONS[selectedMeeting.category] ?? CATEGORY_ICONS.ETC}
+                        size={14}
+                        color={CATEGORY_COLORS[selectedMeeting.category] ?? CATEGORY_COLORS.ETC}
+                      />
+                      <Text
+                        style={[
+                          t.typography.labelSmall,
+                          {
+                            color: CATEGORY_COLORS[selectedMeeting.category] ?? CATEGORY_COLORS.ETC,
+                            fontWeight: "bold",
+                          },
+                        ]}
+                      >
+                        {selectedMeeting.category}
+                      </Text>
+                    </View>
 
                     <Text style={t.typography.titleMedium} numberOfLines={1}>
                       {selectedMeeting.title}
@@ -348,7 +321,7 @@ export default function MapScreen() {
                       styles.statusBadge,
                       selectedMeeting.status === "FULL"
                         ? { backgroundColor: "#bbb" }
-                        : { backgroundColor: CATEGORY_COLORS[selectedMeeting.category] },
+                        : { backgroundColor: CATEGORY_COLORS[selectedMeeting.category] ?? CATEGORY_COLORS.ETC },
                     ]}
                   >
                     <Text style={{ color: "#fff", fontSize: 10, fontWeight: "bold" }}>
@@ -385,64 +358,6 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { width: "100%", height: "100%" },
-
-  // ✅ [수정됨] 단순 원형 마커 스타일
-  markerRoot: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dotCircle: {
-    borderWidth: 2,
-    borderColor: "#fff",
-    // Android Shadow
-    elevation: 4,
-    // iOS Shadow
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  glowRing: {
-    position: "absolute",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    opacity: 0.4,
-  },
-
-  // 말풍선 스타일
-  calloutContainer: {
-    backgroundColor: "#222",
-    borderRadius: 8,
-    padding: 8,
-    marginBottom: 5,
-    width: 150,
-    alignItems: "center",
-  },
-  calloutTitle: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  calloutDesc: {
-    color: "#ccc",
-    fontSize: 10,
-  },
-  calloutArrow: {
-    position: "absolute",
-    bottom: -6,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderTopWidth: 6,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderTopColor: "#222",
-  },
 
   topContainer: {
     position: "absolute",
