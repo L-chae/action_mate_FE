@@ -12,9 +12,9 @@ import {
   Image,
 } from "react-native";
 import { router } from "expo-router";
-import AppLayout from "~/shared/ui/AppLayout";
-import { useAppTheme } from "~/shared/hooks/useAppTheme";
-import { useAuthStore } from "~/features/auth/authStore";
+import AppLayout from "@/shared/ui/AppLayout";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { useAuthStore } from "@/features/auth/authStore";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -123,7 +123,7 @@ export default function IdLoginScreen() {
   };
 
   return (
-    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
+    <AppLayout style={StyleSheet.flatten([styles.page, { backgroundColor: t.colors.background }])}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}

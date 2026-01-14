@@ -3,9 +3,9 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { View, Text, Image, StyleSheet, Pressable, Animated } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import AppLayout from "~/shared/ui/AppLayout";
-import { useAppTheme } from "~/shared/hooks/useAppTheme";
-import { useAuthStore } from "~/features/auth/authStore";
+import AppLayout from "@/shared/ui/AppLayout";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { useAuthStore } from "@/features/auth/authStore";
 
 export default function LoginPage() {
   const t = useAppTheme();
@@ -109,7 +109,7 @@ export default function LoginPage() {
   }, [blob1, blob2, blob3, t.colors.primary, t.colors.point]);
 
   return (
-    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
+    <AppLayout style={StyleSheet.flatten([styles.page, { backgroundColor: t.colors.background }])}>
       {/* ✅ Subtle gradient background */}
       <LinearGradient
         colors={["#FBFBFF", "#FFFFFF", "#FFF8F5"]}

@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, View, ViewStyle, StyleProp } from "react-native";
+import { StyleSheet, View, ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppTheme } from "../hooks/useAppTheme";
 
@@ -9,7 +9,7 @@ export default function AppLayout({
   padded = true,
 }: {
   children: React.ReactNode;
-  style?: StyleProp<ViewStyle>; // ✅ 여기!
+  style?: ViewStyle;
   padded?: boolean;
 }) {
   const t = useAppTheme();
@@ -17,15 +17,12 @@ export default function AppLayout({
   return (
     <SafeAreaView
       style={[styles.safe, { backgroundColor: t.colors.background }, style]}
-      edges={["top", "left", "right"]}
+      edges={["top", "left", "right"]} // ✅ top safe area
     >
       <View
         style={[
           styles.body,
-          padded && {
-            paddingHorizontal: t.spacing.pagePaddingH,
-            paddingVertical: t.spacing.pagePaddingV,
-          },
+          padded && { paddingHorizontal: t.spacing.pagePaddingH, paddingVertical: t.spacing.pagePaddingV },
         ]}
       >
         {children}

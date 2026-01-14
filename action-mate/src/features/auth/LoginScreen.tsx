@@ -2,8 +2,8 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { View, Text, Image, StyleSheet, Pressable, Animated } from "react-native";
 import { router } from "expo-router";
-import AppLayout from "~/shared/ui/AppLayout";
-import { useAppTheme } from "~/shared/hooks/useAppTheme";
+import AppLayout from "@/shared/ui/AppLayout";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -153,7 +153,13 @@ export default function LoginScreen() {
       b2: mk(blob2, 200, 220, 180, 90, 120, c2),
       b3: mk(blob3, 260, 40, 70, 340, 300, c1),
     };
-  }, [blob1, blob2, blob3, t.colors.primary, t.colors.point]);
+  }, [
+    blob1,
+    blob2,
+    blob3,
+    t.colors.primary,
+    t.colors.point,
+  ]);
 
   const fadeUp = (v: Animated.Value) => ({
     opacity: v,
@@ -168,7 +174,10 @@ export default function LoginScreen() {
   });
 
   return (
-    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
+    <AppLayout
+      // ✅ AppLayout은 style?: ViewStyle (단일 객체)만 받음 → flatten으로 해결
+      style={StyleSheet.flatten([styles.page, { backgroundColor: t.colors.background }])}
+    >
       {/* animated background */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Animated.View style={blobStyles.b1 as any} />
@@ -188,20 +197,32 @@ export default function LoginScreen() {
         </Animated.View>
 
         <Animated.View style={fadeUp(aTitle)}>
-          <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: GAP_LG, textAlign: "center" }]}>
+          <Text
+            style={[
+              t.typography.titleLarge,
+              { color: t.colors.textMain, marginTop: GAP_LG, textAlign: "center" },
+            ]}
+          >
             내가 찾던 모든 모임
           </Text>
         </Animated.View>
 
         <Animated.View style={fadeUp(aDesc)}>
-          <Text style={[t.typography.bodySmall, { color: t.colors.textSub, textAlign: "center", marginTop: GAP_SM }]}>
+          <Text
+            style={[
+              t.typography.bodySmall,
+              { color: t.colors.textSub, textAlign: "center", marginTop: GAP_SM },
+            ]}
+          >
             부담없이 만나는 원데이 모임부터{"\n"}지속형 모임과 챌린지 모임까지
           </Text>
         </Animated.View>
       </View>
 
       {/* bottom */}
-      <Animated.View style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: PV }, fadeUp(aCta)]}>
+      <Animated.View
+        style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: PV }, fadeUp(aCta)]}
+      >
         <SocialButton
           title="카카오톡으로 5초만에 시작하기"
           bg="#FEE500"
@@ -227,7 +248,12 @@ export default function LoginScreen() {
           </Text>
         </Pressable>
 
-        <Text style={[t.typography.labelSmall, { color: t.colors.textSub, textAlign: "center", marginTop: GAP_SM, opacity: 0.85 }]}>
+        <Text
+          style={[
+            t.typography.labelSmall,
+            { color: t.colors.textSub, textAlign: "center", marginTop: GAP_SM, opacity: 0.85 },
+          ]}
+        >
           가입을 진행할 경우 서비스 약관 및 개인정보 처리방침에 동의한 것으로 간주합니다.
         </Text>
       </Animated.View>

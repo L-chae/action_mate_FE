@@ -1,2 +1,2 @@
-import MyScreen from "../../src/features/my/MyScreen";
-export default MyScreen; 
+import MyScreen from "@/features/my/MyScreen";
+export default MyScreen;
