@@ -8,12 +8,7 @@ import {
   Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
-import MapView, {
-  Marker,
-  PROVIDER_GOOGLE,
-  Region,
-  Callout,
-} from "react-native-maps";
+import MapView, { Marker, PROVIDER_GOOGLE, Region, Callout } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 
@@ -25,13 +20,13 @@ import { useAppTheme } from "../../shared/hooks/useAppTheme";
 import { fetchMapMeetings } from "./mapService";
 import type { Meeting, CategoryKey } from "../meetings/types";
 
-// ✅ 카테고리별 디자인 설정
-const CATEGORY_CONFIG: Record<CategoryKey, { color: string; icon: string }> = {
-  SPORTS: { color: "#4A90E2", icon: "⚽" },
-  GAMES: { color: "#9B59B6", icon: "🎲" },
-  MEAL: { color: "#FF9F43", icon: "🍔" },
-  STUDY: { color: "#2ECC71", icon: "📚" },
-  ETC: { color: "#95A5A6", icon: "🚩" },
+// ✅ 카테고리별 색상 설정 (아이콘 제거됨)
+const CATEGORY_COLORS: Record<CategoryKey, string> = {
+  SPORTS: "#4A90E2", // 파랑
+  GAMES: "#9B59B6",  // 보라
+  MEAL: "#FF9F43",   // 주황
+  STUDY: "#2ECC71",  // 초록
+  ETC: "#95A5A6",    // 회색
 };
 
 const MAP_STYLE = [
@@ -39,7 +34,6 @@ const MAP_STYLE = [
   { featureType: "transit", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
 ];
 
-// 기본 위치 (강남역)
 const INITIAL_REGION: Region = {
   latitude: 37.498095,
   longitude: 127.02761,
@@ -48,71 +42,71 @@ const INITIAL_REGION: Region = {
 };
 
 /**
- * ✅ 커스텀 마커 컴포넌트
- * - React.memo 로 불필요 리렌더 차단
- * - tracksViewChanges 를 "짧게만" true로 켰다가 자동으로 false (안드 깜박임 방지)
- * - padding/overflow로 잘림 방지
+ * 🛠️ [Simple Dot Marker]
+ * 텍스트/이미지를 제거하고 순수 View(도형)로만 구성하여
+ * 안드로이드 렌더링 이슈를 원천 차단했습니다.
  */
-const MarkerPin = React.memo(function MarkerPin(props: {
+const MarkerDot = React.memo(function MarkerDot(props: {
   meeting: Meeting;
   isSelected: boolean;
   onPress: (id: string) => void;
   onGoDetail: (id: string) => void;
 }) {
   const { meeting: m, isSelected, onPress, onGoDetail } = props;
-  const config = CATEGORY_CONFIG[m.category] || CATEGORY_CONFIG.ETC;
+  const color = CATEGORY_COLORS[m.category] || CATEGORY_COLORS.ETC;
 
-  const [track, setTrack] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ✅ 텍스트가 없으므로 렌더링 딜레이를 짧게 잡아도 안전함
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
   useEffect(() => {
-    // 선택/해제 등 UI가 바뀌는 순간만 잠깐 true
-    setTrack(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setTrack(false), 200);
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [isSelected, m.category]);
+    setTracksViewChanges(true);
+    // 도형 렌더링은 매우 빠르므로 200ms면 충분 (안드로이드 안전장치)
+    const timer = setTimeout(() => {
+      setTracksViewChanges(false);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [isSelected]);
 
   const coordinate = useMemo(
     () => ({
-      latitude: m.lat ?? 37.498,
-      longitude: m.lng ?? 127.027,
+      latitude: m.lat ?? INITIAL_REGION.latitude,
+      longitude: m.lng ?? INITIAL_REGION.longitude,
     }),
     [m.lat, m.lng]
   );
 
-  const visualStyle = useMemo(
-    () => [
-      styles.markerVisual,
-      {
-        borderColor: config.color,
-        backgroundColor: isSelected ? config.color : "#fff",
-        transform: [{ scale: isSelected ? 1.18 : 1 }],
-      },
-    ],
-    [config.color, isSelected]
-  );
-
   return (
     <Marker
-      key={m.id}
       coordinate={coordinate}
       onPress={() => onPress(m.id)}
       zIndex={isSelected ? 999 : 1}
+      // 원형 마커이므로 anchor를 정중앙(0.5, 0.5)으로 설정
       anchor={{ x: 0.5, y: 0.5 }}
-      tracksViewChanges={track}
-      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      tracksViewChanges={tracksViewChanges}
+      tracksInfoWindowChanges={false}
+      stopPropagation={true}
     >
-      <View style={styles.markerRoot}>
-        <View style={styles.markerHitbox}>
-          <View style={visualStyle}>
-            <Text style={{ fontSize: isSelected ? 20 : 16 }}>{config.icon}</Text>
-          </View>
-        </View>
+      {/* ✅ collapsable={false} 유지 (안드로이드 뷰 뭉개짐 방지)
+         간단한 구조: [선택시 외곽링] + [내부 색상원] 
+      */}
+      <View collapsable={false} style={styles.markerRoot}>
+        {isSelected && (
+          <View style={[styles.glowRing, { backgroundColor: color }]} />
+        )}
+        <View
+          style={[
+            styles.dotCircle,
+            {
+              backgroundColor: color,
+              width: isSelected ? 22 : 16,  // 선택 시 좀 더 커짐
+              height: isSelected ? 22 : 16,
+              borderRadius: isSelected ? 11 : 8,
+            },
+          ]}
+        />
       </View>
 
+      {/* 말풍선 */}
       <Callout tooltip onPress={() => onGoDetail(m.id)}>
         <View style={styles.calloutContainer}>
           <Text style={styles.calloutTitle} numberOfLines={1}>
@@ -133,12 +127,12 @@ export default function MapScreen() {
 
   const [list, setList] = useState<Meeting[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
+  const [showLoading, setShowLoading] = useState(false);
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ✅ region state 제거(ESLint no-unused-vars 해결)
-  // 지도 현재 위치는 ref로만 관리
   const regionRef = useRef<Region>(INITIAL_REGION);
-
   const [locationPermission, setLocationPermission] = useState(false);
 
   const selectedMeeting = useMemo(
@@ -153,6 +147,18 @@ export default function MapScreen() {
     [router]
   );
 
+  useEffect(() => {
+    if (loading) {
+      loadingTimerRef.current = setTimeout(() => setShowLoading(true), 300);
+    } else {
+      if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
+      setShowLoading(false);
+    }
+    return () => {
+      if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
+    };
+  }, [loading]);
+
   const loadMeetings = useCallback(async (lat: number, lng: number) => {
     setLoading(true);
     try {
@@ -165,7 +171,6 @@ export default function MapScreen() {
     }
   }, []);
 
-  // 📍 1) 현재 위치 권한 요청 및 이동
   useEffect(() => {
     (async () => {
       try {
@@ -186,7 +191,6 @@ export default function MapScreen() {
 
         regionRef.current = currentRegion;
         mapRef.current?.animateToRegion(currentRegion, 800);
-
         loadMeetings(currentRegion.latitude, currentRegion.longitude);
       } catch (e) {
         console.error(e);
@@ -197,11 +201,9 @@ export default function MapScreen() {
   const handleMarkerPress = useCallback(
     (id: string) => {
       setSelectedId(id);
-
       const target = list.find((m) => m.id === id);
       if (!target?.lat || !target?.lng) return;
 
-      // ✅ 길찾기/안내 없음. 그냥 해당 핀으로 약간 확대 이동만.
       mapRef.current?.animateToRegion(
         {
           latitude: target.lat,
@@ -216,17 +218,17 @@ export default function MapScreen() {
   );
 
   const handleResearch = useCallback(() => {
+    if (loading) return;
     setSelectedId(null);
     const r = regionRef.current;
     loadMeetings(r.latitude, r.longitude);
-  }, [loadMeetings]);
+  }, [loading, loadMeetings]);
 
   const moveToMyLocation = useCallback(async () => {
     if (!locationPermission) {
       Alert.alert("권한 필요", "위치 권한 설정이 필요합니다.");
       return;
     }
-
     try {
       const location = await Location.getCurrentPositionAsync({});
       const newRegion: Region = {
@@ -235,7 +237,6 @@ export default function MapScreen() {
         latitudeDelta: 0.015,
         longitudeDelta: 0.015,
       };
-
       regionRef.current = newRegion;
       mapRef.current?.animateToRegion(newRegion, 700);
     } catch (e) {
@@ -244,13 +245,12 @@ export default function MapScreen() {
   }, [locationPermission]);
 
   const onRegionChangeComplete = useCallback((r: Region) => {
-    // ✅ 재검색 기준으로만 쓰면 ref로 충분 (리렌더 없음 → 깜박임 감소)
     regionRef.current = r;
   }, []);
 
   const markers = useMemo(() => {
     return list.map((m) => (
-      <MarkerPin
+      <MarkerDot
         key={m.id}
         meeting={m}
         isSelected={selectedId === m.id}
@@ -274,16 +274,17 @@ export default function MapScreen() {
           showsUserLocation
           showsMyLocationButton={false}
           mapPadding={{
-            top: 90,
-            right: 16,
-            bottom: selectedMeeting ? 240 : 110,
-            left: 16,
+            top: 20,
+            right: 0,
+            bottom: selectedMeeting ? 240 : 80,
+            left: 0,
           }}
+          moveOnMarkerPress={false}
         >
           {markers}
         </MapView>
 
-        {/* --- 상단 버튼 그룹 --- */}
+        {/* 상단 재검색 버튼 */}
         <View style={styles.topContainer}>
           <Pressable
             onPress={handleResearch}
@@ -292,7 +293,7 @@ export default function MapScreen() {
               { backgroundColor: t.colors.surface, opacity: pressed ? 0.9 : 1 },
             ]}
           >
-            {loading ? (
+            {showLoading ? (
               <ActivityIndicator size="small" color={t.colors.primary} />
             ) : (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -305,19 +306,14 @@ export default function MapScreen() {
           </Pressable>
         </View>
 
-        {/* --- 내 위치 버튼 (우측 하단) --- */}
-        <View
-          style={[
-            styles.myLocationWrapper,
-            selectedMeeting ? { bottom: 200 } : { bottom: 30 },
-          ]}
-        >
+        {/* 내 위치 버튼 */}
+        <View style={[styles.myLocationWrapper, selectedMeeting ? { bottom: 200 } : { bottom: 30 }]}>
           <Pressable onPress={moveToMyLocation} style={styles.iconBtn}>
             <Ionicons name="locate" size={24} color="#333" />
           </Pressable>
         </View>
 
-        {/* --- 하단 요약 카드 --- */}
+        {/* 하단 정보 카드 */}
         {selectedMeeting && (
           <View style={styles.bottomContainer}>
             <Card style={styles.infoCard}>
@@ -328,7 +324,7 @@ export default function MapScreen() {
                       style={[
                         t.typography.labelSmall,
                         {
-                          color: CATEGORY_CONFIG[selectedMeeting.category].color,
+                          color: CATEGORY_COLORS[selectedMeeting.category],
                           marginBottom: 2,
                           fontWeight: "bold",
                         },
@@ -336,16 +332,14 @@ export default function MapScreen() {
                     >
                       {selectedMeeting.category}
                     </Text>
+
                     <Text style={t.typography.titleMedium} numberOfLines={1}>
                       {selectedMeeting.title}
                     </Text>
-                    <Text
-                      style={[
-                        t.typography.bodySmall,
-                        { color: t.colors.textSub, marginTop: 4 },
-                      ]}
-                    >
-                      {selectedMeeting.locationText} · {selectedMeeting.distanceText}
+
+                    <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
+                      {selectedMeeting.locationText}
+                      {selectedMeeting.distanceText ? ` · ${selectedMeeting.distanceText}` : ""}
                     </Text>
                   </View>
 
@@ -354,7 +348,7 @@ export default function MapScreen() {
                       styles.statusBadge,
                       selectedMeeting.status === "FULL"
                         ? { backgroundColor: "#bbb" }
-                        : { backgroundColor: CATEGORY_CONFIG[selectedMeeting.category].color },
+                        : { backgroundColor: CATEGORY_COLORS[selectedMeeting.category] },
                     ]}
                   >
                     <Text style={{ color: "#fff", fontSize: 10, fontWeight: "bold" }}>
@@ -392,33 +386,33 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { width: "100%", height: "100%" },
 
+  // ✅ [수정됨] 단순 원형 마커 스타일
   markerRoot: {
-    overflow: "visible",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  markerHitbox: {
-    padding: 10, // ✅ shadow/scale 여유(잘림 방지)
-    overflow: "visible",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  markerVisual: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    borderWidth: 3,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
-
+  },
+  dotCircle: {
+    borderWidth: 2,
+    borderColor: "#fff",
+    // Android Shadow
+    elevation: 4,
+    // iOS Shadow
     shadowColor: "#000",
-    shadowOpacity: 0.28,
-    shadowRadius: 4,
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 6,
+  },
+  glowRing: {
+    position: "absolute",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    opacity: 0.4,
   },
 
+  // 말풍선 스타일
   calloutContainer: {
     backgroundColor: "#222",
     borderRadius: 8,
@@ -452,16 +446,15 @@ const styles = StyleSheet.create({
 
   topContainer: {
     position: "absolute",
-    top: 20,
-    left: 0,
-    right: 0,
-    alignItems: "center",
+    top: 60,
+    alignSelf: "center",
+    zIndex: 10,
   },
   pillBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 24,
-    elevation: 4,
+    elevation: 6,
     shadowColor: "#000",
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -471,6 +464,7 @@ const styles = StyleSheet.create({
   myLocationWrapper: {
     position: "absolute",
     right: 16,
+    zIndex: 10,
   },
   iconBtn: {
     width: 48,
@@ -489,7 +483,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 16,
     right: 16,
-    bottom: 24,
+    bottom: 30,
+    zIndex: 20,
   },
   infoCard: {
     padding: 16,
@@ -499,6 +494,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
+    backgroundColor: "#fff",
   },
   statusBadge: {
     paddingHorizontal: 8,
