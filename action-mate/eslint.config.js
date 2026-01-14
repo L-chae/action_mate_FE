@@ -2,11 +2,16 @@
 const { defineConfig } = require("eslint/config");
 const expoConfig = require("eslint-config-expo/flat");
 
+const importPlugin = require("eslint-plugin-import");
+
 module.exports = defineConfig([
   expoConfig,
 
-  // ✅ @/* path alias를 ESLint(import/no-unresolved)가 이해하게 함
+  // ✅ import 플러그인 등록 + typescript resolver 설정(@/* alias 인식)
   {
+    plugins: {
+      import: importPlugin,
+    },
     settings: {
       "import/resolver": {
         typescript: {
