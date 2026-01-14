@@ -1,12 +1,11 @@
-// app/(auth)/_layout.tsx
 import { Stack } from "expo-router";
+import LoginScreen from "@/features/auth/LoginScreen";
 
-export default function AuthLayout() {
+export default function Login() {
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-      }}
-    />
+    <>
+      <Stack.Screen options={{ headerShown: false, title: "" }} />
+      <LoginScreen />
+    </>
   );
 }

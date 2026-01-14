@@ -33,16 +33,6 @@ export default function MeetingList({ items, emptyText, editable = false, onEdit
 
             {editable && (
               <View style={styles.actions}>
-                {!!onEdit && (
-                  <Pressable
-                    onPress={() => onEdit(m)}
-                    hitSlop={10}
-                    style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-                  >
-                    <Text style={[t.typography.labelLarge, { color: t.colors.primary }]}>수정</Text>
-                  </Pressable>
-                )}
-
                 {!!onDelete && (
                   <Pressable
                     onPress={() => onDelete(m)}
