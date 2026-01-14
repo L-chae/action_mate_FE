@@ -19,16 +19,16 @@ export default function LoginPage() {
   const GAP_SM = 12;
   const GAP_LG = 24;
 
-  const mockSocialLogin = (provider: "kakao" | "naver") => {
-    login({
-      id: `${provider}_${Date.now()}`,
-      email: `${provider}@mock.local`,
-      nickname: provider === "kakao" ? "카카오 사용자" : "네이버 사용자",
-    });
+const mockSocialLogin = async (provider: "kakao" | "naver") => {
+  await login({
+    id: `${provider}_${Date.now()}`,
+    email: `${provider}@mock.local`,
+    nickname: provider === "kakao" ? "카카오 사용자" : "네이버 사용자",
+  });
 
-    // ✅ 그룹 경로 대신 실제 라우트로 이동(탭 홈)
-    router.replace("/");
-  };
+  router.replace("/(tabs)");
+};
+
 
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoTranslate = useRef(new Animated.Value(10)).current;
@@ -158,7 +158,8 @@ export default function LoginPage() {
           </Pressable>
 
           <Pressable
-            onPress={() => router.push("/id-login")}
+            // ✅ auth 그룹 안에 있는 페이지로 명시적으로 이동
+            onPress={() => router.push("/(auth)/id-login")}
             style={({ pressed }) => [{ marginTop: 14, opacity: pressed ? 0.7 : 1 }]}
           >
             <Text style={[t.typography.bodySmall, { textAlign: "center", color: t.colors.textMain }]}>
@@ -176,30 +177,16 @@ export default function LoginPage() {
 }
 
 const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-    justifyContent: "space-between",
-    overflow: "hidden",
-  },
+  page: { flex: 1, justifyContent: "space-between", overflow: "hidden" },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     transform: [{ translateY: -10 }],
   },
-  logo: {
-    width: 110,
-    height: 110,
-  },
-  title: {
-    textAlign: "center",
-    letterSpacing: -0.3,
-  },
-  subtitle: {
-    textAlign: "center",
-    lineHeight: 18,
-    letterSpacing: -0.1,
-  },
+  logo: { width: 110, height: 110 },
+  title: { textAlign: "center", letterSpacing: -0.3 },
+  subtitle: { textAlign: "center", lineHeight: 18, letterSpacing: -0.1 },
   bottom: { width: "100%" },
   ctaCard: {
     borderRadius: 22,
@@ -213,22 +200,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
-  socialBtn: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-  },
-  socialText: {
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-  },
-  terms: {
-    marginTop: 12,
-    textAlign: "center",
-    fontSize: 11,
-    lineHeight: 15,
-  },
+  socialBtn: { width: "100%", alignItems: "center", justifyContent: "center", paddingVertical: 14 },
+  socialText: { fontSize: 14, fontWeight: "700", letterSpacing: -0.2 },
+  terms: { marginTop: 12, textAlign: "center", fontSize: 11, lineHeight: 15 },
   blob: { position: "absolute" },
 });

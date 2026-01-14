@@ -9,9 +9,21 @@ import ProfileCard from "./components/ProfileCard";
 import { getMyProfile } from "./myService";
 import type { MyProfile } from "./types";
 
+import { router } from "expo-router";
+import { useAuthStore } from "@/features/auth/authStore";
+
 export default function MyScreen() {
   const t = useAppTheme();
   const [profile, setProfile] = useState<MyProfile | null>(null);
+const logout = useAuthStore((s) => s.logout);
+<Pressable
+  onPress={async () => {
+    await logout();
+    router.replace("/(auth)/login");
+  }}
+>
+  <Text>로그아웃</Text>
+</Pressable>
 
   useEffect(() => {
     getMyProfile().then(setProfile);
