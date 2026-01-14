@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, Text, View, ViewStyle } from "react-native";
+import { StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { useAppTheme } from "../hooks/useAppTheme";
 
 type Tone = "default" | "primary" | "point" | "success" | "warning" | "error";
@@ -18,13 +18,13 @@ export function Badge({
 }) {
   const { colors, spacing, typography } = useAppTheme();
 
-  const s = size === "md"
-    ? { py: 6, px: 10, radius: spacing.radiusMd, typo: typography.labelMedium }
-    : { py: 4, px: 8, radius: spacing.radiusSm, typo: typography.labelSmall };
+  const s =
+    size === "md"
+      ? { py: 6, px: 10, radius: spacing.radiusMd, typo: typography.labelMedium }
+      : { py: 4, px: 8, radius: spacing.radiusSm, typo: typography.labelSmall };
 
   const toneStyle = (() => {
-    // “soft background”는 현재 토큰에 없으니 간단히 연한 배경으로 처리
-    const soft = (hex: string) => hex + "22"; // 대충 13% 알파 느낌(문자열 hex에 22 추가)
+    const soft = (hex: string) => `${hex}22`;
     switch (tone) {
       case "primary":
         return { bg: soft(colors.primary), fg: colors.primary };

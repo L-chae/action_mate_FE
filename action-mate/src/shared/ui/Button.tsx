@@ -5,7 +5,7 @@ import {
   StyleSheet,
   Text,
   View,
-  ViewStyle,
+  type ViewStyle,
 } from "react-native";
 import { useAppTheme } from "../hooks/useAppTheme";
 
@@ -23,7 +23,6 @@ type Props = {
   right?: React.ReactNode;
   style?: ViewStyle;
 };
-
 
 export function Button({
   title,
@@ -60,26 +59,11 @@ export function Button({
           borderWidth: spacing.borderWidth,
         };
       case "ghost":
-        return {
-          bg: "transparent",
-          fg: colors.primary,
-          borderColor: "transparent",
-          borderWidth: 0,
-        };
+        return { bg: "transparent", fg: colors.primary, borderColor: "transparent", borderWidth: 0 };
       case "danger":
-        return {
-          bg: colors.error,
-          fg: "#FFFFFF",
-          borderColor: colors.error,
-          borderWidth: 0,
-        };
+        return { bg: colors.error, fg: "#FFFFFF", borderColor: colors.error, borderWidth: 0 };
       default:
-        return {
-          bg: colors.primary,
-          fg: "#FFFFFF",
-          borderColor: colors.primary,
-          borderWidth: 0,
-        };
+        return { bg: colors.primary, fg: "#FFFFFF", borderColor: colors.primary, borderWidth: 0 };
     }
   })();
 
@@ -107,13 +91,7 @@ export function Button({
         {loading ? (
           <ActivityIndicator />
         ) : (
-          <Text
-            style={[
-              typography.labelLarge,
-              { color: isDisabled ? colors.disabledFg : v.fg },
-            ]}
-            numberOfLines={1}
-          >
+          <Text style={[typography.labelLarge, { color: isDisabled ? colors.disabledFg : v.fg }]} numberOfLines={1}>
             {title}
           </Text>
         )}
@@ -130,4 +108,3 @@ const styles = StyleSheet.create({
   left: { marginRight: 8 },
   right: { marginLeft: 8 },
 });
-

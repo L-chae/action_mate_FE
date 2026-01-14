@@ -3,9 +3,9 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { View, Text, Image, StyleSheet, Pressable, Animated } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import AppLayout from "@/shared/ui/AppLayout";
-import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import { useAuthStore } from "@/features/auth/authStore";
+import AppLayout from "~/shared/ui/AppLayout";
+import { useAppTheme } from "~/shared/hooks/useAppTheme";
+import { useAuthStore } from "~/features/auth/authStore";
 
 export default function LoginPage() {
   const t = useAppTheme();

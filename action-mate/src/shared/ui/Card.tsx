@@ -1,28 +1,31 @@
+// src/shared/ui/Card.tsx
+
 import React from "react";
-<<<<<<< Updated upstream
-import { Platform, Pressable, StyleSheet, View, ViewStyle } from "react-native";
-=======
-import { Platform, Pressable, StyleSheet, View, type ViewStyle } from "react-native";
->>>>>>> Stashed changes
+import { 
+  Platform, 
+  Pressable, 
+  StyleSheet, 
+  View, 
+  type StyleProp,  
+  type ViewStyle 
+} from "react-native";
 import { useAppTheme } from "../hooks/useAppTheme";
 
 type Props = {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>; 
   padded?: boolean;
-  onPress?: () => void; // 있으면 눌리는 카드
+  onPress?: () => void;
 };
 
 export function Card({ children, style, padded = true, onPress }: Props) {
   const { colors, spacing } = useAppTheme();
-
   const Container: any = onPress ? Pressable : View;
 
   return (
     <Container
       onPress={onPress}
       style={[
-        styles.base,
         styles.shadow,
         {
           backgroundColor: colors.surface,
@@ -31,7 +34,7 @@ export function Card({ children, style, padded = true, onPress }: Props) {
           borderColor: colors.border,
           padding: padded ? spacing.pagePaddingH : 0,
         },
-        style,
+        style, // 배열이든 객체든 다 받아줌
       ]}
     >
       {children}
@@ -40,7 +43,6 @@ export function Card({ children, style, padded = true, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  base: {},
   shadow: Platform.select({
     ios: {
       shadowColor: "#000",

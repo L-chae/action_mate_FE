@@ -12,11 +12,14 @@ import {
   Image,
 } from "react-native";
 import { router } from "expo-router";
-import AppLayout from "@/shared/ui/AppLayout";
-import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import { useAuthStore } from "@/features/auth/authStore";
+import AppLayout from "~/shared/ui/AppLayout";
+import { useAppTheme } from "~/shared/hooks/useAppTheme";
+import { useAuthStore } from "~/features/auth/authStore";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// ✅ 이메일 형식 검증
+const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 function PrimaryButton({
   title,
@@ -34,7 +37,6 @@ function PrimaryButton({
   fg: string;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
-
   const useNative = Platform.OS !== "web";
 
   const pressIn = () => {
@@ -80,12 +82,10 @@ export default function IdLoginScreen() {
   const t = useAppTheme();
   const login = useAuthStore((s) => s.login);
 
-  // ✅ spacing.ts 수정 안함: 존재하는 키만 사용
   const PH = t.spacing.pagePaddingH;
   const PV = t.spacing.pagePaddingV;
   const R = t.spacing.radiusMd;
 
-  // ✅ spacing에 간격 토큰이 없으니 화면 로컬 상수만 사용
   const GAP_XXS = 6;
   const GAP_XS = 8;
   const GAP_SM = 12;
@@ -96,20 +96,27 @@ export default function IdLoginScreen() {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
 
-  const canSubmit = useMemo(
-    () => email.trim().length > 0 && password.length >= 4,
-    [email, password]
-  );
+  // ✅ 이메일 UX용
+  const [touchedEmail, setTouchedEmail] = useState(false);
+
+  const emailOk = useMemo(() => isValidEmail(email), [email]);
+  const emailError = touchedEmail && email.trim().length > 0 && !emailOk;
+
+  // ✅ 이메일 형식 + 비밀번호 4자 이상만 로그인 가능
+  const canSubmit = useMemo(() => emailOk && password.length >= 4, [emailOk, password]);
 
   const onLogin = () => {
-    // ✅ (가짜) 로그인 성공 처리: authStore의 login(user) 사용
+    // ✅ 어떤 경로로 제출해도 이메일 형식 강제
+    setTouchedEmail(true);
+    if (!emailOk) return;
+    if (password.length < 4) return;
+
     login({
       id: "temp-user",
       email: email.trim(),
       nickname: "게스트",
     });
 
-    // ✅ 한 틱 뒤에 이동 (Auth Guard 타이밍 튕김 방지)
     setTimeout(() => {
       router.replace("/(tabs)");
     }, 0);
@@ -169,16 +176,23 @@ export default function IdLoginScreen() {
           >
             이메일
           </Text>
+
           <TextInput
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(v) => {
+              setEmail(v);
+              if (!touchedEmail) setTouchedEmail(true);
+            }}
+            onBlur={() => setTouchedEmail(true)}
             placeholder="example@email.com"
             autoCapitalize="none"
             keyboardType="email-address"
+            textContentType="emailAddress"
+            autoComplete="email"
             style={[
               styles.input,
               {
-                borderColor: t.colors.border,
+                borderColor: emailError ? "#E53935" : t.colors.border, // ✅ 방법 A: 고정 에러색
                 color: t.colors.textMain,
                 borderRadius: R,
               },
@@ -186,6 +200,18 @@ export default function IdLoginScreen() {
             placeholderTextColor={t.colors.textSub}
             returnKeyType="next"
           />
+
+          {/* ✅ 이메일 형식 에러 표시 (방법 A: 하드코딩) */}
+          {emailError && (
+            <Text
+              style={[
+                t.typography.bodySmall,
+                { color: "#E53935", marginTop: GAP_XXS },
+              ]}
+            >
+              올바른 이메일 형식으로 입력해주세요. (예: test@email.com)
+            </Text>
+          )}
 
           <View style={{ height: GAP_MD }} />
 
@@ -198,6 +224,7 @@ export default function IdLoginScreen() {
           >
             비밀번호
           </Text>
+
           <View
             style={[
               styles.pwRow,
@@ -207,20 +234,19 @@ export default function IdLoginScreen() {
             <TextInput
               value={password}
               onChangeText={setPassword}
-              placeholder="비밀번호"
+              placeholder="비밀번호 (4자 이상)"
               secureTextEntry={!showPw}
               style={[styles.pwInput, { color: t.colors.textMain }]}
               placeholderTextColor={t.colors.textSub}
               returnKeyType="done"
               onSubmitEditing={() => {
                 if (canSubmit) onLogin();
+                else setTouchedEmail(true);
               }}
             />
 
             <Pressable onPress={() => setShowPw((v) => !v)} hitSlop={10}>
-              <Text
-                style={[t.typography.labelSmall, { color: t.colors.textSub }]}
-              >
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                 {showPw ? "숨기기" : "보기"}
               </Text>
             </Pressable>
@@ -243,20 +269,15 @@ export default function IdLoginScreen() {
 
           <View style={styles.linksRow}>
             <Pressable onPress={() => router.replace("/(auth)/login")}>
-              <Text
-                style={[t.typography.labelSmall, { color: t.colors.textSub }]}
-              >
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                 뒤로가기
               </Text>
             </Pressable>
 
             <Text style={{ color: t.colors.border, marginHorizontal: 10 }}>·</Text>
 
-            {/* ✅ (auth) 그룹의 signup으로 이동 */}
             <Pressable onPress={() => router.push("/(auth)/signup")}>
-              <Text
-                style={[t.typography.labelSmall, { color: t.colors.textSub }]}
-              >
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                 회원가입
               </Text>
             </Pressable>
@@ -286,7 +307,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // ✅ 로고 더 작게 + 가운데
   logo: {
     width: 64,
     height: 64,

@@ -10,8 +10,8 @@ import {
   Animated,
 } from "react-native";
 import { router } from "expo-router";
-import AppLayout from "@/shared/ui/AppLayout";
-import { useAuthStore } from "@/features/auth/authStore";
+import AppLayout from "~/shared/ui/AppLayout";
+import { useAuthStore } from "~/features/auth/authStore";
 
 type Form = {
   email: string;

@@ -1,7 +1,7 @@
 import React from "react";
-import { Pressable, ViewStyle } from "react-native";
+import { Pressable, type ViewStyle } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useAppTheme } from "~/shared/hooks/useAppTheme";
+import { useAppTheme } from "../hooks/useAppTheme";
 
 type Props = {
   onPress: () => void;
@@ -27,7 +27,6 @@ export function Fab({ onPress, style, iconName = "add" }: Props) {
           alignItems: "center",
           justifyContent: "center",
 
-          // shadow (iOS) + elevation (Android)
           shadowColor: "#000",
           shadowOpacity: 0.22,
           shadowRadius: 10,
