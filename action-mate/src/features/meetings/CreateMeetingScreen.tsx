@@ -18,7 +18,7 @@ import AppLayout from "@/shared/ui/AppLayout";
 import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-import CategoryChips from "./components/CategoryChips";
+import CategoryChips from "@/shared/ui/CategoryChips";
 import { createMeeting } from "./meetingService";
 import type { CategoryKey, JoinMode } from "./types";
 

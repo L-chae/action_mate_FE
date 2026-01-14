@@ -11,7 +11,7 @@ import { Button } from "../../shared/ui/Button";
 import { useAppTheme } from "../../shared/hooks/useAppTheme";
 
 import { fetchMapMeetings } from "./mapService";
-import type { Meeting, CategoryKey } from "../meetings/types";
+import type { MeetingPost, CategoryKey } from "../meetings/types";
 
 /**
  * ✅ 최종 안정화(안드로이드 "1/4 잘림" 완전 회피) 버전
@@ -55,7 +55,7 @@ const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
 };
 
 const MeetingMarkerNative = React.memo(function MeetingMarkerNative(props: {
-  meeting: Meeting;
+  meeting: MeetingPost;
   selected: boolean;
   onPress: (id: string) => void;
 }) {
@@ -88,7 +88,7 @@ export default function MapScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView>(null);
 
-  const [list, setList] = useState<Meeting[]>([]);
+  const [list, setList] = useState<MeetingPost[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -216,7 +216,7 @@ export default function MapScreen() {
   }, []);
 
   const renderMarker = useCallback(
-    (m: Meeting) => (
+    (m: MeetingPost) => (
       <MeetingMarkerNative
         key={m.id}
         meeting={m}
