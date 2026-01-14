@@ -8,10 +8,17 @@
     "scheme": "actionmate",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.actionmate.app",
+      "config": {
+        "googleMapsApiKey": "AIzaSyB07lkey3g2lJ9Lr37nMoAxkQPQn8errJo"
+      }
     },
+    
     "android": {
+      "package": "com.actionmate.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -19,12 +26,20 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyB07lkey3g2lJ9Lr37nMoAxkQPQn8errJo"
+        }
+      }
     },
+    
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+    
     "plugins": [
       "expo-router",
       [
