@@ -6,7 +6,7 @@ import {
   Text,
   View,
   Pressable,
-  ActivityIndicator
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,20 +19,16 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { listDMThreads } from "./dmService";
 import type { DMThread } from "./types";
 
-// 시간 포맷팅 헬퍼 (예: 방금 전, 10:30, 어제)
 function formatTime(isoString: string) {
   const date = new Date(isoString);
   const now = new Date();
   const diff = now.getTime() - date.getTime();
 
-  // 1분 미만
   if (diff < 60 * 1000) return "방금 전";
-  // 하루 미만 -> 시간 표시
   if (diff < 24 * 60 * 60 * 1000 && date.getDate() === now.getDate()) {
-    return date.toLocaleTimeString("ko-KR", { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
   }
-  // 그 외 -> 날짜
-  return date.toLocaleDateString("ko-KR", { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
 
 export default function DMListScreen() {
@@ -66,54 +62,56 @@ export default function DMListScreen() {
 
   const renderItem = ({ item }: { item: DMThread }) => (
     <Pressable
-      onPress={() => router.push(`/dm/${item.id}?nickname=${item.otherUser.nickname}` as any)}
+      onPress={() =>
+        router.push({
+          pathname: "/dm/[threadId]",
+          params: {
+            threadId: item.id,
+            nickname: item.otherUser.nickname,
+            meetingId: item.relatedMeetingId ?? "",
+            meetingTitle: item.relatedMeetingTitle ?? "",
+          },
+        } as any)
+      }
       style={({ pressed }) => [
         styles.itemContainer,
         {
           backgroundColor: pressed ? t.colors.neutral[100] : t.colors.surface,
           borderBottomColor: t.colors.neutral[100],
-        }
+        },
       ]}
     >
-      {/* 1. 프로필 아바타 (Placeholder) */}
       <View style={[styles.avatar, { backgroundColor: t.colors.neutral[200] }]}>
         <Ionicons name="person" size={24} color={t.colors.neutral[400]} />
       </View>
 
-      {/* 2. 내용 */}
       <View style={styles.content}>
         <View style={styles.headerRow}>
-          <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]}>
+          <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
             {item.otherUser.nickname}
           </Text>
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-            {formatTime(item.updatedAt)}
-          </Text>
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{formatTime(item.updatedAt)}</Text>
         </View>
 
-        {/* 관련 모임 뱃지 */}
-        {item.relatedMeetingTitle && (
+        {item.relatedMeetingTitle ? (
           <View style={[styles.meetingBadge, { backgroundColor: t.colors.neutral[50] }]}>
             <Ionicons name="pricetag-outline" size={10} color={t.colors.primary} />
-            <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontSize: 10 }]}>
+            <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontSize: 10 }]} numberOfLines={1}>
               {item.relatedMeetingTitle}
             </Text>
           </View>
-        )}
+        ) : null}
 
         <View style={styles.msgRow}>
           <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, flex: 1 }]} numberOfLines={1}>
             {item.lastMessage?.text ?? "대화를 시작해보세요"}
           </Text>
 
-          {/* 안 읽은 메시지 배지 */}
-          {item.unreadCount > 0 && (
+          {item.unreadCount > 0 ? (
             <View style={[styles.unreadBadge, { backgroundColor: t.colors.primary }]}>
-              <Text style={{ color: "white", fontSize: 10, fontWeight: "bold" }}>
-                {item.unreadCount}
-              </Text>
+              <Text style={{ color: "white", fontSize: 10, fontWeight: "bold" }}>{item.unreadCount}</Text>
             </View>
-          )}
+          ) : null}
         </View>
       </View>
     </Pressable>
@@ -121,14 +119,7 @@ export default function DMListScreen() {
 
   return (
     <AppLayout padded={false}>
-      <TopBar
-        title="메시지"
-        showBorder
-        showNoti
-        showNotiDot={false}
-        showMenu={false}
-      />
-
+      <TopBar title="채팅" showBorder showNoti showNotiDot={false} showMenu={false} />
 
       {loading ? (
         <View style={styles.center}>
@@ -140,19 +131,10 @@ export default function DMListScreen() {
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingBottom: 100 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={t.colors.primary}
-            />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.colors.primary} />}
           ListEmptyComponent={
             <View style={{ marginTop: 100 }}>
-              <EmptyView
-                title="대화 내역이 없어요"
-                description="모임에 참여하여 호스트와 대화를 나눠보세요!"
-              />
+              <EmptyView title="대화 내역이 없어요" description="모임에 참여하여 호스트와 대화를 나눠보세요!" />
             </View>
           }
         />
@@ -162,57 +144,22 @@ export default function DMListScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  itemContainer: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 16,
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  msgRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
+  itemContainer: { flexDirection: "row", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
+  avatar: { width: 48, height: 48, borderRadius: 24, justifyContent: "center", alignItems: "center", marginRight: 16 },
+  content: { flex: 1, justifyContent: "center", minWidth: 0 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 10 },
+  msgRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   meetingBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
     marginBottom: 4,
+    maxWidth: "100%",
   },
-  unreadBadge: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 5,
-    marginLeft: 8,
-  },
+  unreadBadge: { minWidth: 18, height: 18, borderRadius: 9, justifyContent: "center", alignItems: "center", paddingHorizontal: 5, marginLeft: 8 },
 });
