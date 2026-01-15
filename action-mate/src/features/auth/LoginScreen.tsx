@@ -2,8 +2,8 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { View, Text, Image, StyleSheet, Pressable, Animated } from "react-native";
 import { router } from "expo-router";
-import AppLayout from "~/shared/ui/AppLayout";
-import { useAppTheme } from "~/shared/hooks/useAppTheme";
+import AppLayout from "@/shared/ui/AppLayout";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 

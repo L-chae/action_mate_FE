@@ -11,10 +11,10 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 
-import AppLayout from "~/shared/ui/AppLayout";
-import { Card } from "~/shared/ui/Card";
-import { Button } from "~/shared/ui/Button";
-import { useAppTheme } from "~/shared/hooks/useAppTheme";
+import AppLayout from "@/shared/ui/AppLayout";
+import { Card } from "@/shared/ui/Card";
+import { Button } from "@/shared/ui/Button";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 type Form = {
   email: string;

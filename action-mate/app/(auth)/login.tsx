@@ -3,41 +3,36 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { View, Text, Image, StyleSheet, Pressable, Animated } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import AppLayout from "~/shared/ui/AppLayout";
-import { useAppTheme } from "~/shared/hooks/useAppTheme";
-import { useAuthStore } from "~/features/auth/authStore";
+import AppLayout from "@/shared/ui/AppLayout";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { useAuthStore } from "@/features/auth/authStore";
 
 export default function LoginPage() {
   const t = useAppTheme();
   const login = useAuthStore((s) => s.login);
 
-  // ✅ spacing.ts는 수정 안 함 (있는 키만 사용)
-  const PH = t.spacing.pagePaddingH; // 16
-  const PV = t.spacing.pagePaddingV; // 12
-  const R = t.spacing.radiusMd; // 12
-  const D = t.spacing.animNormal; // 220
+  const PH = t.spacing.pagePaddingH;
+  const PV = t.spacing.pagePaddingV;
+  const R = t.spacing.radiusMd;
+  const D = t.spacing.animNormal;
 
-  // 화면 전용 간격
   const GAP_SM = 12;
-  const GAP_MD = 16;
   const GAP_LG = 24;
 
-  const mockSocialLogin = (provider: "kakao" | "naver") => {
-    // ✅ API 없으니 임시 유저로 로그인 상태만 만들어줌
-    login({
-      id: `${provider}_${Date.now()}`,
-      email: `${provider}@mock.local`,
-      nickname: provider === "kakao" ? "카카오 사용자" : "네이버 사용자",
-    });
+const mockSocialLogin = async (provider: "kakao" | "naver") => {
+  await login({
+    id: `${provider}_${Date.now()}`,
+    email: `${provider}@mock.local`,
+    nickname: provider === "kakao" ? "카카오 사용자" : "네이버 사용자",
+  });
 
-    router.replace("/(tabs)");
-  };
+  router.replace("/(tabs)");
+};
 
-  // Logo / Copy animation
+
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoTranslate = useRef(new Animated.Value(10)).current;
 
-  // Background blobs animation
   const blob1 = useRef(new Animated.Value(0)).current;
   const blob2 = useRef(new Animated.Value(0)).current;
   const blob3 = useRef(new Animated.Value(0)).current;
@@ -72,7 +67,6 @@ export default function LoginPage() {
     };
   }, [D, logoOpacity, logoTranslate, blob1, blob2, blob3]);
 
-  // 배경 블랍 스타일 (은은하게)
   const blobStyles = useMemo(() => {
     const mk = (
       v: Animated.Value,
@@ -109,15 +103,13 @@ export default function LoginPage() {
   }, [blob1, blob2, blob3, t.colors.primary, t.colors.point]);
 
   return (
-    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
-      {/* ✅ Subtle gradient background */}
+    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]} padded={false}>
       <LinearGradient
         colors={["#FBFBFF", "#FFFFFF", "#FFF8F5"]}
         locations={[0, 0.55, 1]}
         style={StyleSheet.absoluteFill}
       />
 
-      {/* ✅ Animated Background (clipped) */}
       <View style={[StyleSheet.absoluteFill, { overflow: "hidden" }]} pointerEvents="none">
         <Animated.View style={blobStyles.b1 as any} />
         <Animated.View style={blobStyles.b2 as any} />
@@ -125,7 +117,6 @@ export default function LoginPage() {
         <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.02)" }]} />
       </View>
 
-      {/* 상단/중앙 브랜드 영역 */}
       <View style={[styles.center, { paddingHorizontal: PH, paddingTop: GAP_LG }]}>
         <Animated.View style={{ opacity: logoOpacity, transform: [{ translateY: logoTranslate }] }}>
           <Image source={require("../../assets/images/logo.png")} style={styles.logo} resizeMode="contain" />
@@ -142,10 +133,8 @@ export default function LoginPage() {
         </Animated.View>
       </View>
 
-      {/* 하단 CTA 영역 */}
       <View style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: Math.max(PV, 16) }]}>
         <View style={styles.ctaCard}>
-          {/* 카카오 (✅ 아이콘 제거 + 임시 로그인 처리) */}
           <Pressable
             onPress={() => mockSocialLogin("kakao")}
             style={({ pressed }) => [
@@ -158,7 +147,6 @@ export default function LoginPage() {
 
           <View style={{ height: GAP_SM }} />
 
-          {/* 네이버 (✅ 아이콘 제거 + 임시 로그인 처리) */}
           <Pressable
             onPress={() => mockSocialLogin("naver")}
             style={({ pressed }) => [
@@ -170,7 +158,8 @@ export default function LoginPage() {
           </Pressable>
 
           <Pressable
-            onPress={() => router.push("/id-login")}
+            // ✅ auth 그룹 안에 있는 페이지로 명시적으로 이동
+            onPress={() => router.push("/(auth)/id-login")}
             style={({ pressed }) => [{ marginTop: 14, opacity: pressed ? 0.7 : 1 }]}
           >
             <Text style={[t.typography.bodySmall, { textAlign: "center", color: t.colors.textMain }]}>
@@ -178,7 +167,6 @@ export default function LoginPage() {
             </Text>
           </Pressable>
 
-          {/* ✅ 약관: 더 작게 + 더 연하게 */}
           <Text style={[styles.terms, { color: t.colors.textSub, opacity: 0.55 }]}>
             가입을 진행할 경우 서비스 약관 및 개인정보 처리방침에 동의한 것으로 간주합니다.
           </Text>
@@ -189,35 +177,17 @@ export default function LoginPage() {
 }
 
 const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-    justifyContent: "space-between",
-    overflow: "hidden",
-  },
+  page: { flex: 1, justifyContent: "space-between", overflow: "hidden" },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     transform: [{ translateY: -10 }],
   },
-  logo: {
-    width: 110,
-    height: 110,
-  },
-
-  title: {
-    textAlign: "center",
-    letterSpacing: -0.3,
-  },
-  subtitle: {
-    textAlign: "center",
-    lineHeight: 18,
-    letterSpacing: -0.1,
-  },
-
-  bottom: {
-    width: "100%",
-  },
+  logo: { width: 110, height: 110 },
+  title: { textAlign: "center", letterSpacing: -0.3 },
+  subtitle: { textAlign: "center", lineHeight: 18, letterSpacing: -0.1 },
+  bottom: { width: "100%" },
   ctaCard: {
     borderRadius: 22,
     padding: 16,
@@ -230,28 +200,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
-
-  // ✅ 버튼: 글씨 크기/굵기 줄임 + 아이콘 제거해서 가운데 정렬 텍스트만
-  socialBtn: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-  },
-  socialText: {
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-  },
-
-  terms: {
-    marginTop: 12,
-    textAlign: "center",
-    fontSize: 11,
-    lineHeight: 15,
-  },
-
-  blob: {
-    position: "absolute",
-  },
+  socialBtn: { width: "100%", alignItems: "center", justifyContent: "center", paddingVertical: 14 },
+  socialText: { fontSize: 14, fontWeight: "700", letterSpacing: -0.2 },
+  terms: { marginTop: 12, textAlign: "center", fontSize: 11, lineHeight: 15 },
+  blob: { position: "absolute" },
 });

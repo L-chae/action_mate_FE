@@ -12,9 +12,9 @@ import {
   Image,
 } from "react-native";
 import { router } from "expo-router";
-import AppLayout from "~/shared/ui/AppLayout";
-import { useAppTheme } from "~/shared/hooks/useAppTheme";
-import { useAuthStore } from "~/features/auth/authStore";
+import AppLayout from "@/shared/ui/AppLayout";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { useAuthStore } from "@/features/auth/authStore";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 

@@ -25,13 +25,11 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+*.log
 
 # macOS
 .DS_Store
 *.pem
-
-# local env files
-.env*.local
 
 # typescript
 *.tsbuildinfo
@@ -45,11 +43,6 @@ app-example
 # Expo extra
 .expo-shared/
 
-# env (IMPORTANT)
-.env
-.env.*
-!.env.example
-
 # Metro caches / sourcemaps
 .metro-cache/
 *.map
@@ -59,3 +52,13 @@ Thumbs.db
 .vscode/
 .idea/
 *.iml
+
+# ---------------------------------------
+# ✅ ENV FILES (Secret Key Protection)
+# ---------------------------------------
+# 모든 .env 파일 무시 (비밀번호 노출 방지)
+.env
+.env.*
+
+# 단, 예시 파일은 업로드 허용 (협업용)
+!.env.example
