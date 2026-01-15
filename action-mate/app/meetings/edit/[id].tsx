@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -14,20 +14,24 @@ import {
   TouchableWithoutFeedback,
   LayoutAnimation,
   UIManager,
+  ActivityIndicator,
 } from "react-native";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import MapView, { Region, PROVIDER_GOOGLE } from "react-native-maps";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+// ✅ UI 컴포넌트 임포트
 import AppLayout from "@/shared/ui/AppLayout";
 import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import CategoryChips from "@/shared/ui/CategoryChips";
-import { createMeeting } from "./meetingService";
-import type { CategoryKey, JoinMode } from "./types";
+
+// ✅ 서비스 및 타입 임포트
+import { getMeeting, updateMeeting } from "@/features/meetings/meetingService";
+import type { CategoryKey, JoinMode } from "@/features/meetings/types";
 
 // 안드로이드 레이아웃 애니메이션 활성화
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -71,34 +75,82 @@ const formatDuration = (mins: number) => {
 };
 
 // -------------------------------------------------------------------------
-// ✅ Main Screen
+// ✅ Edit Screen (수정 페이지)
 // -------------------------------------------------------------------------
-export default function CreateMeetingScreen() {
+export default function EditMeetingScreen() {
   const t = useAppTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  
+  // ✅ URL 파라미터에서 모임 ID 가져오기
+  const { id } = useLocalSearchParams<{ id: string }>();
+
+  // --- Loading State ---
+  const [loadingInitial, setLoadingInitial] = useState(true);
 
   // --- Form State ---
   const [category, setCategory] = useState<CategoryKey | "ALL">("SPORTS");
   const [title, setTitle] = useState("");
   
-  // 참여 방식
   const [joinMode, setJoinMode] = useState<JoinMode>("INSTANT");
-  const [conditions, setConditions] = useState(""); // 승인 조건
+  const [conditions, setConditions] = useState("");
 
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
   
   const [capacity, setCapacity] = useState(4);
   const [durationMinutes, setDurationMinutes] = useState(120);
-  
-  // ⭐️ 준비물 삭제 -> content(소개)로 통합
   const [content, setContent] = useState(""); 
 
   // --- UI State ---
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [locationModalVisible, setLocationModalVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // ✅ 초기 데이터 불러오기
+  useEffect(() => {
+    const loadData = async () => {
+      if (!id) return;
+      try {
+        const data = await getMeeting(id);
+        
+        // 받아온 데이터로 State 초기화
+        setTitle(data.title);
+        setCategory(data.category as CategoryKey);
+        setJoinMode(data.joinMode);
+        if (data.conditions) setConditions(data.conditions);
+        
+        // 날짜 파싱 (ISO String -> Date)
+        if (data.meetingTime) {
+          setSelectedDate(new Date(data.meetingTime));
+        } else {
+          // 기존 데이터에 ISO가 없으면 현재 시간으로 fallback
+          setSelectedDate(new Date()); 
+        }
+        
+        // 위치 정보 매핑
+        if (data.locationLat && data.locationLng) {
+          setPickedLocation({
+            addressText: data.locationText || "위치 정보",
+            lat: data.locationLat,
+            lng: data.locationLng,
+          });
+        }
+        
+        setCapacity(data.capacityTotal);
+        setDurationMinutes(data.durationMinutes || 120);
+        setContent(data.content || "");
+        
+      } catch (e) {
+        console.error(e);
+        Alert.alert("오류", "모임 정보를 불러오지 못했습니다.");
+        router.back();
+      } finally {
+        setLoadingInitial(false);
+      }
+    };
+    loadData();
+  }, [id, router]);
 
   // --- Handlers ---
   const handleConfirmDate = useCallback((date: Date) => {
@@ -114,18 +166,15 @@ export default function CreateMeetingScreen() {
     setDurationMinutes((prev) => Math.max(30, Math.min(360, prev + delta)));
   }, []);
 
-  // 참여 방식 변경 시 애니메이션 적용
   const handleJoinModeChange = (mode: JoinMode) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setJoinMode(mode);
   };
 
-  const handleSubmit = async () => {
+  const handleUpdate = async () => {
     if (!title.trim()) return Alert.alert("알림", "제목을 입력해주세요.");
     if (!selectedDate) return Alert.alert("알림", "모임 시간을 선택해주세요.");
     if (!pickedLocation) return Alert.alert("알림", "장소를 지도에서 선택해주세요.");
-    
-    // 승인제인데 조건이 비어있으면 경고
     if (joinMode === "APPROVAL" && !conditions.trim()) {
       return Alert.alert("알림", "어떤 사람을 승인할지 조건을 적어주세요.");
     }
@@ -134,40 +183,53 @@ export default function CreateMeetingScreen() {
       setSubmitting(true);
       const selectedCategory = category === "ALL" ? "ETC" : category;
 
-      await createMeeting({
+      // ✅ updateMeeting 호출
+      await updateMeeting(id!, {
         title: title.trim(),
         category: selectedCategory,
         meetingTimeText: formatDate(selectedDate),
+        meetingTimeIso: selectedDate.toISOString(), // 날짜 복원용
         locationText: pickedLocation.addressText,
         locationLat: pickedLocation.lat,
         locationLng: pickedLocation.lng,
         capacityTotal: capacity,
-        content: content.trim(), // 통합된 내용
+        content: content.trim(),
         joinMode,
         conditions: joinMode === "APPROVAL" ? conditions.trim() : undefined,
         durationMinutes,
-        status: "OPEN",
-      } as any);
+      });
 
-      if (router.canGoBack()) router.dismissAll();
-      router.replace("/(tabs)");
+      Alert.alert("수정 완료", "모임 정보가 수정되었습니다.", [
+        { text: "확인", onPress: () => router.back() }
+      ]);
     } catch (e) {
       console.error(e);
-      Alert.alert("오류", "모임을 만들지 못했습니다.");
+      Alert.alert("오류", "모임을 수정하지 못했습니다.");
     } finally {
       setSubmitting(false);
     }
   };
 
+  if (loadingInitial) {
+    return (
+      <AppLayout>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator size="large" color={t.colors.primary} />
+        </View>
+      </AppLayout>
+    );
+  }
+
   return (
     <>
       <Stack.Screen
         options={{
-          title: "모임 만들기",
+          title: "모임 수정",
           headerStyle: { backgroundColor: t.colors.background },
           headerShadowVisible: false,
           headerLeft: () => (
-            <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace("/(tabs)")} style={{ paddingRight: 16 }}>
+            <Pressable onPress={() => router.back()} style={{ paddingRight: 16 }}>
               <Ionicons name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"} size={24} color={t.colors.textMain} />
             </Pressable>
           ),
@@ -200,11 +262,9 @@ export default function CreateMeetingScreen() {
                   />
                 </View>
 
-                {/* 3. 참여 방식 (UX 개선) */}
+                {/* 3. 참여 방식 */}
                 <View style={styles.section}>
                   <Text style={[styles.sectionTitle, { color: t.colors.textSub }]}>참여 방식</Text>
-                  
-                  {/* 세그먼트 버튼 */}
                   <View style={[styles.segmentContainer, { backgroundColor: t.colors.neutral[100] }]}>
                     <Pressable
                       onPress={() => handleJoinModeChange("INSTANT")}
@@ -224,7 +284,6 @@ export default function CreateMeetingScreen() {
                     </Pressable>
                   </View>
 
-                  {/* 승인 조건 입력창 (조건부 렌더링 + 강조 UI) */}
                   {joinMode === "APPROVAL" && (
                     <View style={[styles.conditionBox, { backgroundColor: t.colors.primaryLight }]}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
@@ -239,15 +298,14 @@ export default function CreateMeetingScreen() {
                         placeholderTextColor={t.colors.neutral[500]}
                         value={conditions}
                         onChangeText={setConditions}
-                        autoFocus={false} // UX상 너무 깜빡이면 불편할 수 있어 false
+                        autoFocus={false}
                       />
                     </View>
                   )}
                 </View>
 
-                {/* 4. 정보 카드 (지도 미리보기 제거됨) */}
+                {/* 4. 정보 카드 */}
                 <View style={[styles.cardForm, { backgroundColor: t.colors.surface, borderColor: t.colors.neutral[200] }]}>
-                  
                   {/* 날짜 */}
                   <Pressable onPress={() => setDatePickerVisibility(true)} style={styles.rowInput}>
                     <Ionicons name="time" size={20} color={t.colors.primary} style={styles.iconStyle} />
@@ -262,7 +320,7 @@ export default function CreateMeetingScreen() {
 
                   <View style={[styles.divider, { backgroundColor: t.colors.neutral[100] }]} />
 
-                  {/* 장소 (미니맵 X, 텍스트만) */}
+                  {/* 장소 */}
                   <Pressable onPress={() => setLocationModalVisible(true)} style={styles.rowInput}>
                     <Ionicons name="location" size={20} color={t.colors.primary} style={styles.iconStyle} />
                     <View style={{ flex: 1 }}>
@@ -274,7 +332,6 @@ export default function CreateMeetingScreen() {
                         {pickedLocation ? pickedLocation.addressText : "위치 선택"}
                       </Text>
                     </View>
-                    {/* 위치가 선택되었으면 체크 아이콘, 아니면 화살표 */}
                     {pickedLocation ? (
                        <Ionicons name="checkmark-circle" size={20} color={t.colors.primary} />
                     ) : (
@@ -305,14 +362,14 @@ export default function CreateMeetingScreen() {
                   </View>
                 </View>
 
-                {/* 5. 모임 소개 (준비물 포함) */}
+                {/* 5. 모임 소개 */}
                 <View style={styles.section}>
                   <Text style={[styles.sectionTitle, { color: t.colors.textSub }]}>
                     모임 소개 & 준비물
                   </Text>
                   <TextInput
                     style={[styles.textArea, { backgroundColor: t.colors.neutral[50], color: t.colors.textMain, borderColor: t.colors.neutral[200] }]}
-                    placeholder="어떤 활동을 하는지, 무엇이 필요한지 자유롭게 적어주세요."
+                    placeholder="내용을 입력해주세요."
                     placeholderTextColor={t.colors.neutral[400]}
                     multiline
                     value={content}
@@ -326,9 +383,9 @@ export default function CreateMeetingScreen() {
           {/* 하단 버튼 */}
           <View style={[styles.bottomBar, { backgroundColor: t.colors.background, borderTopColor: t.colors.neutral[200], paddingBottom: 12 + insets.bottom }]}>
             <Button
-              title={submitting ? "생성 중..." : "모임 만들기"}
+              title={submitting ? "수정 중..." : "수정 완료"}
               size="lg"
-              onPress={handleSubmit}
+              onPress={handleUpdate}
               loading={submitting}
               disabled={submitting}
             />
@@ -344,6 +401,7 @@ export default function CreateMeetingScreen() {
           locale="ko_KR"
           confirmTextIOS="선택"
           cancelTextIOS="취소"
+          date={selectedDate || new Date()} 
         />
 
         <LocationPickerModal
@@ -395,7 +453,6 @@ function LocationPickerModal({
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView | null>(null);
   
-  // 빠른 로딩을 위해 초기 위치가 없으면 GPS 대기 없이 기본값(서울) 보여줌
   const [region, setRegion] = useState<Region>(() => {
     if (initialLocation) {
       return { latitude: initialLocation.lat, longitude: initialLocation.lng, latitudeDelta: 0.005, longitudeDelta: 0.005 };
@@ -404,13 +461,17 @@ function LocationPickerModal({
   });
 
   const [address, setAddress] = useState("");
-const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 모달 진입 시 로직
+  // ✅ FIX: NodeJS.Timeout 타입 충돌 해결을 위해 any 사용
+  const debounceRef = useRef<any>(null);
+
+  // 모달 진입 로직
   useEffect(() => {
     if (visible) {
       setAddress(initialLocation?.addressText || "");
-      if (!initialLocation) {
+      if (initialLocation) {
+        setRegion({ latitude: initialLocation.lat, longitude: initialLocation.lng, latitudeDelta: 0.005, longitudeDelta: 0.005 });
+      } else {
         moveToCurrentLocation();
       }
     }
@@ -433,7 +494,7 @@ const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
       setRegion(newRegion);
       fetchAddress(newRegion.latitude, newRegion.longitude);
     } catch (e) {
-      // ignore error
+      // ignore
     }
   };
 
@@ -477,7 +538,7 @@ const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
           <MapView
             ref={mapRef}
             style={{ flex: 1 }}
-            initialRegion={region}
+            region={region}
             onRegionChangeComplete={onRegionChangeComplete}
             provider={PROVIDER_GOOGLE}
             showsUserLocation={true}
@@ -520,29 +581,19 @@ const styles = StyleSheet.create({
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
   inputUnderline: { fontSize: 18, fontWeight: "600", paddingVertical: 8, borderBottomWidth: 1 },
-  
-  // Segment Control
   segmentContainer: { flexDirection: "row", padding: 4, borderRadius: 12, height: 44 },
   segmentBtn: { flex: 1, justifyContent: "center", alignItems: "center", borderRadius: 10 },
   shadow: { shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, elevation: 2 },
-  
-  // Approval Input (강조됨)
   conditionBox: { marginTop: 12, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: "transparent" },
   inputSimple: { fontSize: 14, padding: 0 },
-  
-  // Card
   cardForm: { borderWidth: 1, borderRadius: 16, marginBottom: 24, overflow: "hidden" },
   rowInput: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, minHeight: 60 },
   iconStyle: { marginRight: 12, width: 24, textAlign: "center" },
   divider: { height: 1, marginLeft: 52 },
   flexRowBetween: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  
-  // Inputs
   stepBtn: { width: 32, height: 32, borderRadius: 16, justifyContent: "center", alignItems: "center" },
   textArea: { height: 120, borderRadius: 12, borderWidth: 1, padding: 12, fontSize: 15, textAlignVertical: "top" },
   bottomBar: { paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1 },
-  
-  // Modal
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 10, paddingBottom: 10, borderBottomWidth: 1 },
   centerPin: { position: "absolute", left: "50%", top: "50%", marginLeft: -18, marginTop: -36 },
   fab: { position: "absolute", right: 16, bottom: 20, width: 44, height: 44, borderRadius: 22, justifyContent: "center", alignItems: "center", elevation: 4, shadowColor: "#000", shadowOpacity: 0.2, shadowOffset: {width:0, height:2} },

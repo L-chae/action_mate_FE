@@ -31,6 +31,7 @@ export default {
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
       softwareKeyboardLayoutMode: "resize",
+      "softwareKeyboardLayoutMode": "resize",
       config: {
         googleMaps: {
           // ✅ 수정됨: 안드로이드도 동일하게 환경 변수 사용

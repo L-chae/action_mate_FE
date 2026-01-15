@@ -52,6 +52,9 @@ type Props = {
   rightActionTextStyle?: StyleProp<TextStyle>;
   onPressRightAction?: () => void;
   rightActionDisabled?: boolean;
+
+  /** ✅ [추가] 커스텀 우측 컴포넌트 렌더링 (예: 점 3개 메뉴 등) */
+  renderRight?: () => React.ReactNode;
 };
 
 export default function TopBar({
@@ -75,6 +78,8 @@ export default function TopBar({
   rightActionTextStyle,
   onPressRightAction,
   rightActionDisabled = false,
+
+  renderRight, // ✅ 추가됨
 }: Props) {
   const t = useAppTheme();
   const flat = RNStyleSheet.flatten(style) as ViewStyle | undefined;
@@ -103,7 +108,7 @@ export default function TopBar({
             hitSlop={12}
             style={({ pressed }) => [
               styles.iconBtn,
-              { opacity: pressed ? 0.85 : 1 },
+              { opacity: pressed ? 0.85 : 1, marginRight: 4 }, // 간격 약간 추가
             ]}
           >
             <Ionicons name="chevron-back" size={26} color={t.colors.textMain} />
@@ -150,8 +155,9 @@ export default function TopBar({
         </View>
       </View>
 
-      {/* ✅ RIGHT: text action + icons */}
+      {/* ✅ RIGHT: text action + icons + custom render */}
       <View style={styles.rightArea}>
+        {/* 1. 텍스트 액션 (예: 완료) */}
         {rightActionText ? (
           <Pressable
             disabled={rightActionDisabled}
@@ -177,6 +183,10 @@ export default function TopBar({
           </Pressable>
         ) : null}
 
+        {/* 2. ✅ 커스텀 렌더링 (점 3개 등) - 텍스트 액션 뒤에 배치 */}
+        {renderRight && renderRight()}
+
+        {/* 3. 알림 아이콘 */}
         {showNoti && (
           <Pressable
             onPress={onPressNoti ?? (() => Alert.alert("알림", "없음"))}
@@ -204,6 +214,7 @@ export default function TopBar({
           </Pressable>
         )}
 
+        {/* 4. 햄버거 메뉴 */}
         {showMenu && (
           <Pressable
             onPress={onPressMenu ?? (() => Alert.alert("메뉴", "오픈"))}
@@ -225,7 +236,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // ✅ LEFT 영역: back 버튼이 들어가도 타이틀 정렬 유지
+  // ✅ LEFT 영역
   leftWrap: {
     flex: 1,
     flexDirection: "row",
@@ -238,11 +249,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
 
+  // ✅ RIGHT 영역
   rightArea: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 6,
+    gap: 6, // 아이콘들 사이 간격
   },
   iconBtn: {
     padding: 4,
@@ -267,7 +279,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
 
-  // ✅ 로고(워드마크) 스타일
+  // ✅ 로고 스타일
   logoRow: {
     flexDirection: "row",
     alignItems: "center",
