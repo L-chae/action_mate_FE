@@ -2,7 +2,15 @@ import React from "react";
 import { StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { useAppTheme } from "../hooks/useAppTheme";
 
-type Tone = "default" | "primary" | "point" | "success" | "warning" | "error";
+type Tone =
+  | "default"
+  | "neutral" // ✅ 추가
+  | "primary"
+  | "point"
+  | "success"
+  | "warning"
+  | "error";
+
 type Size = "sm" | "md";
 
 export function Badge({
@@ -25,18 +33,29 @@ export function Badge({
 
   const toneStyle = (() => {
     const soft = (hex: string) => `${hex}22`;
+
     switch (tone) {
       case "primary":
         return { bg: soft(colors.primary), fg: colors.primary };
+
       case "point":
         return { bg: soft(colors.point), fg: colors.primaryDark };
+
       case "success":
         return { bg: soft(colors.success), fg: colors.success };
+
       case "warning":
         return { bg: soft(colors.warning), fg: colors.warning };
+
       case "error":
         return { bg: soft(colors.error), fg: colors.error };
+
+      // ✅ NEW: neutral
+      case "neutral":
+        return { bg: colors.neutral[100], fg: colors.textSub };
+
       default:
+        // 기존 유지 (원하면 colors.neutral[200]로 바꿔도 좋음)
         return { bg: colors.border, fg: colors.textSub };
     }
   })();

@@ -1,6 +1,6 @@
 import type { CategoryKey, MembershipStatus, HostSummary, MeetingPost } from "./types";
 
-// ✅ 0. 공통 타입 정의
+// ✅ 0. 공통 타입 및 정렬 타입 정의
 export type MeetingParams = {
   title: string;
   category: CategoryKey;
@@ -10,12 +10,15 @@ export type MeetingParams = {
   locationLat?: number;
   locationLng?: number;
   capacityTotal: number;
-  content: string; // 본문
+  content: string;
   joinMode: "INSTANT" | "APPROVAL";
   conditions?: string;
   durationMinutes: number;
   items?: string;
 };
+
+// ✅ 홈 화면 정렬 옵션
+export type HomeSort = "LATEST" | "NEAR" | "SOON";
 
 // ✅ Mock Hosts
 const HOST_USERS: Record<string, HostSummary> = {
@@ -52,14 +55,14 @@ const HOST_USERS: Record<string, HostSummary> = {
   },
 };
 
-// ✅ Mock Data (hostMemo 삭제됨)
+// ✅ Mock Data (전역 변수로 관리하여 데이터 동기화)
 let _MOCK_DATA: MeetingPost[] = [
   {
     id: "1",
     category: "SPORTS",
     title: "🏸 배드민턴 2게임만 (초보 환영)",
     meetingTimeText: "오늘 19:00",
-    meetingTime: new Date().toISOString(),
+    meetingTime: new Date().toISOString(), // 마감임박 계산용
     distanceText: "0.6km",
     locationText: "잠원지구 3주차장",
     locationLat: 37.5195,
@@ -130,95 +133,54 @@ let _MOCK_DATA: MeetingPost[] = [
     durationHours: 1,
     host: HOST_USERS.user3,
   },
-  {
-    id: "5",
-    category: "ETC",
-    title: "📸 야간 산책 + 사진 찍기",
-    meetingTimeText: "오늘 22:00",
-    distanceText: "3.1km",
-    locationText: "낙산공원 입구",
-    locationLat: 37.5807,
-    locationLng: 127.0076,
-    capacityJoined: 2,
-    capacityTotal: 5,
-    joinMode: "APPROVAL",
-    status: "OPEN",
-    content: "카메라 기종 상관없어요 폰카 가능",
-    myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 2,
-    host: HOST_USERS.user1,
-  },
-  {
-    id: "6",
-    category: "MEAL",
-    title: "☕ 점심 커피 한 잔",
-    meetingTimeText: "내일 12:30",
-    distanceText: "0.1km",
-    locationText: "스타벅스 강남R점",
-    locationLat: 37.4979,
-    locationLng: 127.0276,
-    capacityJoined: 1,
-    capacityTotal: 2,
-    joinMode: "INSTANT",
-    status: "OPEN",
-    content: "점심시간 짧게 커피 드실 분!",
-    myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 1,
-    host: HOST_USERS.user4,
-  },
-  {
-    id: "7",
-    category: "STUDY",
-    title: "📚 각자 할 일 하는 스터디",
-    meetingTimeText: "주말 10:00",
-    distanceText: "1.5km",
-    locationText: "투썸플레이스 사당점",
-    locationLat: 37.4765,
-    locationLng: 126.9816,
-    capacityJoined: 3,
-    capacityTotal: 4,
-    joinMode: "INSTANT",
-    status: "OPEN",
-    content: "3시간 정도 집중해요",
-    myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 3,
-    host: HOST_USERS.user3,
-  },
-  {
-    id: "8",
-    category: "GAMES",
-    title: "♟️ 체스 두실 분",
-    meetingTimeText: "내일 18:00",
-    distanceText: "2.0km",
-    locationText: "이디야 커피",
-    locationLat: 37.5020,
-    locationLng: 127.0370,
-    capacityJoined: 2,
-    capacityTotal: 2,
-    joinMode: "INSTANT",
-    status: "ENDED",
-    content: "체스판 가져갑니다.",
-    myState: { membershipStatus: "NONE", canJoin: false, reason: "종료됨" },
-    durationHours: 2,
-    host: HOST_USERS.user2,
-  },
 ];
 
 // --- Helper: 네트워크 지연 시뮬레이션 ---
 const delay = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/**
- * ✅ 1. 목록 조회
- */
-export async function listMeetings(params?: { category?: CategoryKey | "ALL" }): Promise<MeetingPost[]> {
-  await delay();
-  const category = params?.category;
-  const sorted = [..._MOCK_DATA].sort((a, b) => Number(b.id) - Number(a.id));
+// --- Helper: 거리 파싱 (0.6km -> 0.6) ---
+function parseKm(distanceText?: string) {
+  if (!distanceText) return 999;
+  const n = parseFloat(distanceText.replace("km", "").trim());
+  return Number.isFinite(n) ? n : 999;
+}
 
-  if (!category || category === "ALL") {
-    return sorted;
+/**
+ * ✅ 1. 목록 조회 (홈 화면 필터링 & 정렬 통합)
+ */
+export async function listMeetings(params?: { 
+  category?: CategoryKey | "ALL"; 
+  sort?: HomeSort; // 정렬 옵션 추가
+}): Promise<MeetingPost[]> {
+  await delay();
+
+  const category = params?.category;
+  const sort = params?.sort ?? "LATEST";
+
+  // 1) 필터링
+  let filtered = [..._MOCK_DATA];
+  if (category && category !== "ALL") {
+    filtered = filtered.filter((m) => m.category === category);
   }
-  return sorted.filter((m) => m.category === category);
+
+  // 2) 정렬
+  filtered.sort((a, b) => {
+    if (sort === "NEAR") {
+      // 거리순 (mock 데이터의 distanceText 파싱)
+      return parseKm(a.distanceText) - parseKm(b.distanceText);
+    } 
+    if (sort === "SOON") {
+      // 마감임박순 (meetingTime ISO 문자열 비교)
+      // meetingTime이 없으면 가장 뒤로 보냄
+      const timeA = a.meetingTime ? new Date(a.meetingTime).getTime() : Number.MAX_SAFE_INTEGER;
+      const timeB = b.meetingTime ? new Date(b.meetingTime).getTime() : Number.MAX_SAFE_INTEGER;
+      return timeA - timeB;
+    }
+    // LATEST (기본값): ID 역순 (최신순)
+    return Number(b.id) - Number(a.id);
+  });
+
+  return filtered;
 }
 
 /**
@@ -236,7 +198,7 @@ export async function getMeeting(id: string): Promise<MeetingPost> {
 }
 
 /**
- * ✅ 3. 참여 요청 (승인제/선착순 구분)
+ * ✅ 3. 참여 요청
  */
 export async function joinMeeting(
   id: string
@@ -269,7 +231,7 @@ export async function joinMeeting(
 }
 
 /**
- * ✅ 4. 참여/신청 취소 (오류 해결: JOINED 삭제)
+ * ✅ 4. 참여/신청 취소
  */
 export async function cancelJoin(id: string): Promise<{ post: MeetingPost }> {
   await delay();
@@ -281,7 +243,6 @@ export async function cancelJoin(id: string): Promise<{ post: MeetingPost }> {
 
   let newJoinedCount = target.capacityJoined;
 
-  // ✅ 오류 해결: JOINED 상태 비교 제거. MEMBER일 때만 차감.
   if (oldStatus === "MEMBER") {
     newJoinedCount = Math.max(0, target.capacityJoined - 1);
   }
@@ -300,8 +261,7 @@ export async function cancelJoin(id: string): Promise<{ post: MeetingPost }> {
 }
 
 /**
- * ✅ 5. 본문 수정 (오류 해결: hostMemo 할당 제거)
- * 함수명 변경 제안: updateHostMemo -> updateContent
+ * ✅ 5. 본문 수정
  */
 export async function updateContent(id: string, text: string): Promise<{ post: MeetingPost }> {
   await delay();
@@ -310,15 +270,14 @@ export async function updateContent(id: string, text: string): Promise<{ post: M
 
   _MOCK_DATA[index] = {
     ..._MOCK_DATA[index],
-    content: text, // ✅ hostMemo 삭제, content만 업데이트
-    // memoUpdatedAtText: "방금 전", // 필요 시 사용
+    content: text,
   };
 
   return { post: _MOCK_DATA[index] };
 }
 
 /**
- * ✅ 6. 모임 취소 (삭제 처리)
+ * ✅ 6. 모임 취소 (삭제)
  */
 export async function cancelMeeting(id: string): Promise<{ post: MeetingPost }> {
   await delay();
@@ -330,7 +289,7 @@ export async function cancelMeeting(id: string): Promise<{ post: MeetingPost }> 
 }
 
 /**
- * ✅ 7. 모임 생성 (오류 해결: hostMemo 할당 제거)
+ * ✅ 7. 모임 생성
  */
 export async function createMeeting(data: MeetingParams): Promise<MeetingPost> {
   await delay(800);
@@ -342,21 +301,20 @@ export async function createMeeting(data: MeetingParams): Promise<MeetingPost> {
     category: data.category,
     title: data.title,
     meetingTimeText: data.meetingTimeText,
-    meetingTime: data.meetingTimeIso,
+    meetingTime: data.meetingTimeIso, // 정렬을 위해 ISO 저장 필수
     
-    distanceText: "0.1km",
+    distanceText: "0.1km", // 방금 만든건 아주 가깝다고 가정
     locationText: data.locationText,
     locationLat: data.locationLat,
     locationLng: data.locationLng,
 
-    capacityJoined: 1,
+    capacityJoined: 1, // 호스트 포함
     capacityTotal: data.capacityTotal,
     joinMode: data.joinMode,
     conditions: data.conditions,
 
     status: "OPEN",
     content: data.content,
-    // ✅ hostMemo 삭제됨
     
     myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" },
     durationHours: Math.round((data.durationMinutes / 60) * 10) / 10,
@@ -371,12 +329,12 @@ export async function createMeeting(data: MeetingParams): Promise<MeetingPost> {
     },
   };
 
-  _MOCK_DATA.unshift(newMeeting);
+  _MOCK_DATA.unshift(newMeeting); // 최신순 정렬을 위해 맨 앞에 추가
   return newMeeting;
 }
 
 /**
- * ✅ 8. 모임 수정 (오류 해결: hostMemo 할당 제거)
+ * ✅ 8. 모임 수정
  */
 export async function updateMeeting(id: string, data: MeetingParams): Promise<MeetingPost> {
   await delay(800);
@@ -390,7 +348,6 @@ export async function updateMeeting(id: string, data: MeetingParams): Promise<Me
     ...data,
     meetingTime: data.meetingTimeIso ?? original.meetingTime,
     content: data.content,
-    // ✅ hostMemo 삭제됨
     durationHours: Math.round((data.durationMinutes / 60) * 10) / 10,
     durationMinutes: data.durationMinutes,
   };
