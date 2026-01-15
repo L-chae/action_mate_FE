@@ -123,7 +123,7 @@ export default function IdLoginScreen() {
   };
 
   return (
-    <AppLayout style={StyleSheet.flatten([styles.page, { backgroundColor: t.colors.background }])}>
+    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}

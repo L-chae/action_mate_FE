@@ -1,7 +1,8 @@
 import { Meeting } from "../meetings/types";
 
-// ✅ 서울 강남역 인근 더미 데이터
+// ✅ 서울 강남역 + 경기 동탄 1신도시 더미 데이터
 const MOCK_MEETINGS: Meeting[] = [
+  // --- [강남역 기존 데이터] ---
   {
     id: "m1",
     category: "SPORTS",
@@ -56,7 +57,37 @@ const MOCK_MEETINGS: Meeting[] = [
     capacityJoined: 3,
     capacityTotal: 4,
     joinMode: "INSTANT",
-    status: "FULL", // 마감된 모임 예시
+    status: "FULL",
+  },
+
+  // --- [추가됨: 동탄 1동 주변 데이터] ---
+  {
+    id: "m5",
+    category: "SPORTS",
+    title: "🏃‍♂️ 동탄 센트럴파크 야간 러닝",
+    meetingTimeText: "오늘 20:00",
+    locationText: "동탄 센트럴파크 축구장 옆",
+    lat: 37.2005, // 동탄 센트럴파크 좌표
+    lng: 127.0685,
+    distanceText: "100m",
+    capacityJoined: 4,
+    capacityTotal: 10,
+    joinMode: "INSTANT",
+    status: "OPEN",
+  },
+  {
+    id: "m6",
+    category: "MEAL",
+    title: "🍝 타임테라스 파스타 맛집",
+    meetingTimeText: "내일 12:30",
+    locationText: "동탄 메타폴리스 타임테라스",
+    lat: 37.2045, // 메타폴리스 좌표
+    lng: 127.0665,
+    distanceText: "500m",
+    capacityJoined: 2,
+    capacityTotal: 4,
+    joinMode: "APPROVAL",
+    status: "OPEN",
   },
 ];
 

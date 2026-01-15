@@ -22,7 +22,7 @@ export type MyState = {
   reason?: string; // "정원마감", "이미 참여함", "차단됨" 등
 };
 
-export type Meeting = {
+export type MeetingPost = {
   id: string;
 
   // ✅ MVP: 객체 대신 Key string만 사용 (가벼움)

@@ -1,16 +1,17 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { 
-  FlatList, 
-  RefreshControl, 
-  StyleSheet, 
-  Text, 
-  View, 
-  Pressable, 
-  ActivityIndicator 
+import {
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+  Pressable,
+  ActivityIndicator
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
+import TopBar from "@/shared/ui/TopBar";
 import AppLayout from "@/shared/ui/AppLayout";
 import EmptyView from "@/shared/ui/EmptyView";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
@@ -23,7 +24,7 @@ function formatTime(isoString: string) {
   const date = new Date(isoString);
   const now = new Date();
   const diff = now.getTime() - date.getTime();
-  
+
   // 1분 미만
   if (diff < 60 * 1000) return "방금 전";
   // 하루 미만 -> 시간 표시
@@ -37,7 +38,7 @@ function formatTime(isoString: string) {
 export default function DMListScreen() {
   const t = useAppTheme();
   const router = useRouter();
-  
+
   const [threads, setThreads] = useState<DMThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,7 +69,7 @@ export default function DMListScreen() {
       onPress={() => router.push(`/dm/${item.id}?nickname=${item.otherUser.nickname}` as any)}
       style={({ pressed }) => [
         styles.itemContainer,
-        { 
+        {
           backgroundColor: pressed ? t.colors.neutral[100] : t.colors.surface,
           borderBottomColor: t.colors.neutral[100],
         }
@@ -104,7 +105,7 @@ export default function DMListScreen() {
           <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, flex: 1 }]} numberOfLines={1}>
             {item.lastMessage?.text ?? "대화를 시작해보세요"}
           </Text>
-          
+
           {/* 안 읽은 메시지 배지 */}
           {item.unreadCount > 0 && (
             <View style={[styles.unreadBadge, { backgroundColor: t.colors.primary }]}>
@@ -120,14 +121,14 @@ export default function DMListScreen() {
 
   return (
     <AppLayout padded={false}>
-      {/* 헤더 */}
-      <View style={[styles.header, { 
-        backgroundColor: t.colors.background, 
-        borderBottomColor: t.colors.neutral[200],
-        borderBottomWidth: 1 
-      }]}>
-        <Text style={t.typography.headlineSmall}>메시지</Text>
-      </View>
+      <TopBar
+        title="메시지"
+        showBorder
+        showNoti
+        showNotiDot={false}
+        showMenu={false}
+      />
+
 
       {loading ? (
         <View style={styles.center}>
@@ -140,13 +141,17 @@ export default function DMListScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingBottom: 100 }}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.colors.primary} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={t.colors.primary}
+            />
           }
           ListEmptyComponent={
             <View style={{ marginTop: 100 }}>
-              <EmptyView 
-                title="대화 내역이 없어요" 
-                description="모임에 참여하여 호스트와 대화를 나눠보세요!" 
+              <EmptyView
+                title="대화 내역이 없어요"
+                description="모임에 참여하여 호스트와 대화를 나눠보세요!"
               />
             </View>
           }
