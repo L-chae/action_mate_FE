@@ -1,4 +1,3 @@
-// src/features/auth/IdLoginScreen.tsx
 import React, { useMemo, useRef, useState } from "react";
 import {
   View,
@@ -15,6 +14,7 @@ import { router } from "expo-router";
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { useAuthStore } from "@/features/auth/authStore";
+import { verifyLogin } from "@/features/auth/localAuthService";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -80,14 +80,13 @@ function PrimaryButton({
 
 export default function IdLoginScreen() {
   const t = useAppTheme();
-  const login = useAuthStore((s) => s.login);
+  const loginToStore = useAuthStore((s) => s.login);
 
   const PH = t.spacing.pagePaddingH;
   const PV = t.spacing.pagePaddingV;
   const R = t.spacing.radiusMd;
 
   const GAP_XXS = 6;
-  const GAP_XS = 8;
   const GAP_SM = 12;
   const GAP_MD = 16;
   const GAP_LG = 24;
@@ -96,30 +95,54 @@ export default function IdLoginScreen() {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
 
+  // ✅ 포커스(hover 느낌)
+  const [focused, setFocused] = useState<"email" | "password" | null>(null);
+  const isFocused = (k: "email" | "password") => focused === k;
+
   // ✅ 이메일 UX용
   const [touchedEmail, setTouchedEmail] = useState(false);
+  const [touchedPw, setTouchedPw] = useState(false);
+
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const emailOk = useMemo(() => isValidEmail(email), [email]);
   const emailError = touchedEmail && email.trim().length > 0 && !emailOk;
 
-  // ✅ 이메일 형식 + 비밀번호 4자 이상만 로그인 가능
-  const canSubmit = useMemo(() => emailOk && password.length >= 4, [emailOk, password]);
+  // ✅ 회원가입이 8자 기준이니까 로그인도 8자로 통일
+  const pwOk = password.length >= 8;
+  const pwError = touchedPw && password.length > 0 && !pwOk;
 
-  const onLogin = () => {
-    // ✅ 어떤 경로로 제출해도 이메일 형식 강제
+  const canSubmit = useMemo(() => emailOk && pwOk && !busy, [emailOk, pwOk, busy]);
+
+  // ✅ 토큰 fallback
+  const c = t.colors as any;
+  const danger = c.error ?? c.danger ?? c.negative ?? c.red ?? t.colors.primary;
+  const activeBg = c.surfaceAlt ?? c.surface2 ?? c.card ?? t.colors.surface ?? t.colors.background;
+  const onPrimary = c.onPrimary ?? "#ffffff";
+
+  const onLogin = async () => {
     setTouchedEmail(true);
+    setTouchedPw(true);
+    setErrorMsg(null);
+
     if (!emailOk) return;
-    if (password.length < 4) return;
+    if (!pwOk) {
+      setErrorMsg("비밀번호는 8자 이상으로 입력해 주세요.");
+      return;
+    }
 
-    login({
-      id: "temp-user",
-      email: email.trim(),
-      nickname: "게스트",
-    });
-
-    setTimeout(() => {
+    setBusy(true);
+    try {
+      // ✅ 로컬 저장소 계정 검증
+      const user = await verifyLogin(email.trim(), password);
+      await loginToStore(user);
       router.replace("/(tabs)");
-    }, 0);
+    } catch (e: any) {
+      setErrorMsg(e?.message ?? "로그인에 실패했어요.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -143,22 +166,13 @@ export default function IdLoginScreen() {
               style={styles.logo}
               resizeMode="contain"
             />
-            <Text
-              style={[
-                t.typography.titleLarge,
-                { color: t.colors.textMain, marginTop: GAP_SM },
-              ]}
-            >
+            <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: GAP_SM }]}>
               아이디로 로그인
             </Text>
             <Text
               style={[
                 t.typography.bodySmall,
-                {
-                  color: t.colors.textSub,
-                  marginTop: GAP_XXS,
-                  textAlign: "center",
-                },
+                { color: t.colors.textSub, marginTop: GAP_XXS, textAlign: "center" },
               ]}
             >
               이메일과 비밀번호를 입력해주세요
@@ -168,12 +182,7 @@ export default function IdLoginScreen() {
           <View style={{ height: GAP_LG }} />
 
           {/* Email */}
-          <Text
-            style={[
-              t.typography.labelSmall,
-              { color: t.colors.textSub, marginBottom: GAP_XS },
-            ]}
-          >
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>
             이메일
           </Text>
 
@@ -182,8 +191,13 @@ export default function IdLoginScreen() {
             onChangeText={(v) => {
               setEmail(v);
               if (!touchedEmail) setTouchedEmail(true);
+              if (errorMsg) setErrorMsg(null);
             }}
-            onBlur={() => setTouchedEmail(true)}
+            onFocus={() => setFocused("email")}
+            onBlur={() => {
+              setFocused(null);
+              setTouchedEmail(true);
+            }}
             placeholder="example@email.com"
             autoCapitalize="none"
             keyboardType="email-address"
@@ -191,8 +205,10 @@ export default function IdLoginScreen() {
             autoComplete="email"
             style={[
               styles.input,
+              isFocused("email") && styles.inputFocused,
               {
-                borderColor: emailError ? "#E53935" : t.colors.border, // ✅ 방법 A: 고정 에러색
+                borderColor: emailError ? danger : isFocused("email") ? t.colors.primary : t.colors.border,
+                backgroundColor: isFocused("email") ? activeBg : t.colors.surface,
                 color: t.colors.textMain,
                 borderRadius: R,
               },
@@ -201,14 +217,8 @@ export default function IdLoginScreen() {
             returnKeyType="next"
           />
 
-          {/* ✅ 이메일 형식 에러 표시 (방법 A: 하드코딩) */}
           {emailError && (
-            <Text
-              style={[
-                t.typography.bodySmall,
-                { color: "#E53935", marginTop: GAP_XXS },
-              ]}
-            >
+            <Text style={[t.typography.bodySmall, { color: danger, marginTop: GAP_XXS }]}>
               올바른 이메일 형식으로 입력해주세요. (예: test@email.com)
             </Text>
           )}
@@ -216,32 +226,43 @@ export default function IdLoginScreen() {
           <View style={{ height: GAP_MD }} />
 
           {/* Password */}
-          <Text
-            style={[
-              t.typography.labelSmall,
-              { color: t.colors.textSub, marginBottom: GAP_XS },
-            ]}
-          >
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>
             비밀번호
           </Text>
 
           <View
             style={[
               styles.pwRow,
-              { borderColor: t.colors.border, borderRadius: R },
+              isFocused("password") && styles.inputFocused,
+              {
+                borderColor: pwError ? danger : isFocused("password") ? t.colors.primary : t.colors.border,
+                borderRadius: R,
+                backgroundColor: isFocused("password") ? activeBg : t.colors.surface,
+              },
             ]}
           >
             <TextInput
               value={password}
-              onChangeText={setPassword}
-              placeholder="비밀번호 (4자 이상)"
+              onChangeText={(v) => {
+                setPassword(v);
+                if (errorMsg) setErrorMsg(null);
+              }}
+              onFocus={() => setFocused("password")}
+              onBlur={() => {
+                setFocused(null);
+                setTouchedPw(true);
+              }}
+              placeholder="비밀번호 (8자 이상)"
               secureTextEntry={!showPw}
               style={[styles.pwInput, { color: t.colors.textMain }]}
               placeholderTextColor={t.colors.textSub}
               returnKeyType="done"
               onSubmitEditing={() => {
-                if (canSubmit) onLogin();
-                else setTouchedEmail(true);
+                if (canSubmit) void onLogin();
+                else {
+                  setTouchedEmail(true);
+                  setTouchedPw(true);
+                }
               }}
             />
 
@@ -252,44 +273,55 @@ export default function IdLoginScreen() {
             </Pressable>
           </View>
 
+          {pwError && (
+            <Text style={[t.typography.bodySmall, { color: danger, marginTop: GAP_XXS }]}>
+              비밀번호는 8자 이상으로 입력해 주세요.
+            </Text>
+          )}
+
+          {errorMsg ? (
+            <Text style={[t.typography.bodySmall, { color: danger, marginTop: GAP_XXS }]}>
+              {errorMsg}
+            </Text>
+          ) : null}
+
           <View style={{ height: GAP_LG }} />
 
           {/* Login Button */}
           <PrimaryButton
-            title="로그인"
-            onPress={onLogin}
+            title={busy ? "로그인 중..." : "로그인"}
+            onPress={() => void onLogin()}
             disabled={!canSubmit}
             radius={R}
             bg={t.colors.primary}
-            fg="#ffffff"
+            fg={onPrimary}
           />
 
-          {/* Links */}
+          {/* ✅ 회원가입 버튼 크게 */}
           <View style={{ height: GAP_SM }} />
 
-          <View style={styles.linksRow}>
-            <Pressable onPress={() => router.replace("/(auth)/login")}>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                뒤로가기
-              </Text>
-            </Pressable>
+          <Pressable
+            onPress={() => router.push("/(auth)/signup")}
+            disabled={busy}
+            style={({ pressed }) => [
+              styles.signUpBtn,
+              {
+                borderRadius: R,
+                borderColor: t.colors.primary,
+                backgroundColor: t.colors.background,
+                opacity: pressed ? 0.88 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.signUpText, { color: t.colors.primary }]}>회원가입</Text>
+          </Pressable>
 
-            <Text style={{ color: t.colors.border, marginHorizontal: 10 }}>·</Text>
-
-            <Pressable onPress={() => router.push("/(auth)/signup")}>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                회원가입
-              </Text>
-            </Pressable>
-          </View>
-
-          <Pressable onPress={() => {}} style={{ marginTop: GAP_MD }}>
-            <Text
-              style={[
-                t.typography.labelSmall,
-                { color: t.colors.textSub, textAlign: "center" },
-              ]}
-            >
+          <Pressable
+            onPress={() => router.push("/(auth)/forgot-password")}
+            disabled={busy}
+            style={{ marginTop: GAP_MD }}
+          >
+            <Text style={[t.typography.labelSmall, { color: t.colors.textSub, textAlign: "center" }]}>
               비밀번호를 잊으셨나요?
             </Text>
           </Pressable>
@@ -302,15 +334,9 @@ export default function IdLoginScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1 },
 
-  brand: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  brand: { alignItems: "center", justifyContent: "center" },
 
-  logo: {
-    width: 64,
-    height: 64,
-  },
+  logo: { width: 64, height: 64 },
 
   input: {
     borderWidth: 1,
@@ -318,6 +344,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 16,
   },
+
+  inputFocused: { borderWidth: 2 },
 
   pwRow: {
     borderWidth: 1,
@@ -327,11 +355,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 10,
   },
-  pwInput: {
-    flex: 1,
-    fontSize: 16,
-    paddingVertical: 4,
-  },
+  pwInput: { flex: 1, fontSize: 16, paddingVertical: 4 },
 
   primaryBtn: {
     alignSelf: "stretch",
@@ -339,14 +363,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryText: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  primaryText: { fontSize: 16, fontWeight: "700" },
 
-  linksRow: {
-    flexDirection: "row",
-    justifyContent: "center",
+  signUpBtn: {
+    alignSelf: "stretch",
+    minHeight: 52,
+    borderWidth: 1,
+    paddingVertical: 16,
     alignItems: "center",
+    justifyContent: "center",
   },
+  signUpText: { fontSize: 16, fontWeight: "700" },
 });

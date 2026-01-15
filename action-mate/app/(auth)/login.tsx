@@ -3,12 +3,15 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { View, Text, Image, StyleSheet, Pressable, Animated } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { useAuthStore } from "@/features/auth/authStore";
 
 export default function LoginPage() {
   const t = useAppTheme();
+  const insets = useSafeAreaInsets();
   const login = useAuthStore((s) => s.login);
 
   const PH = t.spacing.pagePaddingH;
@@ -16,19 +19,22 @@ export default function LoginPage() {
   const R = t.spacing.radiusMd;
   const D = t.spacing.animNormal;
 
-  const GAP_SM = 12;
-  const GAP_LG = 24;
+  const GAP_SM = t.spacing.space[3]; // 12
+  const GAP_LG = t.spacing.space[6]; // 24
 
-const mockSocialLogin = async (provider: "kakao" | "naver") => {
-  await login({
-    id: `${provider}_${Date.now()}`,
-    email: `${provider}@mock.local`,
-    nickname: provider === "kakao" ? "카카오 사용자" : "네이버 사용자",
-  });
+  // ✅ 카카오만 유지 (목업)
+  const mockKakaoLogin = async () => {
+    await login({
+      id: `kakao_${Date.now()}`,
+      email: `kakao@mock.local`,
+      nickname: "카카오 사용자",
+      // 아래 2개는 authStore에서 필수면 유지, 아니면 지워도 됨
+      gender: "none",
+      birthDate: "",
+    } as any);
 
-  router.replace("/(tabs)");
-};
-
+    router.replace("/(tabs)");
+  };
 
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoTranslate = useRef(new Animated.Value(10)).current;
@@ -102,19 +108,24 @@ const mockSocialLogin = async (provider: "kakao" | "naver") => {
     };
   }, [blob1, blob2, blob3, t.colors.primary, t.colors.point]);
 
+  // ✅ 갤럭시 하단바(네비/제스처) 가림 방지: bottom inset 반영 + 여유값
+  const bottomPad = Math.max(PV, t.spacing.space[4]) + insets.bottom + t.spacing.space[4]; // 16 + insets + 16
+
   return (
     <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]} padded={false}>
       <LinearGradient
-        colors={["#FBFBFF", "#FFFFFF", "#FFF8F5"]}
+        colors={[t.colors.primaryLight, t.colors.background, t.colors.surface]}
         locations={[0, 0.55, 1]}
         style={StyleSheet.absoluteFill}
       />
 
+      {/* ✅ 배경 blob만 유지 */}
       <View style={[StyleSheet.absoluteFill, { overflow: "hidden" }]} pointerEvents="none">
         <Animated.View style={blobStyles.b1 as any} />
         <Animated.View style={blobStyles.b2 as any} />
         <Animated.View style={blobStyles.b3 as any} />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.02)" }]} />
+        {/* 미세 톤 */}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: t.colors.neutral[900], opacity: 0.02 }]} />
       </View>
 
       <View style={[styles.center, { paddingHorizontal: PH, paddingTop: GAP_LG }]}>
@@ -133,10 +144,20 @@ const mockSocialLogin = async (provider: "kakao" | "naver") => {
         </Animated.View>
       </View>
 
-      <View style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: Math.max(PV, 16) }]}>
-        <View style={styles.ctaCard}>
+      <View style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: bottomPad }]}>
+        <View
+          style={[
+            styles.ctaCard,
+            {
+              backgroundColor: t.colors.surface,
+              borderColor: t.colors.border,
+              shadowColor: t.colors.neutral[900],
+            },
+          ]}
+        >
+          {/* ✅ 카카오 색은 그대로 */}
           <Pressable
-            onPress={() => mockSocialLogin("kakao")}
+            onPress={mockKakaoLogin}
             style={({ pressed }) => [
               styles.socialBtn,
               { backgroundColor: "#FEE500", borderRadius: R + 2, opacity: pressed ? 0.9 : 1 },
@@ -147,27 +168,30 @@ const mockSocialLogin = async (provider: "kakao" | "naver") => {
 
           <View style={{ height: GAP_SM }} />
 
+          {/* ✅ 이메일로 로그인: 채움 버튼(원상태) */}
           <Pressable
-            onPress={() => mockSocialLogin("naver")}
+            onPress={() => router.push("/(auth)/id-login")}
             style={({ pressed }) => [
               styles.socialBtn,
-              { backgroundColor: "#03C75A", borderRadius: R + 2, opacity: pressed ? 0.9 : 1 },
+              {
+                backgroundColor: t.colors.primary,
+                borderRadius: R + 2,
+                opacity: pressed ? 0.9 : 1,
+              },
             ]}
           >
-            <Text style={[styles.socialText, { color: "#FFFFFF" }]}>네이버로 시작하기</Text>
+            <Text style={[styles.socialText, { color: t.colors.backgroundLight }]}>이메일로 로그인</Text>
           </Pressable>
 
-          <Pressable
-            // ✅ auth 그룹 안에 있는 페이지로 명시적으로 이동
-            onPress={() => router.push("/(auth)/id-login")}
-            style={({ pressed }) => [{ marginTop: 14, opacity: pressed ? 0.7 : 1 }]}
-          >
-            <Text style={[t.typography.bodySmall, { textAlign: "center", color: t.colors.textMain }]}>
-              다른 방법으로 로그인 →
-            </Text>
-          </Pressable>
+          {/* ✅ 회원가입 링크 */}
+          <View style={styles.signupRow}>
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>계정이 없으신가요?</Text>
+            <Pressable onPress={() => router.push("/(auth)/signup")} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+              <Text style={[t.typography.bodySmall, styles.signupLink, { color: t.colors.primary }]}>회원가입</Text>
+            </Pressable>
+          </View>
 
-          <Text style={[styles.terms, { color: t.colors.textSub, opacity: 0.55 }]}>
+          <Text style={[styles.terms, { color: t.colors.textSub, opacity: 0.6 }]}>
             가입을 진행할 경우 서비스 약관 및 개인정보 처리방침에 동의한 것으로 간주합니다.
           </Text>
         </View>
@@ -178,23 +202,16 @@ const mockSocialLogin = async (provider: "kakao" | "naver") => {
 
 const styles = StyleSheet.create({
   page: { flex: 1, justifyContent: "space-between", overflow: "hidden" },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    transform: [{ translateY: -10 }],
-  },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   logo: { width: 110, height: 110 },
   title: { textAlign: "center", letterSpacing: -0.3 },
   subtitle: { textAlign: "center", lineHeight: 18, letterSpacing: -0.1 },
+
   bottom: { width: "100%" },
   ctaCard: {
     borderRadius: 22,
     padding: 16,
-    backgroundColor: "rgba(255,255,255,0.88)",
     borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
-    shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
@@ -202,6 +219,16 @@ const styles = StyleSheet.create({
   },
   socialBtn: { width: "100%", alignItems: "center", justifyContent: "center", paddingVertical: 14 },
   socialText: { fontSize: 14, fontWeight: "700", letterSpacing: -0.2 },
+
+  signupRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  signupLink: { fontWeight: "800" },
+
   terms: { marginTop: 12, textAlign: "center", fontSize: 11, lineHeight: 15 },
   blob: { position: "absolute" },
 });
