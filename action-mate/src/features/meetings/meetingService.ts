@@ -183,14 +183,24 @@ export async function listMeetings(params?: { category?: CategoryKey | "ALL" }):
 
   return _MOCK_DATA.filter((m) => m.category === category);
 }
-
 // ✅ 3. 상세 조회
 export async function getMeeting(id: string): Promise<MeetingPost> {
   await delay();
-  const found = _MOCK_DATA.find((m) => m.id === id);
-  if (!found) throw new Error("Meeting not found");
+
+  // ✅ expo-router param이 string[] / undefined로 올 때 방어
+  const normalizedId = Array.isArray(id) ? id[0] : String(id ?? "");
+
+  const found = _MOCK_DATA.find((m) => String(m.id) === normalizedId);
+
+  if (!found) {
+    // 목업 단계에서는 진입이 막히면 테스트가 힘드니 fallback 처리(선택)
+    // return { ..._MOCK_DATA[0] };
+    throw new Error("Meeting not found");
+  }
+
   return { ...found };
 }
+
 
 // ✅ 4. 참여 요청
 export async function joinMeeting(

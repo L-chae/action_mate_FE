@@ -1,54 +1,51 @@
-import React, { useMemo } from "react";
-import { Tabs } from "expo-router";
+// app/(tabs)/_layout.tsx
+import React from "react";
+import { Tabs, Redirect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { useAuthStore } from "@/features/auth/authStore";
+
+const TAB_BAR_HEIGHT = 56;
 
 export default function TabsLayout() {
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
 
-  const TAB_BAR_HEIGHT = 56;
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
 
-  // ✅ Map/Chips와 통일: Ionicons + outline 톤
-  const icons = useMemo(
-    () => ({
-      home: { on: "home", off: "home-outline" } as const,
-      map: { on: "map", off: "map-outline" } as const,
-      chat: { on: "chatbubbles", off: "chatbubbles-outline" } as const,
-      my: { on: "person", off: "person-outline" } as const,
-    }),
-    []
-  );
+  // ✅ 로딩(하이드레이트) 끝날 때까지 아무것도 렌더하지 않음
+  if (!hasHydrated) return null;
 
-  const screenOptions = useMemo(
-    () => ({
-      headerShown: false,
-      tabBarActiveTintColor: t.colors.primary,
-      tabBarInactiveTintColor: t.colors.textSub,
-      tabBarStyle: {
-        backgroundColor: t.colors.background,
-        borderTopColor: t.colors.border,
-        height: TAB_BAR_HEIGHT + insets.bottom,
-        paddingBottom: insets.bottom,
-        paddingTop: 6,
-      },
-      tabBarHideOnKeyboard: true,
-      // (선택) 라벨 스타일도 살짝 정돈하고 싶으면
-      // tabBarLabelStyle: { fontSize: 11, marginTop: 2 },
-    }),
-    [t.colors.background, t.colors.border, t.colors.primary, t.colors.textSub, insets.bottom]
-  );
+  // ✅ 로그인 안 했으면 탭 진입 자체를 Redirect로 차단 (router.replace 금지)
+  if (!isLoggedIn) {
+    return <Redirect href="/(auth)/login" />;
+  }
 
   return (
-    <Tabs screenOptions={screenOptions}>
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: t.colors.primary,
+        tabBarInactiveTintColor: t.colors.textSub,
+        tabBarHideOnKeyboard: true,
+        tabBarStyle: {
+          backgroundColor: t.colors.background,
+          borderTopColor: t.colors.border,
+          height: TAB_BAR_HEIGHT + insets.bottom,
+          paddingBottom: insets.bottom,
+          paddingTop: 6,
+        },
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
           title: "홈",
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
-              name={focused ? icons.home.on : icons.home.off}
+              name={focused ? "home" : "home-outline"}
               color={color}
               size={size}
             />
@@ -62,7 +59,7 @@ export default function TabsLayout() {
           title: "지도",
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
-              name={focused ? icons.map.on : icons.map.off}
+              name={focused ? "location" : "location-outline"}
               color={color}
               size={size}
             />
@@ -76,7 +73,7 @@ export default function TabsLayout() {
           title: "채팅",
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
-              name={focused ? icons.chat.on : icons.chat.off}
+              name={focused ? "chatbubble" : "chatbubble-outline"}
               color={color}
               size={size}
             />
@@ -90,7 +87,7 @@ export default function TabsLayout() {
           title: "마이페이지",
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
-              name={focused ? icons.my.on : icons.my.off}
+              name={focused ? "person-circle" : "person-circle-outline"}
               color={color}
               size={size}
             />

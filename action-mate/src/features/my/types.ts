@@ -1,10 +1,17 @@
+export type MySummary = {
+  praiseCount: number; // 받은 칭찬 수
+  temperature: number; // 계산된 온도(표시용)
+};
+
 export type MyProfile = {
   nickname: string;
+  photoUrl?: string;
+};
 
-  // ✅ 당근온도 스타일
-  mannerTemp: number;      // 0~100 (예: 36.5)
-  mannerLabel: string;     // "좋은 매너" 같은 문구
-
-  // 옵션(원하면 유지)
-  kudosCount?: number;     // 참고용
+export type MyMeetingItem = {
+  id: string;
+  title: string;
+  place: string;
+  dateText: string; // "1/20(화) 19:00" 같은 표시용
+  memberCount: number;
 };
