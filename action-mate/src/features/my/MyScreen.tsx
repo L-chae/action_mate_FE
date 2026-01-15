@@ -16,14 +16,6 @@ export default function MyScreen() {
   const t = useAppTheme();
   const [profile, setProfile] = useState<MyProfile | null>(null);
 const logout = useAuthStore((s) => s.logout);
-<Pressable
-  onPress={async () => {
-    await logout();
-    router.replace("/(auth)/login");
-  }}
->
-  <Text>로그아웃</Text>
-</Pressable>
 
   useEffect(() => {
     getMyProfile().then(setProfile);
@@ -50,6 +42,15 @@ const logout = useAuthStore((s) => s.logout);
         <Divider />
         <MenuItem title="설정" onPress={() => {}} />
       </Card>
+      <Pressable
+  onPress={async () => {
+    await logout();
+    router.replace("/(auth)/login");
+  }}
+>
+  <Text>로그아웃</Text>
+</Pressable>
+
     </AppLayout>
   );
 }
