@@ -1,11 +1,19 @@
-import type { CategoryKey, MembershipStatus, HostSummary, MeetingPost } from "./types";
+import type {
+  CategoryKey,
+  MembershipStatus,
+  HostSummary,
+  MeetingPost,
+} from "./types";
 
 // ✅ 0. 공통 타입 및 정렬 타입 정의
 export type MeetingParams = {
   title: string;
   category: CategoryKey;
+
+  // ✅ 이제 외부에서 받아도 되지만, 서비스에서 meetingTimeIso 기준으로 재생성해서 통일함
   meetingTimeText: string;
   meetingTimeIso?: string;
+
   locationText: string;
   locationLat?: number;
   locationLng?: number;
@@ -55,14 +63,59 @@ const HOST_USERS: Record<string, HostSummary> = {
   },
 };
 
+// --- Helper: 네트워크 지연 시뮬레이션 ---
+const delay = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// --- Helper: 거리 파싱 (0.6km -> 0.6) ---
+function parseKm(distanceText?: string) {
+  if (!distanceText) return 999;
+  const n = parseFloat(distanceText.replace("km", "").trim());
+  return Number.isFinite(n) ? n : 999;
+}
+
+// ✅ Helper: 0패딩
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+// ✅ Helper: 날짜 + 요일 + 시간 포맷 (요청한 형태)
+const DOW = ["일", "월", "화", "수", "목", "금", "토"];
+function formatMeetingTimeText(dt: Date) {
+  const m = dt.getMonth() + 1;
+  const d = dt.getDate();
+  const dow = DOW[dt.getDay()];
+  return `${m}.${d}(${dow}) ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
+}
+
+// ✅ Helper: 오늘 기준 특정 시각 만들기(로컬 타임존 기준)
+function atLocal(daysFromToday: number, hour: number, minute: number) {
+  const now = new Date();
+  return new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + daysFromToday,
+    hour,
+    minute,
+    0,
+    0
+  );
+}
+
 // ✅ Mock Data (전역 변수로 관리하여 데이터 동기화)
+// - meetingTime(ISO) 기준으로 meetingTimeText를 항상 재생성해서 "날짜(요일) 시간" 통일
+const t1 = atLocal(0, 19, 0);
+const t2 = atLocal(0, 20, 30);
+const t3 = atLocal(1, 14, 0);
+const t4 = atLocal(0, 21, 0);
+
 let _MOCK_DATA: MeetingPost[] = [
   {
     id: "1",
     category: "SPORTS",
     title: "🏸 배드민턴 2게임만 (초보 환영)",
-    meetingTimeText: "오늘 19:00",
-    meetingTime: new Date().toISOString(), // 마감임박 계산용
+    meetingTime: t1.toISOString(),
+    meetingTimeText: formatMeetingTimeText(t1),
+
     distanceText: "0.6km",
     locationText: "잠원지구 3주차장",
     locationLat: 37.5195,
@@ -80,8 +133,9 @@ let _MOCK_DATA: MeetingPost[] = [
     id: "2",
     category: "MEAL",
     title: "🍜 저녁 라멘 같이 먹어요",
-    meetingTimeText: "오늘 20:30",
-    meetingTime: new Date().toISOString(),
+    meetingTime: t2.toISOString(),
+    meetingTimeText: formatMeetingTimeText(t2),
+
     distanceText: "1.2km",
     locationText: "홍대 멘야무사시",
     locationLat: 37.5558,
@@ -99,8 +153,9 @@ let _MOCK_DATA: MeetingPost[] = [
     id: "3",
     category: "GAMES",
     title: "🎮 보드게임 가볍게 한 판",
-    meetingTimeText: "내일 14:00",
-    meetingTime: new Date(Date.now() + 86400000).toISOString(),
+    meetingTime: t3.toISOString(),
+    meetingTimeText: formatMeetingTimeText(t3),
+
     distanceText: "0.9km",
     locationText: "성수 앨리스카페",
     locationLat: 37.5446,
@@ -119,11 +174,13 @@ let _MOCK_DATA: MeetingPost[] = [
     id: "4",
     category: "SPORTS",
     title: "🏃 한강 러닝 5km",
-    meetingTimeText: "오늘 21:00",
+    meetingTime: t4.toISOString(), // ✅ 없던 meetingTime(ISO)도 넣어서 정렬/표시 통일
+    meetingTimeText: formatMeetingTimeText(t4),
+
     distanceText: "2.4km",
     locationText: "반포 나들목",
-    locationLat: 37.5090,
-    locationLng: 126.9950,
+    locationLat: 37.509,
+    locationLng: 126.995,
     capacityJoined: 3,
     capacityTotal: 6,
     joinMode: "INSTANT",
@@ -135,22 +192,12 @@ let _MOCK_DATA: MeetingPost[] = [
   },
 ];
 
-// --- Helper: 네트워크 지연 시뮬레이션 ---
-const delay = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// --- Helper: 거리 파싱 (0.6km -> 0.6) ---
-function parseKm(distanceText?: string) {
-  if (!distanceText) return 999;
-  const n = parseFloat(distanceText.replace("km", "").trim());
-  return Number.isFinite(n) ? n : 999;
-}
-
 /**
  * ✅ 1. 목록 조회 (홈 화면 필터링 & 정렬 통합)
  */
-export async function listMeetings(params?: { 
-  category?: CategoryKey | "ALL"; 
-  sort?: HomeSort; // 정렬 옵션 추가
+export async function listMeetings(params?: {
+  category?: CategoryKey | "ALL";
+  sort?: HomeSort;
 }): Promise<MeetingPost[]> {
   await delay();
 
@@ -163,20 +210,28 @@ export async function listMeetings(params?: {
     filtered = filtered.filter((m) => m.category === category);
   }
 
+  // ✅ 표시 텍스트는 항상 meetingTime 기반으로 재생성(혹시 옛 데이터 섞여도 통일)
+  filtered = filtered.map((m) => {
+    const iso = m.meetingTime;
+    if (!iso) return m;
+    const dt = new Date(iso);
+    return { ...m, meetingTimeText: formatMeetingTimeText(dt) };
+  });
+
   // 2) 정렬
   filtered.sort((a, b) => {
     if (sort === "NEAR") {
-      // 거리순 (mock 데이터의 distanceText 파싱)
       return parseKm(a.distanceText) - parseKm(b.distanceText);
-    } 
+    }
     if (sort === "SOON") {
-      // 마감임박순 (meetingTime ISO 문자열 비교)
-      // meetingTime이 없으면 가장 뒤로 보냄
-      const timeA = a.meetingTime ? new Date(a.meetingTime).getTime() : Number.MAX_SAFE_INTEGER;
-      const timeB = b.meetingTime ? new Date(b.meetingTime).getTime() : Number.MAX_SAFE_INTEGER;
+      const timeA = a.meetingTime
+        ? new Date(a.meetingTime).getTime()
+        : Number.MAX_SAFE_INTEGER;
+      const timeB = b.meetingTime
+        ? new Date(b.meetingTime).getTime()
+        : Number.MAX_SAFE_INTEGER;
       return timeA - timeB;
     }
-    // LATEST (기본값): ID 역순 (최신순)
     return Number(b.id) - Number(a.id);
   });
 
@@ -191,10 +246,15 @@ export async function getMeeting(id: string): Promise<MeetingPost> {
   const normalizedId = Array.isArray(id) ? id[0] : String(id ?? "");
   const found = _MOCK_DATA.find((m) => String(m.id) === normalizedId);
 
-  if (!found) {
-    throw new Error("Meeting not found");
-  }
-  return { ...found };
+  if (!found) throw new Error("Meeting not found");
+
+  // ✅ 상세도 표기 통일
+  const iso = found.meetingTime;
+  const meetingTimeText = iso
+    ? formatMeetingTimeText(new Date(iso))
+    : found.meetingTimeText;
+
+  return { ...found, meetingTimeText };
 }
 
 /**
@@ -208,10 +268,11 @@ export async function joinMeeting(
   if (index === -1) throw new Error("Not found");
 
   const target = _MOCK_DATA[index];
-  const newStatus: MembershipStatus = target.joinMode === "APPROVAL" ? "PENDING" : "MEMBER";
+  const newStatus: MembershipStatus =
+    target.joinMode === "APPROVAL" ? "PENDING" : "MEMBER";
 
   let newJoinedCount = target.capacityJoined;
-  
+
   if (newStatus === "MEMBER") {
     newJoinedCount = Math.min(target.capacityJoined + 1, target.capacityTotal);
   }
@@ -263,7 +324,10 @@ export async function cancelJoin(id: string): Promise<{ post: MeetingPost }> {
 /**
  * ✅ 5. 본문 수정
  */
-export async function updateContent(id: string, text: string): Promise<{ post: MeetingPost }> {
+export async function updateContent(
+  id: string,
+  text: string
+): Promise<{ post: MeetingPost }> {
   await delay();
   const index = _MOCK_DATA.findIndex((m) => m.id === id);
   if (index === -1) throw new Error("Not found");
@@ -279,7 +343,9 @@ export async function updateContent(id: string, text: string): Promise<{ post: M
 /**
  * ✅ 6. 모임 취소 (삭제)
  */
-export async function cancelMeeting(id: string): Promise<{ post: MeetingPost }> {
+export async function cancelMeeting(
+  id: string
+): Promise<{ post: MeetingPost }> {
   await delay();
   const index = _MOCK_DATA.findIndex((m) => m.id === id);
   if (index === -1) throw new Error("Not found");
@@ -296,26 +362,31 @@ export async function createMeeting(data: MeetingParams): Promise<MeetingPost> {
 
   const newId = Date.now().toString();
 
+  // ✅ 핵심: ISO가 기준, meetingTimeText는 여기서 재생성
+  const meetingTimeIso = data.meetingTimeIso ?? new Date().toISOString();
+  const meetingTimeText = formatMeetingTimeText(new Date(meetingTimeIso));
+
   const newMeeting: MeetingPost = {
     id: newId,
     category: data.category,
     title: data.title,
-    meetingTimeText: data.meetingTimeText,
-    meetingTime: data.meetingTimeIso, // 정렬을 위해 ISO 저장 필수
-    
-    distanceText: "0.1km", // 방금 만든건 아주 가깝다고 가정
+
+    meetingTime: meetingTimeIso,
+    meetingTimeText,
+
+    distanceText: "0.1km",
     locationText: data.locationText,
     locationLat: data.locationLat,
     locationLng: data.locationLng,
 
-    capacityJoined: 1, // 호스트 포함
+    capacityJoined: 1,
     capacityTotal: data.capacityTotal,
     joinMode: data.joinMode,
     conditions: data.conditions,
 
     status: "OPEN",
     content: data.content,
-    
+
     myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" },
     durationHours: Math.round((data.durationMinutes / 60) * 10) / 10,
     durationMinutes: data.durationMinutes,
@@ -329,24 +400,35 @@ export async function createMeeting(data: MeetingParams): Promise<MeetingPost> {
     },
   };
 
-  _MOCK_DATA.unshift(newMeeting); // 최신순 정렬을 위해 맨 앞에 추가
+  _MOCK_DATA.unshift(newMeeting);
   return newMeeting;
 }
 
 /**
  * ✅ 8. 모임 수정
  */
-export async function updateMeeting(id: string, data: MeetingParams): Promise<MeetingPost> {
+export async function updateMeeting(
+  id: string,
+  data: MeetingParams
+): Promise<MeetingPost> {
   await delay(800);
   const index = _MOCK_DATA.findIndex((m) => m.id === id);
   if (index === -1) throw new Error("Not found");
 
   const original = _MOCK_DATA[index];
 
+  const meetingTimeIso =
+    data.meetingTimeIso ?? original.meetingTime ?? new Date().toISOString();
+  const meetingTimeText = formatMeetingTimeText(new Date(meetingTimeIso));
+
   const updatedMeeting: MeetingPost = {
     ...original,
     ...data,
-    meetingTime: data.meetingTimeIso ?? original.meetingTime,
+
+    // ✅ data에 들어있는 meetingTimeText는 무시하고 여기서 통일
+    meetingTime: meetingTimeIso,
+    meetingTimeText,
+
     content: data.content,
     durationHours: Math.round((data.durationMinutes / 60) * 10) / 10,
     durationMinutes: data.durationMinutes,

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { ScrollView, Pressable, Text, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
@@ -6,7 +6,6 @@ import type { CategoryKey } from "@/features/meetings/types";
 
 type ChipKey = CategoryKey | "ALL";
 
-// ✅ MapScreen과 통일: 카테고리별 색상
 const CATEGORY_COLORS: Record<CategoryKey, string> = {
   SPORTS: "#4A90E2",
   GAMES: "#9B59B6",
@@ -15,7 +14,6 @@ const CATEGORY_COLORS: Record<CategoryKey, string> = {
   ETC: "#95A5A6",
 };
 
-// ✅ MapScreen과 통일: Ionicons 아이콘
 const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
   SPORTS: "basketball-outline",
   GAMES: "game-controller-outline",
@@ -24,10 +22,8 @@ const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
   ETC: "ellipsis-horizontal-outline",
 };
 
-// ✅ ALL 전용 아이콘(통일감 있게)
 const ALL_ICON: keyof typeof Ionicons.glyphMap = "apps-outline";
 
-// ✅ Fix: types.ts의 CategoryKey와 키값 완전 일치
 const CATEGORIES: { id: ChipKey; label: string; iconName: keyof typeof Ionicons.glyphMap }[] = [
   { id: "ALL", label: "전체", iconName: ALL_ICON },
   { id: "SPORTS", label: "운동", iconName: CATEGORY_ICONS.SPORTS },
@@ -45,8 +41,14 @@ type Props = {
 export default function CategoryChips({ value, onChange }: Props) {
   const t = useAppTheme();
 
+  // ✅ 스크롤이 시작되면 탭 선택을 취소하기 위한 플래그
+  const draggingRef = useRef(false);
+  // ✅ 눌렀던 칩 기억 (onPress가 취소되는 기기에서도 onPressOut은 들어오는 경우가 많음)
+  const pendingIdRef = useRef<ChipKey | null>(null);
+
   return (
     <View
+      pointerEvents="auto"
       style={[
         styles.container,
         {
@@ -59,12 +61,33 @@ export default function CategoryChips({ value, onChange }: Props) {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: t.spacing.pagePaddingH }]}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="always"
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingHorizontal: t.spacing.pagePaddingH },
+        ]}
+        onScrollBeginDrag={() => {
+          draggingRef.current = true;
+          pendingIdRef.current = null;
+        }}
+        onScrollEndDrag={() => {
+          // 드래그 끝난 뒤 바로 탭 인정되도록 한 틱 뒤에 해제
+          setTimeout(() => {
+            draggingRef.current = false;
+          }, 0);
+        }}
+        onMomentumScrollBegin={() => {
+          draggingRef.current = true;
+          pendingIdRef.current = null;
+        }}
+        onMomentumScrollEnd={() => {
+          draggingRef.current = false;
+        }}
       >
         {CATEGORIES.map((cat) => {
           const isSelected = value === cat.id;
 
-          // ✅ 비선택 상태에서 아이콘 색을 “카테고리 컬러”로 (ALL은 textSub)
           const inactiveIconColor =
             cat.id === "ALL"
               ? t.colors.textSub
@@ -73,12 +96,29 @@ export default function CategoryChips({ value, onChange }: Props) {
           return (
             <Pressable
               key={cat.id}
-              onPress={() => onChange(cat.id)}
+              hitSlop={8}
+              pressRetentionOffset={20}
+              onPressIn={() => {
+                pendingIdRef.current = cat.id;
+              }}
+              onPressOut={() => {
+                // ✅ 스크롤 중이면 선택 금지
+                if (draggingRef.current) {
+                  pendingIdRef.current = null;
+                  return;
+                }
+
+                // ✅ 눌렀던 칩이면 선택 확정 (onPress가 취소돼도 동작)
+                if (pendingIdRef.current === cat.id) {
+                  onChange(cat.id);
+                }
+                pendingIdRef.current = null;
+              }}
               style={({ pressed }) => [
                 styles.chip,
                 {
                   backgroundColor: isSelected ? t.colors.primary : t.colors.neutral[100],
-                  opacity: pressed ? 0.85 : 1,
+                  opacity: pressed ? 0.88 : 1,
                 },
               ]}
             >
@@ -88,7 +128,6 @@ export default function CategoryChips({ value, onChange }: Props) {
                 color={isSelected ? "#FFFFFF" : inactiveIconColor}
                 style={{ marginRight: 6 }}
               />
-
               <Text
                 style={[
                   t.typography.labelMedium,
@@ -111,6 +150,11 @@ export default function CategoryChips({ value, onChange }: Props) {
 const styles = StyleSheet.create({
   container: {
     paddingVertical: 12,
+
+    // ✅ sticky 환경에서 터치 안정화
+    position: "relative",
+    zIndex: 1000,
+    elevation: 1000,
   },
   scrollContent: {
     gap: 8,
