@@ -36,12 +36,25 @@ type Props = {
 
   showBorder?: boolean;
 
+  /** ✅ 상세에서 자주 쓰는 Back */
+  showBack?: boolean;
+  onPressBack?: () => void;
+
   showNoti?: boolean;
   showNotiDot?: boolean;
   onPressNoti?: () => void;
 
   showMenu?: boolean;
   onPressMenu?: () => void;
+
+  /** ✅ 오른쪽 텍스트 액션 (예: 저장/완료/로그아웃) */
+  rightActionText?: string;
+  rightActionTextStyle?: StyleProp<TextStyle>;
+  onPressRightAction?: () => void;
+  rightActionDisabled?: boolean;
+
+  /** ✅ [추가] 커스텀 우측 컴포넌트 렌더링 (예: 점 3개 메뉴 등) */
+  renderRight?: () => React.ReactNode;
 };
 
 export default function TopBar({
@@ -51,12 +64,22 @@ export default function TopBar({
   logo,
   showBorder = false,
 
+  showBack = false,
+  onPressBack,
+
   showNoti = true,
   showNotiDot = false,
   onPressNoti,
 
   showMenu = false,
   onPressMenu,
+
+  rightActionText,
+  rightActionTextStyle,
+  onPressRightAction,
+  rightActionDisabled = false,
+
+  renderRight, // ✅ 추가됨
 }: Props) {
   const t = useAppTheme();
   const flat = RNStyleSheet.flatten(style) as ViewStyle | undefined;
@@ -77,50 +100,93 @@ export default function TopBar({
         style,
       ]}
     >
-      {/* ✅ LEFT: Logo or Title */}
-      <View style={styles.leftArea}>
-        {logo ? (
-          <View style={styles.logoRow}>
-            {logo.iconName ? (
-              <Ionicons
-                name={logo.iconName}
-                size={18}
-                color={t.colors.primary}
-                style={{ marginRight: 6 }}
-              />
-            ) : null}
+      {/* ✅ LEFT: Back + Logo or Title */}
+      <View style={styles.leftWrap}>
+        {showBack && (
+          <Pressable
+            onPress={onPressBack ?? (() => Alert.alert("뒤로", "onPressBack 없음"))}
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { opacity: pressed ? 0.85 : 1, marginRight: 4 }, // 간격 약간 추가
+            ]}
+          >
+            <Ionicons name="chevron-back" size={26} color={t.colors.textMain} />
+          </Pressable>
+        )}
 
-            <Text style={[styles.logoTextBase, { color: t.colors.textMain }]}>
-              {logo.leftText}
-            </Text>
+        <View style={styles.leftArea}>
+          {logo ? (
+            <View style={styles.logoRow}>
+              {logo.iconName ? (
+                <Ionicons
+                  name={logo.iconName}
+                  size={18}
+                  color={t.colors.primary}
+                  style={{ marginRight: 6 }}
+                />
+              ) : null}
 
+              <Text style={[styles.logoTextBase, { color: t.colors.textMain }]}>
+                {logo.leftText}
+              </Text>
+
+              <Text
+                style={[
+                  styles.logoTextBase,
+                  { color: logo.rightColor ?? t.colors.primary },
+                ]}
+              >
+                {logo.rightText}
+              </Text>
+            </View>
+          ) : title ? (
             <Text
               style={[
-                styles.logoTextBase,
-                {
-                  color: logo.rightColor ?? t.colors.primary,
-                },
+                t.typography.titleLarge,
+                { color: t.colors.textMain },
+                titleStyle,
               ]}
+              numberOfLines={1}
             >
-              {logo.rightText}
+              {title}
             </Text>
-          </View>
-        ) : title ? (
-          <Text
-            style={[
-              t.typography.titleLarge,
-              { color: t.colors.textMain },
-              titleStyle,
-            ]}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-        ) : null}
+          ) : null}
+        </View>
       </View>
 
-      {/* ✅ RIGHT: icons */}
+      {/* ✅ RIGHT: text action + icons + custom render */}
       <View style={styles.rightArea}>
+        {/* 1. 텍스트 액션 (예: 완료) */}
+        {rightActionText ? (
+          <Pressable
+            disabled={rightActionDisabled}
+            onPress={
+              onPressRightAction ??
+              (() => Alert.alert("액션", "onPressRightAction 없음"))
+            }
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.textActionBtn,
+              { opacity: rightActionDisabled ? 0.5 : pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text
+              style={[
+                t.typography.bodySmall,
+                { color: t.colors.primary, fontWeight: "700" },
+                rightActionTextStyle,
+              ]}
+            >
+              {rightActionText}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {/* 2. ✅ 커스텀 렌더링 (점 3개 등) - 텍스트 액션 뒤에 배치 */}
+        {renderRight && renderRight()}
+
+        {/* 3. 알림 아이콘 */}
         {showNoti && (
           <Pressable
             onPress={onPressNoti ?? (() => Alert.alert("알림", "없음"))}
@@ -148,6 +214,7 @@ export default function TopBar({
           </Pressable>
         )}
 
+        {/* 4. 햄버거 메뉴 */}
         {showMenu && (
           <Pressable
             onPress={onPressMenu ?? (() => Alert.alert("메뉴", "오픈"))}
@@ -168,21 +235,40 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+
+  // ✅ LEFT 영역
+  leftWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    minWidth: 0,
+  },
   leftArea: {
     flex: 1,
     justifyContent: "center",
+    minWidth: 0,
   },
+
+  // ✅ RIGHT 영역
   rightArea: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 6,
+    gap: 6, // 아이콘들 사이 간격
   },
   iconBtn: {
     padding: 4,
     justifyContent: "center",
     alignItems: "center",
   },
+
+  textActionBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
   notiDot: {
     position: "absolute",
     right: 2,
@@ -193,7 +279,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
 
-  // ✅ 로고(워드마크) 스타일: 자간/굵기/크기 조절
+  // ✅ 로고 스타일
   logoRow: {
     flexDirection: "row",
     alignItems: "center",

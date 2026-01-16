@@ -13,12 +13,13 @@ import {
   EmitterSubscription,
   LayoutChangeEvent,
 } from "react-native";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import TopBar from "@/shared/ui/TopBar";
 
 import { getDMMessages, sendDMMessage } from "./dmService";
 import type { DMMessage } from "./types";
@@ -26,7 +27,14 @@ import type { DMMessage } from "./types";
 export default function DMThreadScreen() {
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
-  const { threadId, nickname } = useLocalSearchParams<{ threadId: string; nickname: string }>();
+
+  // ✅ meetingId / meetingTitle 파라미터 받기
+  const { threadId, nickname, meetingId, meetingTitle } = useLocalSearchParams<{
+    threadId: string;
+    nickname: string;
+    meetingId?: string;
+    meetingTitle?: string;
+  }>();
 
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,35 +43,26 @@ export default function DMThreadScreen() {
 
   const listRef = useRef<FlatList<DMMessage>>(null);
 
-  // ✅ 키보드 높이/리프트(리스트 여백 계산 + 입력창 이동용)
   const [keyboardLift, setKeyboardLift] = useState(0);
-
-  // ✅ 입력창(컴포저) 높이: 메시지가 입력창에 안 가리게 padding 계산
   const [composerHeight, setComposerHeight] = useState(0);
-
-  // ✅ 입력창 translateY 애니메이션 값
   const translateY = useRef(new Animated.Value(0)).current;
-
-  // ✅ 하단 시스템 영역(제스처바/내비바) 겹침 방지
   const bottomSafe = Math.max(insets.bottom, 8);
 
   useEffect(() => {
     const load = async () => {
       try {
         const data = await getDMMessages(threadId);
-        setMessages(data); // inverted: 최신이 [0]이라고 가정
+        setMessages(data); // 오래된->최신 순서 권장
       } catch (e) {
         console.error(e);
       } finally {
         setLoading(false);
+        requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
       }
     };
     load();
   }, [threadId]);
 
-  // ✅ 키보드 이벤트:
-  // - 입력창은 translateY로 올리고
-  // - 리스트는 paddingTop을 keyboardLift만큼 추가해서 말풍선도 같이 위로 보이게 함
   useEffect(() => {
     let showSub: EmitterSubscription | undefined;
     let hideSub: EmitterSubscription | undefined;
@@ -73,8 +72,6 @@ export default function DMThreadScreen() {
 
     showSub = Keyboard.addListener(showEvent, (e) => {
       const h = e.endCoordinates?.height ?? 0;
-
-      // iOS는 bottom inset이 중복되는 경우가 있어 보정
       const lift = Platform.OS === "ios" ? Math.max(0, h - insets.bottom) : h;
 
       setKeyboardLift(lift);
@@ -85,10 +82,7 @@ export default function DMThreadScreen() {
         useNativeDriver: true,
       }).start();
 
-      // ✅ 키보드 올라올 때 최신 메시지 쪽 유지 (선택)
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true });
-      });
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     });
 
     hideSub = Keyboard.addListener(hideEvent, () => {
@@ -115,8 +109,8 @@ export default function DMThreadScreen() {
 
     try {
       const newMsg = await sendDMMessage(threadId, content);
-      setMessages((prev) => [newMsg, ...prev]); // inverted -> 앞에 추가
-      requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
+      setMessages((prev) => [...prev, newMsg]);
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
     } catch (e) {
       console.error(e);
       setText(content);
@@ -150,10 +144,7 @@ export default function DMThreadScreen() {
         </View>
 
         <Text style={[t.typography.labelSmall, styles.timeText, { color: t.colors.neutral[400] }]}>
-          {new Date(item.createdAt).toLocaleTimeString("ko-KR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
         </Text>
       </View>
     );
@@ -164,30 +155,58 @@ export default function DMThreadScreen() {
     if (h !== composerHeight) setComposerHeight(h);
   };
 
-  // ✅ 핵심:
-  // inverted에서는 “아래(최신 메시지 위치)” 공간이 paddingTop으로 생김
-  // 키보드가 올라오면 keyboardLift만큼 더 띄워서 말풍선도 같이 위로 올라오게 함
   const listContentStyle = useMemo(() => {
     return {
       paddingHorizontal: 16,
-      paddingBottom: 16,
-      paddingTop: composerHeight + bottomSafe + 12 + keyboardLift,
+      paddingTop: 16,
+      paddingBottom: composerHeight + bottomSafe + 12 + keyboardLift,
     } as const;
   }, [composerHeight, bottomSafe, keyboardLift]);
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          title: nickname || "대화",
-          headerBackTitle: " ",
-          headerStyle: { backgroundColor: t.colors.background },
-          headerShadowVisible: false,
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} />
 
       <AppLayout padded={false}>
         <View style={{ flex: 1, backgroundColor: t.colors.background }}>
+          <TopBar
+            title={nickname || "대화"}
+            showBorder
+            showBack
+            onPressBack={() => router.back()}
+            showNoti={false}
+            showMenu={false}
+          />
+
+          {/* ✅ 상단 카드: 모임글로 이동 */}
+          {meetingId ? (
+            <Pressable
+              onPress={() => router.push(`/meetings/${meetingId}`)}
+              style={({ pressed }) => [
+                styles.meetingCard,
+                {
+                  borderColor: t.colors.neutral[200],
+                  backgroundColor: t.colors.neutral[50],
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+                  연결된 모임글
+                </Text>
+                <Text
+                  style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 2 }]}
+                  numberOfLines={1}
+                >
+                  {meetingTitle ?? "모임 상세로 이동"}
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={18} color={t.colors.textSub} />
+            </Pressable>
+          ) : null}
+
           {loading ? (
             <View style={styles.center}>
               <ActivityIndicator color={t.colors.primary} />
@@ -198,13 +217,12 @@ export default function DMThreadScreen() {
               data={messages}
               renderItem={renderMessage}
               keyExtractor={(item) => item.id}
-              inverted
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={listContentStyle}
+              onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             />
           )}
 
-          {/* ✅ 입력창: absolute + translateY로 키보드 위에 고정 */}
           <Animated.View
             onLayout={onComposerLayout}
             style={[
@@ -241,11 +259,7 @@ export default function DMThreadScreen() {
                 { backgroundColor: text.trim() ? t.colors.primary : t.colors.neutral[200] },
               ]}
             >
-              {sending ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <Ionicons name="arrow-up" size={20} color="white" />
-              )}
+              {sending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="arrow-up" size={20} color="white" />}
             </Pressable>
           </Animated.View>
         </View>
@@ -256,6 +270,19 @@ export default function DMThreadScreen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  meetingCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
 
   msgRow: { flexDirection: "row", alignItems: "flex-end", marginBottom: 12 },
   msgRowMe: { flexDirection: "row-reverse" },

@@ -12,10 +12,21 @@ export default function MeetingCard({ item }: { item: MeetingPost }) {
   const t = useAppTheme();
   const router = useRouter();
 
-  const isClosed = ["FULL", "ENDED", "CANCELED"].includes(item.status);
-  const isDisabled = isClosed || (!item.myState?.canJoin && item.status !== "STARTED");
+  // ✅ 1. 내 상태 확인 (호스트인지, 멤버인지)
+  const isHost = item.myState?.membershipStatus === "HOST";
+  const isMember = item.myState?.membershipStatus === "MEMBER";
 
+  const isClosed = ["FULL", "ENDED", "CANCELED"].includes(item.status);
+  
+  // ✅ 2. 비활성 스타일 조건
+  const isDisabled = isClosed || (!item.myState?.canJoin && !isHost && !isMember && item.status !== "STARTED");
+
+  // ✅ 3. 뱃지 로직 수정
   const badge = (() => {
+    // 🔴 수정된 부분: 'accent' -> 'primary' (또는 'warning')
+    if (isHost) return <Badge label="내 모임" tone="primary" />; 
+    if (isMember) return <Badge label="참여중" tone="success" />;
+
     switch (item.status) {
       case "ENDED": return <Badge label="종료됨" tone="default" />;
       case "CANCELED": return <Badge label="취소됨" tone="default" />;
@@ -118,12 +129,12 @@ export default function MeetingCard({ item }: { item: MeetingPost }) {
         </View>
       </View>
 
-      {/* 4. [옵션] 호스트 메모 (ESLint 에러 해결됨) */}
-      {item.hostMemo ? (
+      {/* 4. [옵션] 본문 */}
+      {item.content ? (
         <View style={[styles.memoRow, { borderTopColor: isDisabled ? t.colors.neutral[200] : t.colors.neutral[100] }]}>
           <Ionicons name="chatbubble-ellipses-outline" size={14} color={t.colors.neutral[400]} style={{ marginTop: 2 }} />
           <Text style={[t.typography.bodySmall, { color: t.colors.neutral[600], flex: 1 }]} numberOfLines={1}>
-            {`"${item.hostMemo}"`}
+            {item.content}
           </Text>
         </View>
       ) : null}

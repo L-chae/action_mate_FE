@@ -11,12 +11,12 @@ export default function RootLayout() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
-      {/* Main tabs: header OFF */}
+      {/* Main tabs */}
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
-      {/* Detail screens */}
-      <Stack.Screen name="meetings/[id]" options={{ title: "모임 상세" }} />
-      <Stack.Screen name="dm/[threadId]" options={{ title: "모임방" }} />
+      {/* Detail screens (헤더는 앱 내부 TopBar로 처리) */}
+      <Stack.Screen name="meetings/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="dm/[threadId]" options={{ headerShown: false }} />
     </Stack>
   );
 }

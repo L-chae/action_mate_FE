@@ -22,4 +22,5 @@ export type DMThread = {
   // Action Mate 특화: 어떤 모임 관련 대화인지 표시
   relatedMeetingId?: string;
   relatedMeetingTitle?: string;
+
 };

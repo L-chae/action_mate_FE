@@ -1,57 +1,76 @@
 // ✅ UI의 CategoryChips와 키값 일치
 export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 
+// ✅ [추가됨] 홈 화면 정렬 옵션 (meetingService.ts에서 이동)
+export type HomeSort = "LATEST" | "NEAR" | "SOON";
+
 export type JoinMode = "INSTANT" | "APPROVAL";
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
-export type MembershipStatus = "NONE" | "JOINED" | "PENDING" | "CANCELED";
 
-// ✅ 호스트 정보 (상세 화면 & 프로필 모달용)
+// "JOINED" -> "MEMBER"로 변경, "HOST" 추가
+export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED";
+
+// 호스트 정보
 export type HostSummary = {
   id: string;
   nickname: string;
-  avatarUrl?: string; // 프로필 이미지 (없으면 기본 아이콘)
-  mannerTemp: number; // 매너 온도 (기본 36.5)
-  kudosCount: number; // 받은 칭찬 수
-  intro?: string;     // 한줄 소개
+  avatarUrl?: string;
+  mannerTemp: number;
+  kudosCount: number;
+  intro?: string;
 };
 
-// 내 참여 상태 (MVP 핵심)
+// 내 참여 상태
 export type MyState = {
   membershipStatus: MembershipStatus;
   canJoin: boolean;
-  reason?: string; // "정원마감", "이미 참여함", "차단됨" 등
+  reason?: string;
 };
 
 export type MeetingPost = {
   id: string;
-
-  // ✅ MVP: 객체 대신 Key string만 사용 (가벼움)
-  // 아이콘/이름은 프론트엔드 상수(CATEGORIES)에서 매핑
   category: CategoryKey;
-
   title: string;
-  content?: string;
+  
+  // 본문 내용
+  content?: string; 
 
-  meetingTimeText: string;  // "오늘 19:00"
-  durationHours?: number;   // 기본 2
+  // --- 🕒 시간 관련 ---
+  meetingTimeText: string;
+  meetingTime?: string;
+  durationHours?: number;
+  durationMinutes?: number;
 
-  locationText: string;     // "잠원지구 3주차장"
-  lat?: number;
-  lng?: number;
-  distanceText?: string;    // "0.6km"
+  // --- 📍 위치 관련 ---
+  locationText: string;
+  locationLat?: number;
+  locationLng?: number;
+  distanceText?: string;
 
-  // ✅ UI 코드(MeetingCard)와 변수명 통일
+  // --- 👥 인원 ---
   capacityJoined: number;
   capacityTotal: number;
 
+  // --- ⚙️ 설정 ---
   joinMode: JoinMode;
+  conditions?: string;
   status: PostStatus;
 
-  hostMemo?: string;        // "라켓 빌려드려요"
+  // --- 📝 기타 ---
   memoUpdatedAtText?: string;
   items?: string;
-  // ✅ 상세 화면에서 사용할 호스트 정보 (리스트에선 없을 수도 있음 -> Optional)
-  host?: HostSummary;
 
-  myState?: MyState;        // 로그인 유저와의 관계
+  // --- 🔗 관계 데이터 ---
+  host?: HostSummary;
+  myState?: MyState; 
+};
+
+export type Comment = {
+  id: string;
+  postId: string;
+  authorId: string;
+  authorNickname: string;
+  authorAvatarUrl?: string;
+  content: string;
+  createdAt: string;
 };
