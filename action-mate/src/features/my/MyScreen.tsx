@@ -14,6 +14,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 
 import { useAuthStore } from "@/features/auth/authStore";
 
@@ -33,13 +34,8 @@ import type { MyMeetingItem, MyProfile } from "./types";
 const PREVIEW_COUNT = 3;
 const WHITE = "#FFFFFF";
 
-/** ✅ A안: 0점=32, 5점=42 */
-function tempFromRating(rating: number) {
-  const r = Math.max(0, Math.min(5, rating));
-  const minT = 32;
-  const maxT = 42;
-  const t = minT + (r / 5) * (maxT - minT);
-  return Math.round(t * 10) / 10;
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
 }
 
 function tempIconName(temp: number): keyof typeof MaterialIcons.glyphMap {
@@ -49,8 +45,10 @@ function tempIconName(temp: number): keyof typeof MaterialIcons.glyphMap {
   return "whatshot";
 }
 
+// ✅ myService.getMySummary()가 { praiseCount, temperature } 형태라고 가정
 type LocalSummary = {
-  averageRating: number; // 0~5
+  praiseCount: number;
+  temperature: number; // 32~42
 };
 
 type PillTone = { text: string; bg: string };
@@ -62,7 +60,7 @@ export default function MyScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<MyProfile>({ nickname: "액션메이트" });
-  const [summary, setSummary] = useState<LocalSummary>({ averageRating: 1.0 });
+  const [summary, setSummary] = useState<LocalSummary>({ praiseCount: 0, temperature: 36.5 });
 
   // ✅ authStore(user) → profile(fallback)
   const genderRaw: any = (user as any)?.gender ?? (profile as any)?.gender;
@@ -118,16 +116,30 @@ export default function MyScreen() {
 
     setProfile(p);
 
-    const avg = Number((s as any)?.averageRating ?? (s as any)?.avgRating ?? 1.0);
-    setSummary({ averageRating: isFinite(avg) ? avg : 1.0 });
+    // ✅ Summary: praise/temperature 기반
+    const praiseCount = Number((s as any)?.praiseCount ?? 0);
+    const temperature = clamp(Number((s as any)?.temperature ?? 36.5), 32, 42);
+
+    setSummary({
+      praiseCount: Number.isFinite(praiseCount) ? praiseCount : 0,
+      temperature: Number.isFinite(temperature) ? temperature : 36.5,
+    });
 
     setHosted(h);
     setJoined(j);
   }, []);
 
+  // ✅ 최초 1회
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  // ✅ 상세 → 뒤로 돌아올 때마다 갱신(핵심!)
+  useFocusEffect(
+    useCallback(() => {
+      loadAll();
+    }, [loadAll])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -138,17 +150,23 @@ export default function MyScreen() {
     }
   }, [loadAll]);
 
-  const avgRating = Math.max(0, Math.min(5, summary.averageRating));
-  const temp = tempFromRating(avgRating);
+  // -----------------------
+  // ✅ UI 계산 값들
+  // -----------------------
+  const temp = clamp(summary.temperature, 32, 42);
 
-  // ✅ 온도 톤/그라데이션을 테마 토큰 기반으로 통일
+  // (선택) 기존 별점 UI를 유지하고 싶으면 온도→별점으로 환산
+  const rating = useMemo(() => {
+    const r = ((temp - 32) / 10) * 5;
+    return clamp(Number(r.toFixed(1)), 0, 5);
+  }, [temp]);
+
   const pillTone: PillTone = useMemo(() => {
     const soft = (hex: string, a: number) => withAlpha(hex, a);
 
     if (temp <= 35.5) return { text: t.colors.info, bg: soft(t.colors.info, 0.12) };
     if (temp <= 36.5) return { text: t.colors.warning, bg: soft(t.colors.warning, 0.16) };
     if (temp <= 38.0) return { text: t.colors.primary, bg: soft(t.colors.primary, 0.14) };
-
     return { text: t.colors.error, bg: soft(t.colors.error, 0.14) };
   }, [temp, t.colors]);
 
@@ -158,7 +176,6 @@ export default function MyScreen() {
     if (temp <= 35.5) return [start(t.colors.info), t.colors.info] as const;
     if (temp <= 36.5) return [start(t.colors.warning), t.colors.warning] as const;
     if (temp <= 38.0) return [start(t.colors.primary), t.colors.primary] as const;
-
     return [start(t.colors.error), t.colors.error] as const;
   }, [temp, t.colors]);
 
@@ -194,9 +211,14 @@ export default function MyScreen() {
   const hostedHasMore = hosted.length > PREVIEW_COUNT;
   const joinedHasMore = joined.length > PREVIEW_COUNT;
 
+  const iconDefault = withAlpha(t.colors.textMain, 0.75);
+  const iconMuted = withAlpha(t.colors.textMain, 0.55);
+  const soft06 = withAlpha(t.colors.textMain, 0.06);
+  const soft45 = withAlpha(t.colors.textMain, 0.45);
+  const soft55 = withAlpha(t.colors.textMain, 0.55);
+
   return (
     <AppLayout padded={false}>
-      {/* ✅ TopBar */}
       <TopBar
         title="마이페이지"
         showBorder
@@ -207,12 +229,11 @@ export default function MyScreen() {
             hitSlop={10}
             style={({ pressed }) => [{ padding: 4, opacity: pressed ? 0.85 : 1 }]}
           >
-            <MaterialIcons name="settings" size={22} color={t.colors.icon.default} />
+            <MaterialIcons name="settings" size={22} color={iconDefault} />
           </Pressable>
         )}
       />
 
-      {/* ✅ 본문: AppLayout 패딩을 끈 대신 ScrollView에 패딩 부여 */}
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
@@ -227,7 +248,6 @@ export default function MyScreen() {
         <Card style={{ paddingVertical: 14, paddingHorizontal: 14 }}>
           <View style={styles.topRow}>
             <View style={styles.profileLeft}>
-              {/* 아바타 + 연필 */}
               <View style={styles.avatarWrap}>
                 {profile.photoUrl ? (
                   <Image
@@ -258,7 +278,7 @@ export default function MyScreen() {
                     styles.avatarEditBtnBase,
                     Platform.select({
                       ios: {
-                        shadowColor: t.colors.shadow.color,
+                        shadowColor: "#000",
                         shadowOpacity: 0.12,
                         shadowRadius: 8,
                         shadowOffset: { width: 0, height: 3 },
@@ -273,7 +293,7 @@ export default function MyScreen() {
                     },
                   ]}
                 >
-                  <MaterialIcons name="edit" size={16} color={t.colors.icon.default} />
+                  <MaterialIcons name="edit" size={16} color={iconDefault} />
                 </Pressable>
               </View>
 
@@ -296,12 +316,10 @@ export default function MyScreen() {
               </View>
             </View>
 
-            {/* 별점 */}
+            {/* 별점(온도 환산) */}
             <View style={styles.ratingRight}>
-              <Text style={[styles.star, { color: t.colors.ratingStar }]}>★</Text>
-              <Text style={[styles.ratingText, { color: t.colors.ratingStar }]}>
-                {avgRating.toFixed(1)}
-              </Text>
+              <Text style={[styles.star, { color: t.colors.point }]}>★</Text>
+              <Text style={[styles.ratingText, { color: t.colors.point }]}>{rating.toFixed(1)}</Text>
             </View>
           </View>
 
@@ -310,9 +328,7 @@ export default function MyScreen() {
             <View style={styles.mannerTop}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.mannerLabel, { color: t.colors.textSub }]}>매너온도</Text>
-                <Text style={[styles.mannerTemp, { color: pillTone.text }]}>
-                  {temp.toFixed(1)}℃
-                </Text>
+                <Text style={[styles.mannerTemp, { color: pillTone.text }]}>{temp.toFixed(1)}℃</Text>
               </View>
 
               <View style={[styles.tempBadge, { backgroundColor: pillTone.bg }]}>
@@ -332,8 +348,8 @@ export default function MyScreen() {
             </View>
 
             <View style={styles.scaleRow}>
-              <Text style={[styles.scaleText, { color: t.colors.overlay[45] }]}>32</Text>
-              <Text style={[styles.scaleText, { color: t.colors.overlay[45] }]}>42</Text>
+              <Text style={[styles.scaleText, { color: soft45 }]}>32</Text>
+              <Text style={[styles.scaleText, { color: soft45 }]}>42</Text>
             </View>
           </View>
         </Card>
@@ -347,10 +363,8 @@ export default function MyScreen() {
             <View style={styles.sectionLeft}>
               <Text style={styles.sectionTitle}>내가 만든 모임</Text>
 
-              <View style={[styles.countPill, { backgroundColor: t.colors.overlay[6] }]}>
-                <Text style={[styles.countText, { color: t.colors.overlay[55] }]}>
-                  {hosted.length}
-                </Text>
+              <View style={[styles.countPill, { backgroundColor: soft06 }]}>
+                <Text style={[styles.countText, { color: soft55 }]}>{hosted.length}</Text>
               </View>
             </View>
 
@@ -361,7 +375,7 @@ export default function MyScreen() {
               <MaterialIcons
                 name={hostedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
                 size={18}
-                color={t.colors.icon.muted}
+                color={iconMuted}
               />
             </View>
           </Pressable>
@@ -371,7 +385,7 @@ export default function MyScreen() {
               onPress={() => setHostedExpanded(true)}
               style={({ pressed }) => [styles.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={[styles.inlineMoreText, { color: t.colors.overlay[55] }]}>
+              <Text style={[styles.inlineMoreText, { color: soft55 }]}>
                 최근 {PREVIEW_COUNT}개만 보여요 · 더보기
               </Text>
             </Pressable>
@@ -397,10 +411,8 @@ export default function MyScreen() {
             <View style={styles.sectionLeft}>
               <Text style={styles.sectionTitle}>참여한 모임</Text>
 
-              <View style={[styles.countPill, { backgroundColor: t.colors.overlay[6] }]}>
-                <Text style={[styles.countText, { color: t.colors.overlay[55] }]}>
-                  {joined.length}
-                </Text>
+              <View style={[styles.countPill, { backgroundColor: soft06 }]}>
+                <Text style={[styles.countText, { color: soft55 }]}>{joined.length}</Text>
               </View>
             </View>
 
@@ -411,7 +423,7 @@ export default function MyScreen() {
               <MaterialIcons
                 name={joinedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
                 size={18}
-                color={t.colors.icon.muted}
+                color={iconMuted}
               />
             </View>
           </Pressable>
@@ -421,7 +433,7 @@ export default function MyScreen() {
               onPress={() => setJoinedExpanded(true)}
               style={({ pressed }) => [styles.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={[styles.inlineMoreText, { color: t.colors.overlay[55] }]}>
+              <Text style={[styles.inlineMoreText, { color: soft55 }]}>
                 최근 {PREVIEW_COUNT}개만 보여요 · 더보기
               </Text>
             </Pressable>
