@@ -1,27 +1,41 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {Pressable, StyleSheet, Text, View, ActivityIndicator, Alert,} from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  ActivityIndicator,
+  Alert,
+  Platform,
+} from "react-native";
 import { useRouter } from "expo-router";
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import MapView, {
+  Circle,
+  Marker,
+  PROVIDER_GOOGLE,
+  Region,
+  MarkerPressEvent,
+} from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
+// (옵션) 탭 피드백
+import * as Haptics from "expo-haptics";
 
 import AppLayout from "../../shared/ui/AppLayout";
 import { Card } from "../../shared/ui/Card";
 import { Button } from "../../shared/ui/Button";
 import { useAppTheme } from "../../shared/hooks/useAppTheme";
 
-import { fetchMapMeetings } from "./mapService";
+import { listMeetingsAround } from "../meetings/meetingService";
 import type { MeetingPost, CategoryKey } from "../meetings/types";
 
 /**
- * ✅ 최종 안정화(안드로이드 "1/4 잘림" 완전 회피) 버전
- * - Marker children(View/Ionicons/Image) 완전 제거
- * - 네이티브 마커(pinColor)만 사용 → Google Maps SDK가 직접 그려서 잘림 이슈 사실상 0%
- * - 알바앱 UX처럼 "마커 탭 → 하단 카드"로 정보 제공
- *
- * ⚠️ 제약:
- * - 커스텀 원형 아이콘 디자인은 포기(대신 안정성 최우선)
- * - 커스텀 디자인이 꼭 필요하면 결국 Marker.image(PNG)로 가야 0%에 수렴
+ * ✅ 개선 버전 (네이티브 pinColor 유지 + 선택 하이라이트/성능/유지보수 강화)
+ * - Marker children 없음(안드로이드 잘림 회피 유지)
+ * - 선택된 마커는 Circle 오버레이로 확실한 피드백
+ * - meetingsById(Map)로 O(1) 조회, find() 반복 제거
+ * - Marker identifier + 공용 onPress 핸들러로 마커별 클로저 생성 최소화
+ * - 카테고리 메타(색/아이콘/라벨) 단일 객체로 통합
  */
 
 const MAP_STYLE = [
@@ -36,49 +50,49 @@ const INITIAL_REGION: Region = {
   longitudeDelta: 0.015,
 };
 
-// ✅ 카테고리별 색상 (pinColor에 사용)
-const CATEGORY_COLORS: Record<CategoryKey, string> = {
-  SPORTS: "#4A90E2",
-  GAMES: "#9B59B6",
-  MEAL: "#FF9F43",
-  STUDY: "#2ECC71",
-  ETC: "#95A5A6",
-};
+// ✅ 카테고리 메타(유지보수/확장 용이)
+const CATEGORY_META = {
+  SPORTS: { color: "#4A90E2", icon: "basketball" as const, label: "SPORTS" },
+  GAMES: { color: "#9B59B6", icon: "game-controller" as const, label: "GAMES" },
+  MEAL: { color: "#FF9F43", icon: "restaurant" as const, label: "MEAL" },
+  STUDY: { color: "#2ECC71", icon: "book" as const, label: "STUDY" },
+  ETC: { color: "#95A5A6", icon: "ellipsis-horizontal" as const, label: "ETC" },
+} satisfies Record<
+  CategoryKey,
+  { color: string; icon: keyof typeof Ionicons.glyphMap; label: string }
+>;
 
-// ✅ 하단 카드 표시용 아이콘(이건 지도 마커가 아니라 카드에서만 사용)
-const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
-  SPORTS: "basketball",
-  GAMES: "game-controller",
-  MEAL: "restaurant",
-  STUDY: "book",
-  ETC: "ellipsis-horizontal",
-};
+function getCategoryMeta(key: CategoryKey) {
+  return CATEGORY_META[key] ?? CATEGORY_META.ETC;
+}
 
 const MeetingMarkerNative = React.memo(function MeetingMarkerNative(props: {
   meeting: MeetingPost;
   selected: boolean;
-  onPress: (id: string) => void;
+  onPress: (e: MarkerPressEvent) => void;
 }) {
   const { meeting: m, selected, onPress } = props;
 
   const coordinate = useMemo(
     () => ({
-      latitude: m.lat ?? INITIAL_REGION.latitude,
-      longitude: m.lng ?? INITIAL_REGION.longitude,
+      latitude: m.locationLat ?? INITIAL_REGION.latitude,
+      longitude: m.locationLng ?? INITIAL_REGION.longitude,
     }),
-    [m.lat, m.lng]
+    [m.locationLat, m.locationLng]
   );
 
-  const color = CATEGORY_COLORS[m.category] ?? CATEGORY_COLORS.ETC;
+  const meta = getCategoryMeta(m.category);
 
-  // ✅ 선택 강조: zIndex + (원하면 색상 변경도 가능)
-  // 여기선 색상 동일, zIndex만 올림 (안정적)
   return (
     <Marker
+      // ✅ identifier로 공용 onPress에서 id 추출 (마커별 클로저 최소화)
+      identifier={m.id}
       coordinate={coordinate}
-      onPress={() => onPress(m.id)}
-      pinColor={color}
+      onPress={onPress}
+      pinColor={meta.color}
       zIndex={selected ? 999 : 1}
+      opacity={selected ? 1 : 0.9}
+      // moveOnMarkerPress는 MapView에 false로 두고, 여기서는 필요 없음
     />
   );
 });
@@ -98,10 +112,17 @@ export default function MapScreen() {
   const regionRef = useRef<Region>(INITIAL_REGION);
   const [locationPermission, setLocationPermission] = useState(false);
 
-  const selectedMeeting = useMemo(
-    () => list.find((m) => m.id === selectedId),
-    [list, selectedId]
-  );
+  // ✅ O(1) lookup 용 Map
+  const meetingsById = useMemo(() => {
+    const map = new Map<string, MeetingPost>();
+    for (const m of list) map.set(m.id, m);
+    return map;
+  }, [list]);
+
+  const selectedMeeting = useMemo(() => {
+    if (!selectedId) return undefined;
+    return meetingsById.get(selectedId);
+  }, [meetingsById, selectedId]);
 
   const goToDetail = useCallback(
     (id: string) => {
@@ -126,7 +147,7 @@ export default function MapScreen() {
   const loadMeetings = useCallback(async (lat: number, lng: number) => {
     setLoading(true);
     try {
-      const data = await fetchMapMeetings(lat, lng);
+      const data = await listMeetingsAround(lat, lng);
       setList(data);
     } catch (error) {
       console.error(error);
@@ -163,26 +184,9 @@ export default function MapScreen() {
     })();
   }, [loadMeetings]);
 
-  const handleMarkerPress = useCallback(
-    (id: string) => {
-      setSelectedId(id);
-
-      const target = list.find((m) => m.id === id);
-      if (!target?.lat || !target?.lng) return;
-
-      // ✅ 마커 중심으로 줌인 (네이티브 마커에서도 안정적)
-      mapRef.current?.animateToRegion(
-        {
-          latitude: target.lat,
-          longitude: target.lng,
-          latitudeDelta: 0.006,
-          longitudeDelta: 0.006,
-        },
-        450
-      );
-    },
-    [list]
-  );
+  const onRegionChangeComplete = useCallback((r: Region) => {
+    regionRef.current = r;
+  }, []);
 
   const handleResearch = useCallback(() => {
     if (loading) return;
@@ -211,21 +215,54 @@ export default function MapScreen() {
     }
   }, [locationPermission]);
 
-  const onRegionChangeComplete = useCallback((r: Region) => {
-    regionRef.current = r;
-  }, []);
+  // ✅ 공용 Marker onPress: identifier/id에서 meetingId를 꺼냄
+  const onMarkerPress = useCallback(
+    (e: MarkerPressEvent) => {
+      // RN Maps 버전에 따라 identifier가 id/identifier로 들어올 수 있어 안전하게 처리
+      const native = e.nativeEvent as any;
+      const id: string | undefined = native?.id ?? native?.identifier;
+      if (!id) return;
 
-  const renderMarker = useCallback(
-    (m: MeetingPost) => (
-      <MeetingMarkerNative
-        key={m.id}
-        meeting={m}
-        selected={selectedId === m.id}
-        onPress={handleMarkerPress}
-      />
-    ),
-    [selectedId, handleMarkerPress]
+      setSelectedId(id);
+
+      // (옵션) 햅틱
+      Haptics.selectionAsync().catch(() => {});
+
+      const target = meetingsById.get(id);
+      if (!target?.locationLat || !target?.locationLng) return;
+
+      mapRef.current?.animateToRegion(
+        {
+          latitude: target.locationLat,
+          longitude: target.locationLng,
+          latitudeDelta: 0.006,
+          longitudeDelta: 0.006,
+        },
+        450
+      );
+    },
+    [meetingsById]
   );
+
+  // ✅ 선택 하이라이트 Circle (선택감 확실)
+  const selectedCircle = useMemo(() => {
+    if (!selectedMeeting?.locationLat || !selectedMeeting?.locationLng) return null;
+    const meta = getCategoryMeta(selectedMeeting.category);
+    const fillColor = `${meta.color}33`; // 약 20% 투명
+    return (
+      <Circle
+        center={{
+          latitude: selectedMeeting.locationLat,
+          longitude: selectedMeeting.locationLng,
+        }}
+        radius={70}
+        strokeWidth={2}
+        strokeColor={meta.color}
+        fillColor={fillColor}
+        zIndex={998}
+      />
+    );
+  }, [selectedMeeting]);
 
   return (
     <AppLayout padded={false}>
@@ -248,7 +285,18 @@ export default function MapScreen() {
           }}
           moveOnMarkerPress={false}
         >
-          {list.map(renderMarker)}
+          {/* ✅ 선택 하이라이트 */}
+          {selectedCircle}
+
+          {/* ✅ 마커 */}
+          {list.map((m) => (
+            <MeetingMarkerNative
+              key={m.id}
+              meeting={m}
+              selected={selectedId === m.id}
+              onPress={onMarkerPress}
+            />
+          ))}
         </MapView>
 
         {/* 상단 재검색 버튼 */}
@@ -282,78 +330,85 @@ export default function MapScreen() {
 
         {/* 하단 정보 카드 */}
         {selectedMeeting && (
-          <View style={styles.bottomContainer}>
-            <Card style={styles.infoCard}>
-              <Pressable onPress={() => goToDetail(selectedMeeting.id)}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4, gap: 4 }}>
-                      <Ionicons
-                        name={CATEGORY_ICONS[selectedMeeting.category] ?? CATEGORY_ICONS.ETC}
-                        size={14}
-                        color={CATEGORY_COLORS[selectedMeeting.category] ?? CATEGORY_COLORS.ETC}
-                      />
-                      <Text
-                        style={[
-                          t.typography.labelSmall,
-                          {
-                            color: CATEGORY_COLORS[selectedMeeting.category] ?? CATEGORY_COLORS.ETC,
-                            fontWeight: "bold",
-                          },
-                        ]}
-                      >
-                        {selectedMeeting.category}
-                      </Text>
-                    </View>
-
-                    <Text style={t.typography.titleMedium} numberOfLines={1}>
-                      {selectedMeeting.title}
-                    </Text>
-
-                    <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
-                      {selectedMeeting.locationText}
-                      {selectedMeeting.distanceText ? ` · ${selectedMeeting.distanceText}` : ""}
-                    </Text>
-                  </View>
-
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      selectedMeeting.status === "FULL"
-                        ? { backgroundColor: "#bbb" }
-                        : { backgroundColor: CATEGORY_COLORS[selectedMeeting.category] ?? CATEGORY_COLORS.ETC },
-                    ]}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 10, fontWeight: "bold" }}>
-                      {selectedMeeting.status === "FULL" ? "마감" : "모집중"}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.divider} />
-              </Pressable>
-
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                <Button
-                  title="자세히 보기"
-                  variant="secondary"
-                  onPress={() => goToDetail(selectedMeeting.id)}
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  title="참여하기"
-                  disabled={selectedMeeting.status === "FULL"}
-                  onPress={() => goToDetail(selectedMeeting.id)}
-                  style={{ flex: 1 }}
-                />
-              </View>
-            </Card>
-          </View>
+          <BottomInfoCard
+            meeting={selectedMeeting}
+            onPressDetail={() => goToDetail(selectedMeeting.id)}
+            t={t}
+          />
         )}
       </View>
     </AppLayout>
   );
 }
+
+/** ✅ 하단 카드 컴포넌트 분리(가독성/유지보수) */
+const BottomInfoCard = React.memo(function BottomInfoCard(props: {
+  meeting: MeetingPost;
+  onPressDetail: () => void;
+  t: ReturnType<typeof useAppTheme>;
+}) {
+  const { meeting, onPressDetail, t } = props;
+  const meta = getCategoryMeta(meeting.category);
+
+  return (
+    <View style={styles.bottomContainer}>
+      <Card style={styles.infoCard}>
+        <Pressable onPress={onPressDetail}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4, gap: 4 }}>
+                <Ionicons name={meta.icon} size={14} color={meta.color} />
+                <Text
+                  style={[
+                    t.typography.labelSmall,
+                    {
+                      color: meta.color,
+                      fontWeight: "bold",
+                    },
+                  ]}
+                >
+                  {meta.label}
+                </Text>
+              </View>
+
+              <Text style={t.typography.titleMedium} numberOfLines={1}>
+                {meeting.title}
+              </Text>
+
+              <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
+                {meeting.locationText}
+                {meeting.distanceText ? ` · ${meeting.distanceText}` : ""}
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.statusBadge,
+                meeting.status === "FULL" ? { backgroundColor: "#bbb" } : { backgroundColor: meta.color },
+              ]}
+            >
+              <Text style={{ color: "#fff", fontSize: 10, fontWeight: "bold" }}>
+                {meeting.status === "FULL" ? "마감" : "모집중"}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+        </Pressable>
+
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <Button title="자세히 보기" variant="secondary" onPress={onPressDetail} style={{ flex: 1 }} />
+          <Button
+            title="참여하기"
+            disabled={meeting.status === "FULL"}
+            onPress={onPressDetail}
+            style={{ flex: 1 }}
+          />
+        </View>
+      </Card>
+    </View>
+  );
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -398,7 +453,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 16,
     right: 16,
-    bottom: 30,
+    bottom: 20,
     zIndex: 20,
   },
   infoCard: {
