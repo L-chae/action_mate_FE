@@ -6,10 +6,23 @@ import {
   clearAuthTokens,
 } from "@/shared/api/authToken";
 
-type User = {
+import {
+  getCurrentUserEmail,
+  setCurrentUserEmail,
+  clearCurrentUserEmail,
+  getUserByEmail,
+} from "@/features/auth/localAuthService";
+
+export type Gender = "male" | "female" | "none";
+
+export type User = {
   id: string;
   email: string;
   nickname: string;
+
+  // ✅ 추가
+  gender: Gender; // "male" | "female" | "none"
+  birthDate: string; // "YYYY-MM-DD" (미선택이면 "" 허용)
 };
 
 type AuthState = {
@@ -20,9 +33,11 @@ type AuthState = {
   hydrateFromStorage: () => Promise<void>;
   login: (user: User) => Promise<void>;
   logout: () => Promise<void>;
+
+  updateUser: (patch: Partial<User>) => void;
 };
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   hasHydrated: false,
   isLoggedIn: false,
   user: null,
@@ -31,25 +46,29 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const token = await getAccessToken();
 
-      if (token) {
-        set({
-          hasHydrated: true,
-          isLoggedIn: true,
-          user: {
-            id: "mock_user",
-            email: "mock@local.dev",
-            nickname: "로컬 사용자",
-          },
-        });
-      } else {
-        set({
-          hasHydrated: true,
-          isLoggedIn: false,
-          user: null,
-        });
+      // ✅ 토큰 없으면 확실히 로그아웃 상태
+      if (!token) {
+        set({ hasHydrated: true, isLoggedIn: false, user: null });
+        return;
       }
+
+      // ✅ 토큰은 있는데, 마지막 로그인 유저 식별이 없으면 안전하게 로그아웃 처리
+      const email = await getCurrentUserEmail();
+      if (!email) {
+        set({ hasHydrated: true, isLoggedIn: false, user: null });
+        return;
+      }
+
+      // ✅ 로컬 저장소에서 유저 조회
+      const user = await getUserByEmail(email);
+      if (!user) {
+        // 유저가 삭제됐거나 데이터가 깨졌을 수 있음
+        set({ hasHydrated: true, isLoggedIn: false, user: null });
+        return;
+      }
+
+      set({ hasHydrated: true, isLoggedIn: true, user });
     } catch {
-      // 저장소 에러 등 발생 시 안전하게 로그아웃 상태로
       set({ hasHydrated: true, isLoggedIn: false, user: null });
     }
   },
@@ -58,7 +77,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     // ✅ 서버 없이도 되는 목업 토큰
     await setAccessToken(`mock.${Date.now()}`);
 
+    // ✅ 마지막 로그인 유저 이메일 저장(앱 재시작 후 hydrate용)
+    await setCurrentUserEmail(user.email);
+
     set({
+      hasHydrated: true,
       isLoggedIn: true,
       user,
     });
@@ -66,9 +89,17 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: async () => {
     await clearAuthTokens();
+    await clearCurrentUserEmail();
+
     set({
       isLoggedIn: false,
       user: null,
     });
+  },
+
+  updateUser: (patch) => {
+    const cur = get().user;
+    if (!cur) return;
+    set({ user: { ...cur, ...patch } });
   },
 }));
