@@ -1,125 +1,114 @@
 // src/features/my/components/TemperatureGauge.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Animated, StyleSheet, Text, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
+
+type Props = {
+  temperature: number;
+  title?: string;    // 안 주면 숨김
+  subtitle?: string; // 안 주면 숨김
+  animateKey?: number;
+  durationMs?: number;
+  min?: number;
+  max?: number;
+};
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-type Props = {
-  temperature: number;
-  min?: number;
-  max?: number;
+type GradientColors = readonly [string, string];
 
-  title?: string;
-  subtitle?: string;
-
-  animateKey?: number;
-  durationMs?: number;
-
-  colorMode?: "theme" | "carrot";
-};
+function gradientByTemp(temp: number): GradientColors {
+  if (temp <= 35.5) return ["#6EA8FF", "#1F6FEB"] as const;
+  if (temp <= 36.5) return ["#FFE08A", "#FFC107"] as const;
+  if (temp <= 38.0) return ["#FFB36A", "#FF7A00"] as const;
+  return ["#FF7B7B", "#E53935"] as const;
+}
 
 export default function TemperatureGauge({
   temperature,
-  min = 32,
-  max = 42,
-  title = "매너 점수",
-  subtitle = "평가가 반영된 점수예요",
+  title,
+  subtitle,
   animateKey = 0,
   durationMs = 900,
-  colorMode = "theme",
+  min = 32,
+  max = 42,
 }: Props) {
   const t = useAppTheme();
-  const { colors, typography } = t;
 
-  const goal = useMemo(() => clamp(temperature, min, max), [temperature, min, max]);
-  const goalProgress = useMemo(() => (goal - min) / (max - min), [goal, min, max]);
+  const temp = clamp(temperature ?? 36.5, min, max);
+  const ratio = (temp - min) / (max - min);
 
-  const gaugeColor = colorMode === "carrot" ? colors.success : colors.primary;
-
-  const progress = useRef(new Animated.Value(0)).current;
-  const [displayValue, setDisplayValue] = useState(min);
+  const barAnim = useRef(new Animated.Value(0)).current;
+  const colors = useMemo(() => gradientByTemp(temp), [temp]);
 
   useEffect(() => {
-    progress.setValue(0);
-    setDisplayValue(min);
-
-    const id = progress.addListener(({ value }) => {
-      const v = min + (max - min) * value;
-      setDisplayValue(Number(v.toFixed(1)));
-    });
-
-    Animated.timing(progress, {
-      toValue: goalProgress,
+    barAnim.setValue(0);
+    Animated.timing(barAnim, {
+      toValue: ratio,
       duration: durationMs,
       useNativeDriver: false,
     }).start();
-
-    return () => {
-      progress.removeListener(id);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animateKey, goalProgress, durationMs, min, max]);
+  }, [animateKey, ratio, durationMs]);
 
-  const fillWidth = progress.interpolate({
+  const widthPct = barAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ["0%", "100%"],
   });
 
-  return (
-    <View style={styles.wrap}>
-      <Text style={typography.titleMedium}>{title}</Text>
+  const showTitle = !!title && title.trim().length > 0;
 
-      {/* ✅ 숫자 크기 줄임 */}
-      <View style={{ alignItems: "center", marginTop: 8 }}>
-        <Text style={[typography.titleLarge, styles.valueText, { color: gaugeColor }]}>
-          {displayValue.toFixed(1)}℃
-        </Text>
-        <Text style={[typography.bodySmall, { color: colors.textSub, marginTop: 4 }]}>
+  return (
+    <View>
+      {showTitle && (
+        <View style={styles.header}>
+          <Text style={t.typography.titleMedium}>{title}</Text>
+        </View>
+      )}
+
+      {/* B: 온도 숫자 작게 + 자동 축소 */}
+      <Text
+        style={[styles.tempText, { color: colors[1] }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+      >
+        {temp.toFixed(1)}℃
+      </Text>
+
+      {!!subtitle && (
+        <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
           {subtitle}
         </Text>
+      )}
+
+      <View style={[styles.barTrack, { backgroundColor: t.colors.border }]}>
+        <Animated.View style={[styles.barFillWrap, { width: widthPct }]}>
+          <LinearGradient
+            colors={colors}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.barFill}
+          />
+        </Animated.View>
       </View>
 
-      {/* 일자 게이지 */}
-      <View style={[styles.barWrap, { backgroundColor: colors.border }]}>
-        <Animated.View style={[styles.barFill, { backgroundColor: gaugeColor, width: fillWidth }]} />
-      </View>
-
-      {/* min/max */}
-      <View style={styles.minMaxRow}>
-        <Text style={[typography.bodySmall, styles.minMax, { color: colors.textSub }]}>{min}</Text>
-        <Text style={[typography.bodySmall, styles.minMax, { color: colors.textSub }]}>{max}</Text>
+      <View style={styles.rangeRow}>
+        <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>{min}</Text>
+        <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>{max}</Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { width: "100%" },
-
-  // 🔽 기존 48 → 30으로 축소(원하면 26~34 사이로 더 조절 가능)
-  valueText: {
-    fontSize: 30,
-    lineHeight: 34,
-    letterSpacing: -0.3,
-  },
-
-  barWrap: {
-    height: 12,
-    borderRadius: 999,
-    overflow: "hidden",
-    marginTop: 12,
-  },
-  barFill: {
-    height: "100%",
-    borderRadius: 999,
-  },
-  minMaxRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 8,
-  },
-  minMax: { fontSize: 12 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  tempText: { marginTop: 10, fontSize: 30, fontWeight: "900", textAlign: "center" },
+  barTrack: { marginTop: 14, height: 14, borderRadius: 999, overflow: "hidden" },
+  barFillWrap: { height: "100%" },
+  barFill: { height: "100%", borderRadius: 999 },
+  rangeRow: { marginTop: 10, flexDirection: "row", justifyContent: "space-between" },
 });
