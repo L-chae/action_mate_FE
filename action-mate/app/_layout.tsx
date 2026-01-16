@@ -1,4 +1,7 @@
+import "react-native-gesture-handler"; // ✅ 반드시 파일 최상단
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
+
 import { Stack } from "expo-router";
 import { useEffect } from "react";
 import { useAuthStore } from "@/features/auth/authStore";
@@ -10,13 +13,15 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      {/* Main tabs */}
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* Main tabs */}
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
-      {/* Detail screens (헤더는 앱 내부 TopBar로 처리) */}
-      <Stack.Screen name="meetings/[id]" options={{ headerShown: false }} />
-      <Stack.Screen name="dm/[threadId]" options={{ headerShown: false }} />
-    </Stack>
+        {/* Detail screens (헤더는 앱 내부 TopBar로 처리) */}
+        <Stack.Screen name="meetings/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="dm/[threadId]" options={{ headerShown: false }} />
+      </Stack>
+    </GestureHandlerRootView>
   );
 }
