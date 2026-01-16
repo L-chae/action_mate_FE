@@ -15,6 +15,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
+import { useAuthStore } from "@/features/auth/authStore";
+
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { Card } from "@/shared/ui/Card";
@@ -66,10 +68,44 @@ const PREVIEW_COUNT = 3;
 
 export default function MyScreen() {
   const t = useAppTheme();
+  const user = useAuthStore((s) => s.user);
 
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<MyProfile>({ nickname: "액션메이트" });
   const [summary, setSummary] = useState<LocalSummary>({ averageRating: 1.0 });
+
+  // ✅ 액션메이트(닉네임) 아래에: 회원가입 때 정한 성별/생년월일 표시
+  // - 우선순위: authStore(user) → profile(fallback)
+  const genderRaw: any = (user as any)?.gender ?? (profile as any)?.gender;
+  const birthRaw: string =
+    (user as any)?.birthDate ??
+    (profile as any)?.birthDate ??
+    (profile as any)?.birth_date ??
+    (profile as any)?.birthday ??
+    "";
+
+  const genderLabel = useMemo(() => {
+    if (!genderRaw) return "";
+    if (genderRaw === "male") return "남성";
+    if (genderRaw === "female") return "여성";
+    if (genderRaw === "none") return "선택 안 함";
+    return String(genderRaw);
+  }, [genderRaw]);
+
+  const birthLabel = useMemo(() => {
+    const s = String(birthRaw ?? "").trim();
+    if (!s) return "";
+    // "YYYY-MM-DD" -> "YYYY.MM.DD"
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.split("-").join(".");
+    return s;
+  }, [birthRaw]);
+
+  const metaLine = useMemo(() => {
+    const parts: string[] = [];
+    if (genderLabel) parts.push(genderLabel);
+    if (birthLabel) parts.push(birthLabel);
+    return parts.join(" · ");
+  }, [genderLabel, birthLabel]);
 
   const [hosted, setHosted] = useState<MyMeetingItem[]>([]);
   const [joined, setJoined] = useState<MyMeetingItem[]>([]);
@@ -237,7 +273,9 @@ export default function MyScreen() {
                   </View>
                 </View>
 
-                <Text style={styles.subLine}>최근 활동 내역을 확인해요</Text>
+                {metaLine ? (
+                  <Text style={[styles.subLine, { color: t.colors.textSub }]}>{metaLine}</Text>
+                ) : null}
               </View>
             </View>
 
@@ -253,9 +291,7 @@ export default function MyScreen() {
             <View style={styles.mannerTop}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.mannerLabel}>매너온도</Text>
-                <Text style={[styles.mannerTemp, { color: pillTone.text }]}>
-                  {temp.toFixed(1)}℃
-                </Text>
+                <Text style={[styles.mannerTemp, { color: pillTone.text }]}>{temp.toFixed(1)}℃</Text>
               </View>
 
               <View style={[styles.tempBadge, { backgroundColor: pillTone.bg }]}>
@@ -397,7 +433,6 @@ export default function MyScreen() {
 }
 
 const styles = StyleSheet.create({
-  // ✅ 헤더 + 우측 아이콘
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
