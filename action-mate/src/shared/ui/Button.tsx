@@ -8,6 +8,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useAppTheme } from "../hooks/useAppTheme";
+import { withAlpha } from "../theme/colors";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
@@ -24,6 +25,8 @@ type Props = {
   style?: ViewStyle;
 };
 
+const WHITE = "#FFFFFF";
+
 export function Button({
   title,
   onPress,
@@ -35,7 +38,9 @@ export function Button({
   right,
   style,
 }: Props) {
-  const { colors, spacing, typography } = useAppTheme();
+  const t = useAppTheme();
+  const { colors, spacing, typography } = t;
+
   const isDisabled = disabled || loading;
 
   const metrics = (() => {
@@ -57,13 +62,33 @@ export function Button({
           fg: colors.textMain,
           borderColor: colors.border,
           borderWidth: spacing.borderWidth,
+          // pressedBg는 iOS/Android 공통으로 안정적
+          pressedBg: colors.overlay[6],
         };
       case "ghost":
-        return { bg: "transparent", fg: colors.primary, borderColor: "transparent", borderWidth: 0 };
+        return {
+          bg: "transparent",
+          fg: colors.primary,
+          borderColor: "transparent",
+          borderWidth: 0,
+          pressedBg: withAlpha(colors.primary, 0.10),
+        };
       case "danger":
-        return { bg: colors.error, fg: "#FFFFFF", borderColor: colors.error, borderWidth: 0 };
+        return {
+          bg: colors.error,
+          fg: WHITE,
+          borderColor: colors.error,
+          borderWidth: 0,
+          pressedBg: withAlpha(colors.error, 0.85), // 살짝 눌림 느낌(투명도)
+        };
       default:
-        return { bg: colors.primary, fg: "#FFFFFF", borderColor: colors.primary, borderWidth: 0 };
+        return {
+          bg: colors.primary,
+          fg: WHITE,
+          borderColor: colors.primary,
+          borderWidth: 0,
+          pressedBg: withAlpha(colors.primary, 0.85),
+        };
     }
   })();
 
@@ -77,10 +102,15 @@ export function Button({
           height: metrics.h,
           paddingHorizontal: metrics.px,
           borderRadius: metrics.radius,
-          backgroundColor: isDisabled ? colors.disabledBg : v.bg,
+
+          backgroundColor: isDisabled
+            ? colors.disabledBg
+            : pressed
+              ? v.pressedBg
+              : v.bg,
+
           borderColor: v.borderColor,
           borderWidth: v.borderWidth,
-          opacity: pressed && !isDisabled ? 0.86 : 1,
         },
         style,
       ]}
@@ -89,9 +119,15 @@ export function Button({
         {left ? <View style={styles.left}>{left}</View> : null}
 
         {loading ? (
-          <ActivityIndicator />
+          <ActivityIndicator color={isDisabled ? colors.disabledFg : v.fg} />
         ) : (
-          <Text style={[typography.labelLarge, { color: isDisabled ? colors.disabledFg : v.fg }]} numberOfLines={1}>
+          <Text
+            style={[
+              typography.labelLarge,
+              { color: isDisabled ? colors.disabledFg : v.fg },
+            ]}
+            numberOfLines={1}
+          >
             {title}
           </Text>
         )}

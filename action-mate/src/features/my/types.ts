@@ -14,4 +14,5 @@ export type MyMeetingItem = {
   place: string;
   dateText: string; // "1/20(화) 19:00" 같은 표시용
   memberCount: number;
+  myJoinStatus?: "MEMBER" | "PENDING";
 };

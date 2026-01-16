@@ -1,10 +1,11 @@
 import React from "react";
 import { StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { useAppTheme } from "../hooks/useAppTheme";
+import { withAlpha } from "../theme/colors";
 
 type Tone =
   | "default"
-  | "neutral" // ✅ 추가
+  | "neutral"
   | "primary"
   | "point"
   | "success"
@@ -24,7 +25,8 @@ export function Badge({
   size?: Size;
   style?: ViewStyle;
 }) {
-  const { colors, spacing, typography } = useAppTheme();
+  const t = useAppTheme();
+  const { colors, spacing, typography } = t;
 
   const s =
     size === "md"
@@ -32,31 +34,30 @@ export function Badge({
       : { py: 4, px: 8, radius: spacing.radiusSm, typo: typography.labelSmall };
 
   const toneStyle = (() => {
-    const soft = (hex: string) => `${hex}22`;
+    const soft = (hex: string, a = 0.14) => withAlpha(hex, a);
 
     switch (tone) {
       case "primary":
-        return { bg: soft(colors.primary), fg: colors.primary };
+        return { bg: soft(colors.primary, 0.14), fg: colors.primary };
 
       case "point":
-        return { bg: soft(colors.point), fg: colors.primaryDark };
+        return { bg: soft(colors.point, 0.16), fg: colors.primaryDark };
 
       case "success":
-        return { bg: soft(colors.success), fg: colors.success };
+        return { bg: soft(colors.success, 0.14), fg: colors.success };
 
       case "warning":
-        return { bg: soft(colors.warning), fg: colors.warning };
+        return { bg: soft(colors.warning, 0.16), fg: colors.warning };
 
       case "error":
-        return { bg: soft(colors.error), fg: colors.error };
+        return { bg: soft(colors.error, 0.14), fg: colors.error };
 
-      // ✅ NEW: neutral
       case "neutral":
-        return { bg: colors.neutral[100], fg: colors.textSub };
+        // ✅ 다크에서도 자연스럽게: overlay 기반
+        return { bg: colors.overlay[8], fg: colors.textSub };
 
       default:
-        // 기존 유지 (원하면 colors.neutral[200]로 바꿔도 좋음)
-        return { bg: colors.border, fg: colors.textSub };
+        return { bg: colors.overlay[6], fg: colors.textSub };
     }
   })();
 

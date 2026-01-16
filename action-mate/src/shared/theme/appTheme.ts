@@ -1,52 +1,39 @@
 // src/shared/theme/appTheme.ts
-import { colors } from "./colors";
+import { colors, buildThemeColors, withAlpha } from "./colors";
 import { spacing } from "./spacing";
 import { createTypography } from "./typography";
 
 export type ThemeMode = "light" | "dark";
 
-// NEW: hex -> rgba 유틸 (간단 버전)
-function withAlpha(hex: string, alpha: number) {
-  // "#RRGGBB"만 지원 (필요하면 확장 가능)
-  const h = hex.replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
 export function createTheme(mode: ThemeMode) {
   const isDark = mode === "dark";
 
-  // Base (기존 유지)
-  const background = isDark ? colors.backgroundDark : colors.backgroundLight;
-  const surface = isDark ? colors.surfaceDark : colors.surfaceLight;
-  const textMain = isDark ? colors.textMainDark : colors.textMainLight;
-  const textSub = isDark ? colors.textSubDark : colors.textSubLight;
-  const border = isDark ? colors.borderDark : colors.borderLight;
+  // ✅ 핵심: 라이트/다크에 맞는 ThemeColors(semantic 포함)를 colors.ts에서 생성
+  const themeColors = buildThemeColors(mode);
 
-  // Disabled (기존보다 일관성 있게)
-  const disabledFg = withAlpha(textMain, 0.38);
-  const disabledBg = withAlpha(textMain, isDark ? 0.10 : 0.12);
+  // ✅ disabled는 textMain 기반으로 일관되게
+  const disabledFg = withAlpha(themeColors.textMain, 0.38);
+  const disabledBg = withAlpha(themeColors.textMain, isDark ? 0.10 : 0.12);
 
-  // NEW: semantic tokens (현업에서 제일 유용)
-  const overlay = withAlpha("#000000", isDark ? 0.6 : 0.35);
-  const divider = border;
-  const placeholder = withAlpha(textMain, 0.35);
+  // ✅ 모달/바텀시트 배경용 "scrim"은 textMain overlay와 성격이 달라서 별도 토큰 추천
+  // (기존 overlay가 이 역할이었다면 이름만 바꾸는 게 안전)
+  const scrim = withAlpha("#000000", isDark ? 0.6 : 0.35);
 
-  const card = surface; // 추후 따로 분리 가능
-  const chipBg = isDark ? withAlpha(colors.primary, 0.18) : colors.primaryLight;
-  const chipText = colors.primary;
+  // ✅ placeholder는 overlay 토큰에 35가 없으니 여기서 계산(또는 colors.ts에 overlay[35] 추가해도 됨)
+  const placeholder = withAlpha(themeColors.textMain, 0.35);
+
+  // ✅ card/chip은 기존 의도를 유지
+  const card = themeColors.surface;
+  const chipBg = isDark ? withAlpha(themeColors.primary, 0.18) : colors.primaryLight;
+  const chipText = themeColors.primary;
 
   const typography = createTypography({
-    main: textMain,
-    sub: textSub,
+    main: themeColors.textMain,
+    sub: themeColors.textSub,
     fontFamily: "Pretendard",
   });
 
-  // NEW: shadow token (iOS/Android 차이는 컴포넌트에서 처리해도 됨)
   const shadow = {
-    // react-native iOS shadow props + android elevation을 함께 쓰는 패턴을 위한 값
     elevationSm: 2,
     elevationMd: 6,
     elevationLg: 12,
@@ -55,24 +42,22 @@ export function createTheme(mode: ThemeMode) {
   return {
     mode,
     colors: {
+      // ✅ 기존 raw colors도 유지(혹시 primaryLight 등 쓰는 곳 깨질 수 있어서)
       ...colors,
 
-      // existing mapped
-      background,
-      surface,
-      textMain,
-      textSub,
-      border,
+      // ✅ 실제 화면에서 쓸 컬러(semantic 포함)
+      ...themeColors,
+
+      // ✅ 앱 레벨에서 자주 쓰는 파생 토큰
       disabledFg,
       disabledBg,
-
-      // NEW semantic
-      overlay,
-      divider,
       placeholder,
       card,
       chipBg,
       chipText,
+
+      // ✅ 기존 overlay 역할 대체(모달 뒤 배경)
+      scrim,
     },
     spacing,
     typography,

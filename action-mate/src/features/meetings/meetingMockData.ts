@@ -55,6 +55,15 @@ export const HOST_USERS: Record<string, HostSummary> = {
     kudosCount: 1,
     intro: "퇴근 후 가볍게 이야기 나눠요.",
   },
+    me: {
+    id: "me",
+    nickname: "나(호스트)",
+    mannerTemp: 36.8,
+    kudosCount: 0,
+    intro: "내가 만든 모임이에요 🙂",
+    avatarUrl: "https://i.pravatar.cc/150?u=me",
+  },
+
 };
 
 // ✅ 시간 헬퍼 (실서비스처럼 ISO 생성)
@@ -124,7 +133,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     conditions: "노트북 필수 / 조용히 작업",
     status: "OPEN",
     content: "룰: 서로 말 걸기 X, 필요 시 채팅으로.",
-    myState: { membershipStatus: "NONE", canJoin: true },
+    myState: { membershipStatus: "PENDING", canJoin: false, reason: "승인 대기중" },
     durationHours: 3,
     host: HOST_USERS.user5,
   },
@@ -296,4 +305,45 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     durationHours: 2,
     host: HOST_USERS.user1,
   },
+    // --- 내가 작성한 모임(호스트=me) ---
+  {
+    id: "201",
+    category: "MEAL",
+    title: "✍️ 강남역 점심 김치찌개 같이 먹어요",
+    meetingTimeText: "오늘 12:10",
+    meetingTime: h(0.8), // 약 48분 후 (핫 리스트에도 잘 잡힘)
+    distanceText: "0.3km",
+    locationText: "강남역 11번 출구 근처",
+    locationLat: 37.4986,
+    locationLng: 127.0279,
+    capacityJoined: 1,
+    capacityTotal: 4,
+    joinMode: "INSTANT",
+    status: "OPEN",
+    content: "혼밥 싫어서 만들었어요. 40분 정도만 가볍게!",
+    myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" },
+    durationHours: 1,
+    host: HOST_USERS.me,
+  },
+  {
+    id: "202",
+    category: "STUDY",
+    title: "✍️ 저녁 모각코 2시간 (초집중)",
+    meetingTimeText: "내일 20:00",
+    meetingTime: d(1, 20, 0),
+    distanceText: "0.7km",
+    locationText: "서초 카페 (조용한 곳)",
+    locationLat: 37.4929,
+    locationLng: 127.0156,
+    capacityJoined: 1,
+    capacityTotal: 6,
+    joinMode: "APPROVAL",
+    conditions: "노트북 필수 / 통화 금지 / 대화 최소",
+    status: "OPEN",
+    content: "각자 할 일 하고 마지막 10분만 공유해요.",
+    myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" },
+    durationHours: 2,
+    host: HOST_USERS.me,
+  },
+
 ];

@@ -7,9 +7,9 @@ import {
   StyleSheet,
   Text,
   View,
-  Alert,
   Animated,
   Pressable,
+  Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -20,6 +20,8 @@ import { useAuthStore } from "@/features/auth/authStore";
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { Card } from "@/shared/ui/Card";
+import { withAlpha } from "@/shared/theme/colors";
+import TopBar from "@/shared/ui/TopBar";
 
 import MeetingList from "./components/MeetingList";
 import ProfileEditModal from "./components/ProfileEditModal";
@@ -27,6 +29,9 @@ import HostedMeetingEditModal from "./components/HostedMeetingEditModal";
 
 import { myService } from "./myService";
 import type { MyMeetingItem, MyProfile } from "./types";
+
+const PREVIEW_COUNT = 3;
+const WHITE = "#FFFFFF";
 
 /** ✅ A안: 0점=32, 5점=42 */
 function tempFromRating(rating: number) {
@@ -44,27 +49,12 @@ function tempIconName(temp: number): keyof typeof MaterialIcons.glyphMap {
   return "whatshot";
 }
 
-type PillTone = { text: string; bg: string };
-function pillToneByTemp(temp: number): PillTone {
-  if (temp <= 35.5) return { text: "#1F6FEB", bg: "rgba(31,111,235,0.10)" };
-  if (temp <= 36.5) return { text: "#B57900", bg: "rgba(255,193,7,0.16)" };
-  if (temp <= 38.0) return { text: "#FF7A00", bg: "rgba(255,122,0,0.14)" };
-  return { text: "#E53935", bg: "rgba(229,57,53,0.14)" };
-}
-
-type GradientColors = readonly [string, string];
-function gradientByTemp(temp: number): GradientColors {
-  if (temp <= 35.5) return ["#6EA8FF", "#1F6FEB"] as const;
-  if (temp <= 36.5) return ["#FFE08A", "#FFC107"] as const;
-  if (temp <= 38.0) return ["#FFB36A", "#FF7A00"] as const;
-  return ["#FF7B7B", "#E53935"] as const;
-}
-
 type LocalSummary = {
   averageRating: number; // 0~5
 };
 
-const PREVIEW_COUNT = 3;
+type PillTone = { text: string; bg: string };
+type GradientColors = readonly [string, string];
 
 export default function MyScreen() {
   const t = useAppTheme();
@@ -74,8 +64,7 @@ export default function MyScreen() {
   const [profile, setProfile] = useState<MyProfile>({ nickname: "액션메이트" });
   const [summary, setSummary] = useState<LocalSummary>({ averageRating: 1.0 });
 
-  // ✅ 액션메이트(닉네임) 아래에: 회원가입 때 정한 성별/생년월일 표시
-  // - 우선순위: authStore(user) → profile(fallback)
+  // ✅ authStore(user) → profile(fallback)
   const genderRaw: any = (user as any)?.gender ?? (profile as any)?.gender;
   const birthRaw: string =
     (user as any)?.birthDate ??
@@ -95,7 +84,6 @@ export default function MyScreen() {
   const birthLabel = useMemo(() => {
     const s = String(birthRaw ?? "").trim();
     if (!s) return "";
-    // "YYYY-MM-DD" -> "YYYY.MM.DD"
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.split("-").join(".");
     return s;
   }, [birthRaw]);
@@ -149,11 +137,31 @@ export default function MyScreen() {
       setRefreshing(false);
     }
   }, [loadAll]);
+
   const avgRating = Math.max(0, Math.min(5, summary.averageRating));
   const temp = tempFromRating(avgRating);
 
-  const pillTone = useMemo(() => pillToneByTemp(temp), [temp]);
-  const grad = useMemo(() => gradientByTemp(temp), [temp]);
+  // ✅ 온도 톤/그라데이션을 테마 토큰 기반으로 통일
+  const pillTone: PillTone = useMemo(() => {
+    const soft = (hex: string, a: number) => withAlpha(hex, a);
+
+    if (temp <= 35.5) return { text: t.colors.info, bg: soft(t.colors.info, 0.12) };
+    if (temp <= 36.5) return { text: t.colors.warning, bg: soft(t.colors.warning, 0.16) };
+    if (temp <= 38.0) return { text: t.colors.primary, bg: soft(t.colors.primary, 0.14) };
+
+    return { text: t.colors.error, bg: soft(t.colors.error, 0.14) };
+  }, [temp, t.colors]);
+
+  const grad: GradientColors = useMemo(() => {
+    const start = (hex: string) => withAlpha(hex, 0.55);
+
+    if (temp <= 35.5) return [start(t.colors.info), t.colors.info] as const;
+    if (temp <= 36.5) return [start(t.colors.warning), t.colors.warning] as const;
+    if (temp <= 38.0) return [start(t.colors.primary), t.colors.primary] as const;
+
+    return [start(t.colors.error), t.colors.error] as const;
+  }, [temp, t.colors]);
+
   const iconName = useMemo(() => tempIconName(temp), [temp]);
 
   const ratio = useMemo(() => {
@@ -187,40 +195,39 @@ export default function MyScreen() {
   const joinedHasMore = joined.length > PREVIEW_COUNT;
 
   return (
-    <AppLayout>
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: 28 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {/* ✅ 헤더: 오른쪽에 설정(톱니) */}
-        <View style={styles.headerRow}>
-          <View style={{ gap: 4 }}>
-            <Text style={t.typography.headlineSmall}>마이페이지</Text>
-            <Text style={t.typography.bodySmall}>내 정보 · 모임</Text>
-          </View>
-
+    <AppLayout padded={false}>
+      {/* ✅ TopBar */}
+      <TopBar
+        title="마이페이지"
+        showBorder
+        showNoti={false}
+        renderRight={() => (
           <Pressable
             onPress={() => router.push("/(modals)/settings")}
             hitSlop={10}
-            style={({ pressed }) => [
-              styles.headerIconBtn,
-              {
-                opacity: pressed ? 0.85 : 1,
-                backgroundColor: t.colors.surface,
-                borderColor: t.colors.border,
-              },
-            ]}
+            style={({ pressed }) => [{ padding: 4, opacity: pressed ? 0.85 : 1 }]}
           >
-            <MaterialIcons name="settings" size={20} color="rgba(0,0,0,0.75)" />
+            <MaterialIcons name="settings" size={22} color={t.colors.icon.default} />
           </Pressable>
-        </View>
+        )}
+      />
 
+      {/* ✅ 본문: AppLayout 패딩을 끈 대신 ScrollView에 패딩 부여 */}
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingHorizontal: t.spacing.pagePaddingH,
+            paddingTop: t.spacing.pagePaddingV,
+          },
+        ]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {/* 프로필 카드 */}
         <Card style={{ paddingVertical: 14, paddingHorizontal: 14 }}>
-          {/* 상단 row */}
           <View style={styles.topRow}>
             <View style={styles.profileLeft}>
-              {/* ✅ 아바타 + 연필(프로필 편집) */}
+              {/* 아바타 + 연필 */}
               <View style={styles.avatarWrap}>
                 {profile.photoUrl ? (
                   <Image
@@ -238,7 +245,7 @@ export default function MyScreen() {
                       { borderColor: t.colors.background, backgroundColor: t.colors.primary },
                     ]}
                   >
-                    <Text style={[t.typography.titleMedium, { color: "#fff" }]}>
+                    <Text style={[t.typography.titleMedium, { color: WHITE }]}>
                       {profile.nickname?.slice(0, 1) || "A"}
                     </Text>
                   </View>
@@ -248,7 +255,17 @@ export default function MyScreen() {
                   onPress={() => setEditOpen(true)}
                   hitSlop={10}
                   style={({ pressed }) => [
-                    styles.avatarEditBtn,
+                    styles.avatarEditBtnBase,
+                    Platform.select({
+                      ios: {
+                        shadowColor: t.colors.shadow.color,
+                        shadowOpacity: 0.12,
+                        shadowRadius: 8,
+                        shadowOffset: { width: 0, height: 3 },
+                      },
+                      android: { elevation: t.shadow.elevationSm },
+                      default: {},
+                    }),
                     {
                       backgroundColor: t.colors.surface,
                       borderColor: t.colors.border,
@@ -256,7 +273,7 @@ export default function MyScreen() {
                     },
                   ]}
                 >
-                  <MaterialIcons name="edit" size={16} color="rgba(0,0,0,0.75)" />
+                  <MaterialIcons name="edit" size={16} color={t.colors.icon.default} />
                 </Pressable>
               </View>
 
@@ -281,17 +298,21 @@ export default function MyScreen() {
 
             {/* 별점 */}
             <View style={styles.ratingRight}>
-              <Text style={styles.star}>★</Text>
-              <Text style={styles.ratingText}>{avgRating.toFixed(1)}</Text>
+              <Text style={[styles.star, { color: t.colors.ratingStar }]}>★</Text>
+              <Text style={[styles.ratingText, { color: t.colors.ratingStar }]}>
+                {avgRating.toFixed(1)}
+              </Text>
             </View>
           </View>
 
           {/* 매너온도 */}
-          <View style={styles.mannerWrap}>
+          <View style={[styles.mannerWrap, { borderTopColor: t.colors.divider }]}>
             <View style={styles.mannerTop}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.mannerLabel}>매너온도</Text>
-                <Text style={[styles.mannerTemp, { color: pillTone.text }]}>{temp.toFixed(1)}℃</Text>
+                <Text style={[styles.mannerLabel, { color: t.colors.textSub }]}>매너온도</Text>
+                <Text style={[styles.mannerTemp, { color: pillTone.text }]}>
+                  {temp.toFixed(1)}℃
+                </Text>
               </View>
 
               <View style={[styles.tempBadge, { backgroundColor: pillTone.bg }]}>
@@ -311,8 +332,8 @@ export default function MyScreen() {
             </View>
 
             <View style={styles.scaleRow}>
-              <Text style={styles.scaleText}>32</Text>
-              <Text style={styles.scaleText}>42</Text>
+              <Text style={[styles.scaleText, { color: t.colors.overlay[45] }]}>32</Text>
+              <Text style={[styles.scaleText, { color: t.colors.overlay[45] }]}>42</Text>
             </View>
           </View>
         </Card>
@@ -325,17 +346,22 @@ export default function MyScreen() {
           >
             <View style={styles.sectionLeft}>
               <Text style={styles.sectionTitle}>내가 만든 모임</Text>
-              <View style={[styles.countPill, { backgroundColor: "rgba(0,0,0,0.06)" }]}>
-                <Text style={styles.countText}>{hosted.length}</Text>
+
+              <View style={[styles.countPill, { backgroundColor: t.colors.overlay[6] }]}>
+                <Text style={[styles.countText, { color: t.colors.overlay[55] }]}>
+                  {hosted.length}
+                </Text>
               </View>
             </View>
 
             <View style={styles.sectionRight}>
-              <Text style={styles.moreText}>{hostedExpanded ? "접기" : "펼치기"}</Text>
+              <Text style={[styles.moreText, { color: t.colors.textSub }]}>
+                {hostedExpanded ? "접기" : "펼치기"}
+              </Text>
               <MaterialIcons
                 name={hostedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
                 size={18}
-                color="rgba(0,0,0,0.55)"
+                color={t.colors.icon.muted}
               />
             </View>
           </Pressable>
@@ -345,7 +371,9 @@ export default function MyScreen() {
               onPress={() => setHostedExpanded(true)}
               style={({ pressed }) => [styles.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={styles.inlineMoreText}>최근 {PREVIEW_COUNT}개만 보여요 · 더보기</Text>
+              <Text style={[styles.inlineMoreText, { color: t.colors.overlay[55] }]}>
+                최근 {PREVIEW_COUNT}개만 보여요 · 더보기
+              </Text>
             </Pressable>
           ) : null}
         </View>
@@ -368,17 +396,22 @@ export default function MyScreen() {
           >
             <View style={styles.sectionLeft}>
               <Text style={styles.sectionTitle}>참여한 모임</Text>
-              <View style={[styles.countPill, { backgroundColor: "rgba(0,0,0,0.06)" }]}>
-                <Text style={styles.countText}>{joined.length}</Text>
+
+              <View style={[styles.countPill, { backgroundColor: t.colors.overlay[6] }]}>
+                <Text style={[styles.countText, { color: t.colors.overlay[55] }]}>
+                  {joined.length}
+                </Text>
               </View>
             </View>
 
             <View style={styles.sectionRight}>
-              <Text style={styles.moreText}>{joinedExpanded ? "접기" : "펼치기"}</Text>
+              <Text style={[styles.moreText, { color: t.colors.textSub }]}>
+                {joinedExpanded ? "접기" : "펼치기"}
+              </Text>
               <MaterialIcons
                 name={joinedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
                 size={18}
-                color="rgba(0,0,0,0.55)"
+                color={t.colors.icon.muted}
               />
             </View>
           </Pressable>
@@ -388,7 +421,9 @@ export default function MyScreen() {
               onPress={() => setJoinedExpanded(true)}
               style={({ pressed }) => [styles.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={styles.inlineMoreText}>최근 {PREVIEW_COUNT}개만 보여요 · 더보기</Text>
+              <Text style={[styles.inlineMoreText, { color: t.colors.overlay[55] }]}>
+                최근 {PREVIEW_COUNT}개만 보여요 · 더보기
+              </Text>
             </Pressable>
           ) : null}
         </View>
@@ -433,25 +468,8 @@ export default function MyScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 4,
-    marginBottom: 10,
-  },
-  headerIconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+  scrollContent: {
+    paddingBottom: 28,
   },
 
   topRow: {
@@ -463,11 +481,10 @@ const styles = StyleSheet.create({
   profileLeft: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 },
 
   avatarWrap: { width: 56, height: 56, position: "relative" },
-
   avatar: { width: 56, height: 56, borderRadius: 28, borderWidth: 3 },
   avatarFallback: { alignItems: "center", justifyContent: "center" },
 
-  avatarEditBtn: {
+  avatarEditBtnBase: {
     position: "absolute",
     right: -6,
     bottom: -6,
@@ -477,11 +494,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
   },
 
   nameLine: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
@@ -489,20 +501,19 @@ const styles = StyleSheet.create({
   tempPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
   tempPillText: { fontSize: 12, fontWeight: "800" },
 
-  subLine: { marginTop: 4, fontSize: 12, opacity: 0.6 },
+  subLine: { marginTop: 4, fontSize: 12 },
 
   ratingRight: { flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 6 },
-  star: { fontSize: 12, color: "#FFC107", marginTop: 1 },
-  ratingText: { fontSize: 12, fontWeight: "800", color: "#FFC107" },
+  star: { fontSize: 12, marginTop: 1 },
+  ratingText: { fontSize: 12, fontWeight: "800" },
 
   mannerWrap: {
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.06)",
   },
   mannerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  mannerLabel: { fontSize: 12, fontWeight: "700", opacity: 0.6 },
+  mannerLabel: { fontSize: 12, fontWeight: "700" },
   mannerTemp: { marginTop: 6, fontSize: 20, fontWeight: "900" },
 
   tempBadge: {
@@ -517,7 +528,7 @@ const styles = StyleSheet.create({
   barFill: { height: "100%", borderRadius: 999, overflow: "hidden" },
 
   scaleRow: { marginTop: 8, flexDirection: "row", justifyContent: "space-between" },
-  scaleText: { fontSize: 11, opacity: 0.45 },
+  scaleText: { fontSize: 11 },
 
   sectionHeader: { marginTop: 14, marginBottom: 8, paddingHorizontal: 2 },
   sectionHeaderRow: {
@@ -531,10 +542,10 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: "900" },
 
   countPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  countText: { fontSize: 12, fontWeight: "800", opacity: 0.7 },
+  countText: { fontSize: 12, fontWeight: "800" },
 
-  moreText: { fontSize: 12, fontWeight: "800", opacity: 0.6 },
+  moreText: { fontSize: 12, fontWeight: "800" },
 
   inlineMoreBtn: { marginTop: 2, paddingVertical: 6 },
-  inlineMoreText: { fontSize: 12, opacity: 0.55 },
+  inlineMoreText: { fontSize: 12 },
 });

@@ -14,29 +14,22 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 type LogoProps = {
-  /** 예: "Action" */
   leftText: string;
-  /** 예: "Mate" */
   rightText: string;
-  /** 오른쪽 단어 색상(기본: primary) */
-  rightColor?: string;
-  /** 심볼 아이콘(선택) */
+  rightColor?: string; // 필요하면 외부에서 override
   iconName?: keyof typeof Ionicons.glyphMap;
 };
 
 type Props = {
   style?: StyleProp<ViewStyle>;
 
-  /** 일반 타이틀 (로고 없으면 이거 사용) */
   title?: string;
   titleStyle?: StyleProp<TextStyle>;
 
-  /** ✅ 로고(워드마크) */
   logo?: LogoProps;
 
   showBorder?: boolean;
 
-  /** ✅ 상세에서 자주 쓰는 Back */
   showBack?: boolean;
   onPressBack?: () => void;
 
@@ -47,13 +40,11 @@ type Props = {
   showMenu?: boolean;
   onPressMenu?: () => void;
 
-  /** ✅ 오른쪽 텍스트 액션 (예: 저장/완료/로그아웃) */
   rightActionText?: string;
   rightActionTextStyle?: StyleProp<TextStyle>;
   onPressRightAction?: () => void;
   rightActionDisabled?: boolean;
 
-  /** ✅ [추가] 커스텀 우측 컴포넌트 렌더링 (예: 점 3개 메뉴 등) */
   renderRight?: () => React.ReactNode;
 };
 
@@ -79,13 +70,12 @@ export default function TopBar({
   onPressRightAction,
   rightActionDisabled = false,
 
-  renderRight, // ✅ 추가됨
+  renderRight,
 }: Props) {
   const t = useAppTheme();
   const flat = RNStyleSheet.flatten(style) as ViewStyle | undefined;
 
-  const borderColor = t.colors.border ?? "#E5E7EB";
-  const backgroundColor = flat?.backgroundColor ?? t.colors.background;
+  const backgroundColor = (flat?.backgroundColor as string) ?? t.colors.background;
 
   return (
     <View
@@ -93,14 +83,14 @@ export default function TopBar({
         styles.topBar,
         {
           backgroundColor,
-          paddingHorizontal: t.spacing.pagePaddingH ?? 20,
-          borderBottomWidth: 1,
-          borderBottomColor: showBorder ? borderColor : "transparent",
+          paddingHorizontal: t.spacing.pagePaddingH,
+          borderBottomWidth: showBorder ? 1 : 0,
+          borderBottomColor: showBorder ? t.colors.border : "transparent",
         },
         style,
       ]}
     >
-      {/* ✅ LEFT: Back + Logo or Title */}
+      {/* LEFT */}
       <View style={styles.leftWrap}>
         {showBack && (
           <Pressable
@@ -108,10 +98,10 @@ export default function TopBar({
             hitSlop={12}
             style={({ pressed }) => [
               styles.iconBtn,
-              { opacity: pressed ? 0.85 : 1, marginRight: 4 }, // 간격 약간 추가
+              { opacity: pressed ? 0.85 : 1, marginRight: 4 },
             ]}
           >
-            <Ionicons name="chevron-back" size={26} color={t.colors.textMain} />
+            <Ionicons name="chevron-back" size={26} color={t.colors.icon.default} />
           </Pressable>
         )}
 
@@ -130,7 +120,6 @@ export default function TopBar({
               <Text style={[styles.logoTextBase, { color: t.colors.textMain }]}>
                 {logo.leftText}
               </Text>
-
               <Text
                 style={[
                   styles.logoTextBase,
@@ -142,11 +131,7 @@ export default function TopBar({
             </View>
           ) : title ? (
             <Text
-              style={[
-                t.typography.titleLarge,
-                { color: t.colors.textMain },
-                titleStyle,
-              ]}
+              style={[t.typography.titleLarge, { color: t.colors.textMain }, titleStyle]}
               numberOfLines={1}
             >
               {title}
@@ -155,15 +140,13 @@ export default function TopBar({
         </View>
       </View>
 
-      {/* ✅ RIGHT: text action + icons + custom render */}
+      {/* RIGHT */}
       <View style={styles.rightArea}>
-        {/* 1. 텍스트 액션 (예: 완료) */}
         {rightActionText ? (
           <Pressable
             disabled={rightActionDisabled}
             onPress={
-              onPressRightAction ??
-              (() => Alert.alert("액션", "onPressRightAction 없음"))
+              onPressRightAction ?? (() => Alert.alert("액션", "onPressRightAction 없음"))
             }
             hitSlop={12}
             style={({ pressed }) => [
@@ -183,21 +166,19 @@ export default function TopBar({
           </Pressable>
         ) : null}
 
-        {/* 2. ✅ 커스텀 렌더링 (점 3개 등) - 텍스트 액션 뒤에 배치 */}
-        {renderRight && renderRight()}
+        {renderRight ? renderRight() : null}
 
-        {/* 3. 알림 아이콘 */}
         {showNoti && (
           <Pressable
             onPress={onPressNoti ?? (() => Alert.alert("알림", "없음"))}
             hitSlop={12}
-            style={styles.iconBtn}
+            style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.85 : 1 }]}
           >
             <View>
               <Ionicons
                 name="notifications-outline"
                 size={24}
-                color={t.colors.textMain}
+                color={t.colors.icon.default}
               />
               {showNotiDot && (
                 <View
@@ -205,7 +186,7 @@ export default function TopBar({
                     styles.notiDot,
                     {
                       backgroundColor: t.colors.error,
-                      borderColor: String(backgroundColor),
+                      borderColor: backgroundColor,
                     },
                   ]}
                 />
@@ -214,14 +195,13 @@ export default function TopBar({
           </Pressable>
         )}
 
-        {/* 4. 햄버거 메뉴 */}
         {showMenu && (
           <Pressable
             onPress={onPressMenu ?? (() => Alert.alert("메뉴", "오픈"))}
             hitSlop={12}
-            style={styles.iconBtn}
+            style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.85 : 1 }]}
           >
-            <Ionicons name="menu-outline" size={26} color={t.colors.textMain} />
+            <Ionicons name="menu-outline" size={26} color={t.colors.icon.default} />
           </Pressable>
         )}
       </View>
@@ -236,7 +216,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // ✅ LEFT 영역
   leftWrap: {
     flex: 1,
     flexDirection: "row",
@@ -249,12 +228,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
 
-  // ✅ RIGHT 영역
   rightArea: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 6, // 아이콘들 사이 간격
+    gap: 6,
   },
   iconBtn: {
     padding: 4,
@@ -279,7 +257,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
 
-  // ✅ 로고 스타일
   logoRow: {
     flexDirection: "row",
     alignItems: "center",
