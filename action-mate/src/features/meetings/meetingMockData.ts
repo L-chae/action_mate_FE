@@ -1,6 +1,13 @@
+// features/meetings/meetingMockData.ts
 import type { HostSummary, MeetingPost } from "./types";
 
-// ✅ Mock Hosts (실서비스 느낌: 아바타 유무/온도 다양/소개 다양)
+/**
+ * ✅ 목업 원본만 담당하는 파일
+ * - 서비스 로직과 분리(응집/유지보수)
+ * - 실서비스처럼 보이도록: 지역/카테고리/시간/상태/승인모드 다양화
+ */
+
+// ✅ Mock Hosts
 export const HOST_USERS: Record<string, HostSummary> = {
   user1: {
     id: "u1",
@@ -50,7 +57,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
   },
 };
 
-// ✅ 시간 헬퍼 (실서비스처럼 ISO를 안정적으로 만들어줌)
+// ✅ 시간 헬퍼 (실서비스처럼 ISO 생성)
 const now = Date.now();
 const h = (hoursFromNow: number) => new Date(now + hoursFromNow * 3600_000).toISOString();
 const d = (daysFromNow: number, hour = 12, minute = 0) => {
@@ -60,7 +67,7 @@ const d = (daysFromNow: number, hour = 12, minute = 0) => {
   return base.toISOString();
 };
 
-// ✅ 다양한 지역 좌표 (서울/분당/수원/동탄/인천 일부)
+// ✅ 목업 모임 원본
 export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   // --- 강남/서초 ---
   {
@@ -87,7 +94,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     category: "MEAL",
     title: "🍔 강남 버거 같이 먹을 분",
     meetingTimeText: "오늘 12:30",
-    meetingTime: h(-3), // 이미 지난 시간도 섞어봄(정렬/표시 테스트용)
+    meetingTime: h(1), // 임박(핫에 노출되기 좋게)
     distanceText: "1.1km",
     locationText: "강남역 근처 버거집",
     locationLat: 37.4981,
@@ -148,7 +155,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     category: "MEAL",
     title: "🍜 홍대 라멘 번개",
     meetingTimeText: "오늘 20:30",
-    meetingTime: h(4),
+    meetingTime: h(3), // 임박(핫)
     distanceText: "1.2km",
     locationText: "홍대 라멘집",
     locationLat: 37.5558,
@@ -163,13 +170,13 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     host: HOST_USERS.user4,
   },
 
-  // --- 반포/한강 ---
+  // --- 한강/반포 ---
   {
     id: "106",
     category: "SPORTS",
     title: "🏃 한강 러닝 5km (600~630)",
     meetingTimeText: "오늘 21:00",
-    meetingTime: h(5),
+    meetingTime: h(4), // 임박(핫)
     distanceText: "2.4km",
     locationText: "반포 나들목",
     locationLat: 37.509,
@@ -188,7 +195,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "107",
     category: "STUDY",
-    title: "🧑‍💻 판교 카페에서 사이드프로젝트",
+    title: "🧑‍💻 판교 카페 사이드프로젝트",
     meetingTimeText: "이번 주말 13:00",
     meetingTime: d(2, 13, 0),
     distanceText: "0.8km",
@@ -210,7 +217,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "108",
     category: "GAMES",
-    title: "🎮 광교에서 스위치/마리오카트",
+    title: "🎮 광교에서 마리오카트",
     meetingTimeText: "내일 19:30",
     meetingTime: d(1, 19, 30),
     distanceText: "1.5km",
@@ -233,7 +240,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     category: "SPORTS",
     title: "🏃‍♂️ 동탄 센트럴파크 야간 러닝",
     meetingTimeText: "오늘 20:00",
-    meetingTime: h(3.5),
+    meetingTime: h(2.5), // 임박(핫)
     distanceText: "100m",
     locationText: "동탄 센트럴파크",
     locationLat: 37.2005,
@@ -272,7 +279,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "111",
     category: "STUDY",
-    title: "📖 송도 도서관 스터디(영어회화)",
+    title: "📖 송도 영어회화 스터디",
     meetingTimeText: "이번 주말 10:00",
     meetingTime: d(3, 10, 0),
     distanceText: "1.0km",

@@ -1,10 +1,11 @@
+// features/meetings/meetingService.ts
 import type { CategoryKey, MembershipStatus, MeetingPost } from "./types";
 import { MOCK_MEETINGS_SEED } from "./meetingMockData";
 
 /**
  * ✅ meetings 도메인 단일 서비스
- * - 홈/상세/참여/지도 모두 여기로
- * - mock 원본은 meetingMockData.ts 한 곳에서만 관리
+ * - 홈/상세/참여/지도/핫(마감임박) 모두 여기로
+ * - mock 원본은 meetingMockData.ts에서만 관리
  */
 
 // ✅ 공통 타입 및 정렬 타입 정의
@@ -32,13 +33,24 @@ export type AroundMeetingsOptions = {
   sort?: HomeSort;
 };
 
-// ✅ 전역 mock 원본 (서비스가 “유일한 쓰기” 주체)
+// ✅ 홈 핫 카드용 타입 (HomeScreen의 HOT_ITEMS 대체)
+export type HotMeetingItem = {
+  id: string; // hot item id
+  meetingId: string;
+  badge: string; // "35분 남음" 등
+  title: string;
+  place: string;
+  capacityJoined: number;
+  capacityTotal: number;
+};
+
+// ✅ 서비스 내부 mock 원본 (서비스가 유일한 쓰기 주체)
 let _DATA: MeetingPost[] = [...MOCK_MEETINGS_SEED];
 
 // --- Helper: 네트워크 지연 시뮬레이션 ---
 const delay = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// --- Helper: 거리 파싱 (홈 정렬용: 0.6km -> 0.6, 300m -> 0.3) ---
+// --- Helper: 거리 파싱 (홈 NEAR 정렬용: 0.6km -> 0.6, 300m -> 0.3) ---
 function parseDistanceToKm(distanceText?: string) {
   if (!distanceText) return 999;
   const s = distanceText.trim().toLowerCase();
@@ -75,6 +87,15 @@ function formatDistanceText(km: number) {
   return `${km.toFixed(1)}km`;
 }
 
+/**
+ * ✅ 안전한 ISO -> ms 변환 (undefined/Invalid Date 방어)
+ */
+function toTimeMs(iso?: string) {
+  if (!iso) return Number.MAX_SAFE_INTEGER;
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+}
+
 function sortMeetings(list: MeetingPost[], sort: HomeSort) {
   const copy = [...list];
   copy.sort((a, b) => {
@@ -82,14 +103,62 @@ function sortMeetings(list: MeetingPost[], sort: HomeSort) {
       return parseDistanceToKm(a.distanceText) - parseDistanceToKm(b.distanceText);
     }
     if (sort === "SOON") {
-      const timeA = a.meetingTime ? new Date(a.meetingTime).getTime() : Number.MAX_SAFE_INTEGER;
-      const timeB = b.meetingTime ? new Date(b.meetingTime).getTime() : Number.MAX_SAFE_INTEGER;
-      return timeA - timeB;
+      // ✅ toTimeMs로 타입/안정성 해결
+      return toTimeMs(a.meetingTime) - toTimeMs(b.meetingTime);
     }
-    // LATEST: id가 숫자 문자열이라는 가정 유지(아니면 createdAt 필드 추가 추천)
+    // LATEST: id가 숫자 문자열이라는 가정 유지(실서비스는 createdAt 추천)
     return Number(b.id) - Number(a.id);
   });
   return copy;
+}
+
+// --- Helper: 핫 뱃지 계산 ---
+function minutesUntil(iso?: string) {
+  if (!iso) return Number.POSITIVE_INFINITY;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return Number.POSITIVE_INFINITY;
+  return Math.floor((t - Date.now()) / 60000);
+}
+
+function hotBadgeFromMinutes(min: number) {
+  if (!Number.isFinite(min)) return "";
+  if (min < 0) return "이미 시작";
+  if (min < 60) return `${min}분 남음`;
+  const h = Math.floor(min / 60);
+  const r = min % 60;
+  return r === 0 ? `${h}시간 남음` : `${h}시간 ${r}분 남음`;
+}
+
+/**
+ * ✅ 0. 홈 핫(마감 임박) 목록
+ * - 기존 HomeScreen의 HOT_ITEMS 제거 가능
+ * - 실제 서비스처럼: "곧 시작하는 OPEN 모임"을 자동 추출
+ */
+export async function listHotMeetings(options?: {
+  limit?: number;
+  withinMinutes?: number; // 기본 180분(3시간)
+}): Promise<HotMeetingItem[]> {
+  await delay();
+
+  const limit = options?.limit ?? 6;
+  const withinMinutes = options?.withinMinutes ?? 180;
+
+  const candidates = _DATA
+    .filter((m) => m.status === "OPEN")
+    .map((m) => ({ m, min: minutesUntil(m.meetingTime) }))
+    .filter(({ min }) => min >= 0 && min <= withinMinutes)
+    .sort((a, b) => a.min - b.min)
+    .slice(0, limit);
+
+  return candidates.map(({ m, min }, idx) => ({
+    id: `hot-${idx}-${m.id}`,
+    meetingId: m.id,
+    badge: hotBadgeFromMinutes(min),
+    title: m.title,
+    place: m.locationText,
+    capacityJoined: m.capacityJoined,
+    capacityTotal: m.capacityTotal,
+  }));
 }
 
 /**
@@ -144,11 +213,12 @@ export async function listMeetingsAround(
 
   within.sort((a, b) => {
     if (sort === "NEAR") return a.dKm - b.dKm;
+
     if (sort === "SOON") {
-      const timeA = a.m.meetingTime ? new Date(a.m.meetingTime).getTime() : Number.MAX_SAFE_INTEGER;
-      const timeB = b.m.meetingTime ? new Date(b.m.meetingTime).getTime() : Number.MAX_SAFE_INTEGER;
-      return timeA - timeB;
+      // ✅ toTimeMs 적용 + ✅ timeB 오타 수정(b.m)
+      return toTimeMs(a.m.meetingTime) - toTimeMs(b.m.meetingTime);
     }
+
     return Number(b.m.id) - Number(a.m.id);
   });
 
@@ -262,7 +332,6 @@ export async function cancelMeeting(id: string): Promise<{ post: MeetingPost }> 
   const deleted = _DATA[index];
   _DATA.splice(index, 1);
 
-  // mock 응답 형태 유지
   return { post: { ...deleted, status: "CANCELED" } };
 }
 

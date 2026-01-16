@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -21,23 +21,20 @@ import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import TopBar from "@/shared/ui/TopBar";
 
-import { getDMMessages, sendDMMessage } from "./dmService";
-import type { DMMessage } from "./types";
+import { getDMMessages, sendDMMessage, getDMThread, markDMThreadRead } from "./dmService";
+import type { DMMessage, DMThread } from "./types";
 
 export default function DMThreadScreen() {
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
 
-  // ✅ meetingId / meetingTitle 파라미터 받기
-  const { threadId, nickname, meetingId, meetingTitle } = useLocalSearchParams<{
-    threadId: string;
-    nickname: string;
-    meetingId?: string;
-    meetingTitle?: string;
-  }>();
+  // ✅ threadId만 받으면 됨 (나머지는 thread에서 가져오기)
+  const { threadId } = useLocalSearchParams<{ threadId: string }>();
 
+  const [thread, setThread] = useState<DMThread | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -48,20 +45,46 @@ export default function DMThreadScreen() {
   const translateY = useRef(new Animated.Value(0)).current;
   const bottomSafe = Math.max(insets.bottom, 8);
 
+  const title = thread?.otherUser?.nickname ?? "대화";
+
+  const scrollToBottom = useCallback((animated: boolean) => {
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
+  }, []);
+
   useEffect(() => {
+    let mounted = true;
+
     const load = async () => {
       try {
-        const data = await getDMMessages(threadId);
-        setMessages(data); // 오래된->최신 순서 권장
+        setLoading(true);
+
+        const [th, msgs] = await Promise.all([
+          getDMThread(threadId),
+          getDMMessages(threadId),
+        ]);
+
+        if (!mounted) return;
+
+        setThread(th);
+        setMessages(msgs);
+
+        // ✅ 들어오면 읽음 처리 (상대가 보낸 것)
+        await markDMThreadRead(threadId);
       } catch (e) {
         console.error(e);
       } finally {
-        setLoading(false);
-        requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+        if (mounted) {
+          setLoading(false);
+          scrollToBottom(false);
+        }
       }
     };
+
     load();
-  }, [threadId]);
+    return () => {
+      mounted = false;
+    };
+  }, [threadId, scrollToBottom]);
 
   useEffect(() => {
     let showSub: EmitterSubscription | undefined;
@@ -82,7 +105,7 @@ export default function DMThreadScreen() {
         useNativeDriver: true,
       }).start();
 
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      scrollToBottom(true);
     });
 
     hideSub = Keyboard.addListener(hideEvent, () => {
@@ -98,9 +121,9 @@ export default function DMThreadScreen() {
       showSub?.remove();
       hideSub?.remove();
     };
-  }, [insets.bottom, translateY]);
+  }, [insets.bottom, translateY, scrollToBottom]);
 
-  const handleSend = async () => {
+  const handleSend = useCallback(async () => {
     if (!text.trim() || sending) return;
 
     const content = text.trim();
@@ -110,45 +133,48 @@ export default function DMThreadScreen() {
     try {
       const newMsg = await sendDMMessage(threadId, content);
       setMessages((prev) => [...prev, newMsg]);
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      scrollToBottom(true);
     } catch (e) {
       console.error(e);
       setText(content);
     } finally {
       setSending(false);
     }
-  };
+  }, [text, sending, threadId, scrollToBottom]);
 
-  const renderMessage = ({ item }: { item: DMMessage }) => {
-    const isMe = item.senderId === "me";
+  const renderMessage = useCallback(
+    ({ item }: { item: DMMessage }) => {
+      const isMe = item.senderId === "me";
 
-    return (
-      <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
-        {!isMe && (
-          <View style={[styles.avatar, { backgroundColor: t.colors.neutral[200] }]}>
-            <Ionicons name="person" size={16} color={t.colors.neutral[400]} />
+      return (
+        <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
+          {!isMe && (
+            <View style={[styles.avatar, { backgroundColor: t.colors.neutral[200] }]}>
+              <Ionicons name="person" size={16} color={t.colors.neutral[400]} />
+            </View>
+          )}
+
+          <View
+            style={[
+              styles.bubble,
+              isMe
+                ? { backgroundColor: t.colors.primary, borderBottomRightRadius: 4 }
+                : { backgroundColor: t.colors.neutral[100], borderBottomLeftRadius: 4 },
+            ]}
+          >
+            <Text style={[t.typography.bodyMedium, { color: isMe ? "white" : t.colors.textMain }]}>
+              {item.text}
+            </Text>
           </View>
-        )}
 
-        <View
-          style={[
-            styles.bubble,
-            isMe
-              ? { backgroundColor: t.colors.primary, borderBottomRightRadius: 4 }
-              : { backgroundColor: t.colors.neutral[100], borderBottomLeftRadius: 4 },
-          ]}
-        >
-          <Text style={[t.typography.bodyMedium, { color: isMe ? "white" : t.colors.textMain }]}>
-            {item.text}
+          <Text style={[t.typography.labelSmall, styles.timeText, { color: t.colors.neutral[400] }]}>
+            {new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
           </Text>
         </View>
-
-        <Text style={[t.typography.labelSmall, styles.timeText, { color: t.colors.neutral[400] }]}>
-          {new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
-        </Text>
-      </View>
-    );
-  };
+      );
+    },
+    [t.colors.neutral, t.colors.primary, t.colors.textMain, t.typography.bodyMedium, t.typography.labelSmall]
+  );
 
   const onComposerLayout = (e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
@@ -163,6 +189,14 @@ export default function DMThreadScreen() {
     } as const;
   }, [composerHeight, bottomSafe, keyboardLift]);
 
+  const relatedMeetingId = thread?.relatedMeetingId;
+  const relatedMeetingTitle = thread?.relatedMeetingTitle;
+
+  const goMeeting = useCallback(() => {
+    if (!relatedMeetingId) return;
+    router.push(`/meetings/${relatedMeetingId}`);
+  }, [relatedMeetingId]);
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -170,7 +204,7 @@ export default function DMThreadScreen() {
       <AppLayout padded={false}>
         <View style={{ flex: 1, backgroundColor: t.colors.background }}>
           <TopBar
-            title={nickname || "대화"}
+            title={title}
             showBorder
             showBack
             onPressBack={() => router.back()}
@@ -178,10 +212,10 @@ export default function DMThreadScreen() {
             showMenu={false}
           />
 
-          {/* ✅ 상단 카드: 모임글로 이동 */}
-          {meetingId ? (
+          {/* ✅ 상단 카드: 모임글로 이동 (thread 기반) */}
+          {relatedMeetingId ? (
             <Pressable
-              onPress={() => router.push(`/meetings/${meetingId}`)}
+              onPress={goMeeting}
               style={({ pressed }) => [
                 styles.meetingCard,
                 {
@@ -192,14 +226,12 @@ export default function DMThreadScreen() {
               ]}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                  연결된 모임글
-                </Text>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>연결된 모임글</Text>
                 <Text
                   style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 2 }]}
                   numberOfLines={1}
                 >
-                  {meetingTitle ?? "모임 상세로 이동"}
+                  {relatedMeetingTitle ?? "모임 상세로 이동"}
                 </Text>
               </View>
 
@@ -219,7 +251,7 @@ export default function DMThreadScreen() {
               keyExtractor={(item) => item.id}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={listContentStyle}
-              onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+              onContentSizeChange={() => scrollToBottom(false)}
             />
           )}
 
@@ -259,7 +291,11 @@ export default function DMThreadScreen() {
                 { backgroundColor: text.trim() ? t.colors.primary : t.colors.neutral[200] },
               ]}
             >
-              {sending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="arrow-up" size={20} color="white" />}
+              {sending ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Ionicons name="arrow-up" size={20} color="white" />
+              )}
             </Pressable>
           </Animated.View>
         </View>
