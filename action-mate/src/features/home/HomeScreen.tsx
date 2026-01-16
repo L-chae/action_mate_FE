@@ -1,5 +1,4 @@
-// HomeScreen.tsx (핫 섹션까지 서비스 연동 버전)
-// ✅ 기존 HOT_ITEMS 제거 + listHotMeetings() 사용
+// HomeScreen.tsx
 import React, { useEffect, useState, useCallback } from "react";
 import {
   FlatList,
@@ -9,6 +8,7 @@ import {
   Text,
   View,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,7 +22,7 @@ import EmptyView from "@/shared/ui/EmptyView";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 import CategoryChips from "@/shared/ui/CategoryChips";
-import MeetingCard from "../meetings/components/MeetingCard";
+import { MeetingCard } from "@/features/meetings/components/MeetingCard";
 import { listHotMeetings, listMeetings } from "../meetings/meetingService";
 import type { CategoryKey, MeetingPost } from "../meetings/types";
 import type { HotMeetingItem } from "../meetings/meetingService";
@@ -63,6 +63,13 @@ export default function HomeScreen() {
     fetchData();
   };
 
+  const isDark = t.mode === "dark";
+
+  // ✅ 다크모드에서 트랙/디바이더/스티키 그림자 안정화
+  const dividerColor = t.colors.divider ?? t.colors.border;
+  const trackBg = t.colors.border; // neutral[200] 대신 border가 훨씬 안전
+  const stickyBg = t.colors.background; // 칩 영역은 배경과 동일
+
   return (
     <AppLayout padded={false}>
       <TopBar
@@ -70,22 +77,22 @@ export default function HomeScreen() {
         showNoti
         showNotiDot
         showMenu
+        showBorder
       />
 
       <ScrollView
         stickyHeaderIndices={[2]}
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
-   refreshControl={
-  <RefreshControl
-    refreshing={refreshing}
-    onRefresh={onRefresh}
-    tintColor={t.colors.primary}           // iOS
-    colors={[t.colors.primary]}            // Android
-    progressBackgroundColor={t.colors.background} // Android(선택)
-  />
-}
-
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={t.colors.primary}
+            colors={[t.colors.primary]}
+            progressBackgroundColor={t.colors.background}
+          />
+        }
       >
         {/* 1) 헤드라인 */}
         <View style={{ paddingHorizontal: t.spacing.pagePaddingH, marginBottom: 16, marginTop: 4 }}>
@@ -95,7 +102,7 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* 2) Hot Items (서비스 연동) */}
+        {/* 2) Hot Items */}
         {hotItems.length === 0 ? (
           <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingBottom: 24 }}>
             <EmptyView title="지금 임박한 모임이 없어요" description="조금 뒤에 다시 확인해보세요!" />
@@ -123,12 +130,13 @@ export default function HomeScreen() {
                   <Badge label={item.badge} tone="error" size="sm" style={{ marginBottom: 12 }} />
 
                   <View style={{ gap: 4, marginBottom: 16 }}>
-                    <Text style={[t.typography.titleMedium]} numberOfLines={1}>
+                    <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
                       {item.title}
                     </Text>
+
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Ionicons name="location-outline" size={14} color={t.colors.textSub} />
-                      <Text style={[t.typography.bodySmall]} numberOfLines={1}>
+                      <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
                         {item.place}
                       </Text>
                     </View>
@@ -138,13 +146,13 @@ export default function HomeScreen() {
 
                   <View>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-                      <Text style={t.typography.labelSmall}>참여 인원</Text>
+                      <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>참여 인원</Text>
                       <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>
                         {item.capacityJoined}/{item.capacityTotal}
                       </Text>
                     </View>
 
-                    <View style={[styles.track, { backgroundColor: t.colors.neutral[200] }]}>
+                    <View style={[styles.track, { backgroundColor: trackBg }]}>
                       <View
                         style={[
                           styles.fill,
@@ -167,8 +175,15 @@ export default function HomeScreen() {
           style={[
             styles.stickyHeader,
             {
-              backgroundColor: t.colors.background,
-              borderBottomColor: t.colors.neutral[200],
+              backgroundColor: stickyBg,
+              borderBottomColor: dividerColor,
+              // ✅ 다크에서 검정 그림자(#000) 고정 제거
+              ...(Platform.OS === "ios"
+                ? {
+                    shadowColor: isDark ? "transparent" : "#000",
+                    shadowOpacity: isDark ? 0 : 0.03,
+                  }
+                : {}),
             },
           ]}
         >
@@ -221,10 +236,12 @@ const styles = StyleSheet.create({
   stickyHeader: {
     paddingVertical: 0,
     borderBottomWidth: 1,
+    // iOS
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.03,
     shadowRadius: 1,
+    // Android
     elevation: 1,
   },
 });

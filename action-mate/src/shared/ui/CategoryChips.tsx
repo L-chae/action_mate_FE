@@ -1,3 +1,4 @@
+// src/shared/ui/CategoryChips.tsx
 import React, { useRef } from "react";
 import { ScrollView, Pressable, Text, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -5,7 +6,6 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import type { CategoryKey } from "@/features/meetings/types";
 
 type ChipKey = CategoryKey | "ALL";
-
 const WHITE = "#FFFFFF";
 
 const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
@@ -15,7 +15,6 @@ const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
   STUDY: "book-outline",
   ETC: "ellipsis-horizontal-outline",
 };
-
 const ALL_ICON: keyof typeof Ionicons.glyphMap = "apps-outline";
 
 const CATEGORIES: { id: ChipKey; label: string; iconName: keyof typeof Ionicons.glyphMap }[] = [
@@ -27,26 +26,18 @@ const CATEGORIES: { id: ChipKey; label: string; iconName: keyof typeof Ionicons.
   { id: "ETC", label: "기타", iconName: CATEGORY_ICONS.ETC },
 ];
 
-type Props = {
-  value: ChipKey;
-  onChange: (val: ChipKey) => void;
-};
+type Props = { value: ChipKey; onChange: (val: ChipKey) => void };
 
 export default function CategoryChips({ value, onChange }: Props) {
   const t = useAppTheme();
-
-  // ✅ 스크롤이 시작되면 탭 선택을 취소하기 위한 플래그
   const draggingRef = useRef(false);
-  // ✅ 눌렀던 칩 기억 (onPress가 취소되는 기기에서도 onPressOut은 들어오는 경우가 많음)
   const pendingIdRef = useRef<ChipKey | null>(null);
 
-  // ✅ 카테고리 색(테마 기반)
   const categoryColor = (key: CategoryKey) => {
     switch (key) {
       case "SPORTS":
         return t.colors.info;
       case "GAMES":
-        // 보라 계열 raw가 없으니 point로 타협(원하면 colors.ts에 secondary 추가 추천)
         return t.colors.point;
       case "MEAL":
         return t.colors.warning;
@@ -65,8 +56,7 @@ export default function CategoryChips({ value, onChange }: Props) {
         styles.container,
         {
           backgroundColor: t.colors.background,
-          borderBottomColor: t.colors.border, // ✅ neutral[200] 대신 공용 border
-          borderBottomWidth: 1,
+          borderBottomColor: t.colors.border,
         },
       ]}
     >
@@ -80,11 +70,7 @@ export default function CategoryChips({ value, onChange }: Props) {
           draggingRef.current = true;
           pendingIdRef.current = null;
         }}
-        onScrollEndDrag={() => {
-          setTimeout(() => {
-            draggingRef.current = false;
-          }, 0);
-        }}
+        onScrollEndDrag={() => setTimeout(() => (draggingRef.current = false), 0)}
         onMomentumScrollBegin={() => {
           draggingRef.current = true;
           pendingIdRef.current = null;
@@ -95,11 +81,8 @@ export default function CategoryChips({ value, onChange }: Props) {
       >
         {CATEGORIES.map((cat) => {
           const isSelected = value === cat.id;
-
           const inactiveIconColor =
-            cat.id === "ALL"
-              ? t.colors.textSub
-              : categoryColor(cat.id as CategoryKey);
+            cat.id === "ALL" ? t.colors.textSub : categoryColor(cat.id as CategoryKey);
 
           return (
             <Pressable
@@ -114,15 +97,13 @@ export default function CategoryChips({ value, onChange }: Props) {
                   pendingIdRef.current = null;
                   return;
                 }
-                if (pendingIdRef.current === cat.id) {
-                  onChange(cat.id);
-                }
+                if (pendingIdRef.current === cat.id) onChange(cat.id);
                 pendingIdRef.current = null;
               }}
               style={({ pressed }) => [
                 styles.chip,
                 {
-                  backgroundColor: isSelected ? t.colors.primary : t.colors.chipBg, // ✅ chipBg 토큰 사용
+                  backgroundColor: isSelected ? t.colors.primary : t.colors.chipBg,
                   opacity: pressed ? 0.88 : 1,
                 },
               ]}
@@ -155,9 +136,10 @@ export default function CategoryChips({ value, onChange }: Props) {
 const styles = StyleSheet.create({
   container: {
     paddingVertical: 12,
+    borderBottomWidth: 1,
     position: "relative",
-    zIndex: 1000,
-    elevation: 1000,
+    zIndex: 20,       // ✅ 1000 -> 20
+    elevation: 2,     // ✅ 1000 -> 2
   },
   scrollContent: {
     gap: 8,

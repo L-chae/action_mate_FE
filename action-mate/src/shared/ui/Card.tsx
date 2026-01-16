@@ -3,7 +3,6 @@ import React from "react";
 import {
   Platform,
   Pressable,
-  StyleSheet,
   View,
   type StyleProp,
   type ViewStyle,
@@ -19,33 +18,35 @@ type Props = {
 
 export function Card({ children, style, padded = true, onPress }: Props) {
   const t = useAppTheme();
-  const { colors, spacing, shadow } = t;
+  const { colors, spacing, shadow, mode } = t;
 
   const Container: any = onPress ? Pressable : View;
+  const isDark = mode === "dark";
 
   return (
     <Container
       onPress={onPress}
       style={[
-        // ✅ 테마 기반 그림자(ios) + elevation(android)
         Platform.select({
           ios: {
-            shadowColor: colors.shadow.color,
-            shadowOpacity: 0.08, // 필요하면 colors.shadow.opacityLow를 쓸 수도 있지만 RN은 숫자가 필요함
-            shadowRadius: 12,
-            shadowOffset: { width: 0, height: 6 },
+            shadowColor: colors.shadow?.color ?? "#000",
+            shadowOpacity: isDark ? 0.18 : 0.08,
+            shadowRadius: isDark ? 10 : 12,
+            shadowOffset: { width: 0, height: isDark ? 4 : 6 },
           },
-          android: { elevation: shadow.elevationSm },
+          android: { elevation: isDark ? shadow.elevationSm : shadow.elevationSm },
           default: {},
         }),
 
-        // ✅ 표면/테두리/라운드도 테마 토큰 사용
         {
           backgroundColor: colors.surface,
           borderRadius: spacing.radiusLg,
           borderWidth: spacing.borderWidth,
           borderColor: colors.border,
           padding: padded ? spacing.pagePaddingH : 0,
+
+          // ✅ 다크에서 “면 분리감”을 보더/미세한 밝기 차로 보강(선택)
+          ...(isDark ? { borderColor: colors.divider ?? colors.border } : null),
         },
 
         style,

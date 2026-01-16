@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -6,44 +6,182 @@ import { Ionicons } from "@expo/vector-icons";
 import { Card } from "@/shared/ui/Card";
 import { Badge } from "@/shared/ui/Badge";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { withAlpha } from "@/shared/theme/colors";
 import type { MeetingPost } from "../types";
 
-export default function MeetingCard({ item }: { item: MeetingPost }) {
+type Pill = { bg: string; fg: string };
+type IconName = keyof typeof Ionicons.glyphMap;
+
+// ✅ tone -> theme color 매핑 (MeetingStatus 정책과 통일)
+function toneColor(t: ReturnType<typeof useAppTheme>, tone?: "neutral" | "primary" | "info" | "success" | "warning" | "error" | "point") {
+  switch (tone) {
+    case "point":
+      return t.colors.point;
+    case "info":
+      return t.colors.info;
+    case "success":
+      return t.colors.success;
+    case "warning":
+      return t.colors.warning;
+    case "error":
+      return t.colors.error;
+    case "primary":
+      return t.colors.primary;
+    default:
+      return t.colors.textSub;
+  }
+}
+
+function isClosedStatus(s: MeetingPost["status"]) {
+  return s === "FULL" || s === "ENDED" || s === "CANCELED";
+}
+
+function statusLabel(s: MeetingPost["status"]) {
+  switch (s) {
+    case "FULL":
+      return "정원마감";
+    case "CANCELED":
+      return "취소됨";
+    case "ENDED":
+      return "종료됨";
+    case "STARTED":
+      return "진행중";
+    default:
+      return null; // OPEN 등은 표시하지 않음
+  }
+}
+
+export function MeetingCard({ item }: { item: MeetingPost }) {
   const t = useAppTheme();
   const router = useRouter();
 
-  // ✅ 1. 내 상태 확인 (호스트인지, 멤버인지)
-  const isHost = item.myState?.membershipStatus === "HOST";
-  const isMember = item.myState?.membershipStatus === "MEMBER";
+  const myStatus = item.myState?.membershipStatus;
+  const isHost = myStatus === "HOST";
+  const isMember = myStatus === "MEMBER";
+  const isPending = myStatus === "PENDING";
 
-  const isClosed = ["FULL", "ENDED", "CANCELED"].includes(item.status);
+  const isClosed = isClosedStatus(item.status);
 
-  // ✅ 2. 비활성 스타일 조건
-  const isDisabled =
-    isClosed ||
-    (!item.myState?.canJoin && !isHost && !isMember && item.status !== "STARTED");
+  // ✅ “참여 불가”는 상태 CLOSED가 아니면서 canJoin=false 인 경우
+  const isJoinBlocked =
+    !isClosed && !item.myState?.canJoin && !isHost && !isMember && item.status !== "STARTED";
 
-  // ✅ 3. 뱃지 로직
-  const badge = (() => {
-    if (isHost) return <Badge label="내 모임" tone="primary" />;
-    if (isMember) return <Badge label="참여중" tone="success" />;
+  // ✅ 카드 비활성 기준
+  const isDisabled = isClosed || isJoinBlocked;
+
+  const pillTone = (hex: string, alpha = t.mode === "dark" ? 0.22 : 0.14): Pill => ({
+    bg: withAlpha(hex, alpha),
+    fg: hex,
+  });
+
+  const timePill: Pill = useMemo(() => {
+    return isDisabled
+      ? { bg: t.colors.overlay[8], fg: t.colors.textSub }
+      : { bg: t.colors.overlay[6], fg: t.colors.textSub };
+  }, [isDisabled, t.colors]);
+
+  // ✅ 시스템 상태 pill(정원마감/취소/종료/진행중)만 담당 (왼쪽에서만 노출)
+  const statePill = useMemo(() => {
+    const label = statusLabel(item.status);
+    if (!label) return null;
 
     switch (item.status) {
-      case "ENDED":
-        return <Badge label="종료됨" tone="default" />;
-      case "CANCELED":
-        return <Badge label="취소됨" tone="default" />;
-      case "STARTED":
-        return <Badge label="진행중" tone="primary" />;
       case "FULL":
-        return <Badge label="정원마감" tone="warning" />;
+        return {
+          label,
+          icon: "people-outline" as const,
+          pill: pillTone(t.colors.warning, t.mode === "dark" ? 0.26 : 0.16),
+        };
+      case "CANCELED":
+        return {
+          label,
+          icon: "close-circle-outline" as const,
+          pill: pillTone(t.colors.error, t.mode === "dark" ? 0.24 : 0.14),
+        };
+      case "ENDED":
+        return {
+          label,
+          icon: "flag-outline" as const,
+          pill: { bg: t.colors.overlay[8], fg: t.colors.textSub },
+        };
+      case "STARTED":
+        return {
+          label,
+          icon: "play-circle-outline" as const,
+          pill: pillTone(t.colors.primary, t.mode === "dark" ? 0.22 : 0.14),
+        };
       default:
-        if (!item.myState?.canJoin) return <Badge label="참여불가" tone="default" />;
-        return <Badge label="모집중" tone="success" />;
+        return null;
     }
-  })();
+  }, [item.status, t.colors, t.mode]);
 
-  // ✅ 핵심: Android에서 Card elevation이 sticky header 위로 올라와 터치를 막는 케이스 방지
+  /**
+   * ✅ 정책 적용:
+   * - 기본 "모집중" 태그 제거
+   * - 왼쪽 배지는 "내 상태/참여불가"만 표시
+   */
+  const leftBadge = useMemo(() => {
+    if (isHost) return { label: "내 모임", tone: "primary" as const };
+    if (isMember) return { label: "참여중", tone: "success" as const };
+    if (isPending) return { label: "승인 대기", tone: "warning" as const };
+    if (isJoinBlocked) return { label: "참여불가", tone: "neutral" as const };
+    return null; // ✅ OPEN은 아무 태그도 안 붙임
+  }, [isHost, isMember, isPending, isJoinBlocked]);
+
+  // ✅ 모집 방식(meta) - 아이콘/색상 정책 통일
+const joinModeMeta = useMemo(() => {
+  const isInstant = item.joinMode === "INSTANT";
+
+  const icon: IconName = isInstant ? "flash-outline" : "shield-checkmark-outline";
+  const color = isInstant ? t.colors.point : t.colors.info; // 원하는 정책 색
+
+  return {
+    label: isInstant ? "선착순" : "승인제",
+    icon,
+    color,
+  };
+}, [item.joinMode, t.colors.point, t.colors.info]);
+
+
+  // ✅ 비활성 스타일
+  const disabledStyle = useMemo(() => {
+    if (!isDisabled) return null;
+
+    if (item.status === "FULL") {
+      return {
+        bg: withAlpha(t.colors.warning, t.mode === "dark" ? 0.10 : 0.06),
+        border: withAlpha(t.colors.warning, t.mode === "dark" ? 0.32 : 0.22),
+        opacity: 0.9,
+        title: withAlpha(t.colors.textMain, 0.78),
+      };
+    }
+
+    if (item.status === "CANCELED" || item.status === "ENDED") {
+      return {
+        bg: t.colors.overlay[6],
+        border: t.colors.overlay[12],
+        opacity: 0.72,
+        title: t.colors.textSub,
+      };
+    }
+
+    return {
+      bg: t.colors.overlay[6],
+      border: t.colors.border,
+      opacity: 0.82,
+      title: t.colors.textSub,
+    };
+  }, [isDisabled, item.status, t.colors, t.mode]);
+
+  const titleColor = disabledStyle?.title ?? t.colors.textMain;
+
+  const iconMuted = t.colors.icon?.muted ?? t.colors.textSub;
+  const iconDefault = t.colors.icon?.default ?? t.colors.textMain;
+
+  const joinInfoBg = isDisabled
+    ? withAlpha(t.colors.textMain, 0.05)
+    : withAlpha(t.colors.textMain, 0.03);
+
   const androidLowerElevation =
     Platform.OS === "android" ? { elevation: 0, zIndex: 0 } : { zIndex: 0 };
 
@@ -53,121 +191,77 @@ export default function MeetingCard({ item }: { item: MeetingPost }) {
       style={[
         styles.card,
         androidLowerElevation,
-        { borderColor: t.colors.neutral[200] },
-        isDisabled && {
-          backgroundColor: t.colors.neutral[100],
-          opacity: 0.7,
-          borderWidth: 0,
-          elevation: 0,
-          shadowOpacity: 0,
+        {
+          borderColor: disabledStyle?.border ?? t.colors.border,
+          backgroundColor: disabledStyle?.bg,
+          opacity: disabledStyle?.opacity ?? 1,
         },
       ]}
       padded
     >
-      {/* 1. [헤더] 제목 & 시간 */}
+      {/* 제목 + 시간 */}
       <View style={styles.headerRow}>
-        <Text
-          style={[
-            t.typography.titleMedium,
-            styles.title,
-            isDisabled && { color: t.colors.textSub },
-          ]}
-          numberOfLines={1}
-        >
+        <Text style={[t.typography.titleMedium, styles.title, { color: titleColor }]} numberOfLines={1}>
           {item.title}
         </Text>
 
-        <View
-          style={[
-            styles.timeBox,
-            {
-              backgroundColor: isDisabled ? "transparent" : t.colors.neutral[100],
-              borderColor: t.colors.neutral[200],
-            },
-          ]}
-        >
-          <Text
-            style={[
-              t.typography.labelMedium,
-              { color: isDisabled ? t.colors.textSub : t.colors.textMain },
-            ]}
-          >
+        <View style={[styles.pill, { backgroundColor: timePill.bg }]}>
+          <Ionicons name="time-outline" size={14} color={timePill.fg} style={{ marginRight: 4 }} />
+          <Text style={[t.typography.labelMedium, { color: timePill.fg }]} numberOfLines={1}>
             {item.meetingTimeText}
           </Text>
         </View>
       </View>
 
-      {/* 2. [위치 그룹] 장소 · 거리 */}
+      {/* 장소/거리 */}
       <View style={styles.locationRow}>
-        <Ionicons name="map-outline" size={16} color={t.colors.neutral[400]} />
-        <Text
-          style={[t.typography.bodyMedium, { color: t.colors.textSub }]}
-          numberOfLines={1}
-        >
+        <Ionicons name="map-outline" size={16} color={isDisabled ? iconMuted : iconDefault} />
+        <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]} numberOfLines={1}>
           {item.locationText}
         </Text>
 
         {item.distanceText ? (
           <>
-            <Text
-              style={[
-                t.typography.bodySmall,
-                { color: t.colors.neutral[300], marginHorizontal: 4 },
-              ]}
-            >
-              |
-            </Text>
-            <Ionicons
-              name="location-sharp"
-              size={14}
-              color={isDisabled ? t.colors.neutral[400] : t.colors.primary}
-            />
-            <Text
-              style={[
-                t.typography.labelSmall,
-                { color: isDisabled ? t.colors.textSub : t.colors.primary },
-              ]}
-            >
+            <Text style={[t.typography.bodySmall, { color: t.colors.overlay[45], marginHorizontal: 4 }]}>|</Text>
+            <Ionicons name="location-sharp" size={14} color={isDisabled ? iconMuted : t.colors.primary} />
+            <Text style={[t.typography.labelSmall, { color: isDisabled ? t.colors.textSub : t.colors.primary }]}>
               {item.distanceText}
             </Text>
           </>
         ) : null}
       </View>
 
-      {/* 3. [참여 그룹] */}
+      {/* 하단 */}
       <View style={styles.statusRow}>
-        <View>{badge}</View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* ✅ 왼쪽: 내 상태/참여불가만 (OPEN이면 없음) */}
+          {leftBadge ? <Badge label={leftBadge.label} tone={leftBadge.tone} /> : null}
 
-        <View
-          style={[
-            styles.joinInfoBox,
-            { backgroundColor: isDisabled ? "transparent" : t.colors.neutral[50] },
-          ]}
-        >
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-            {item.joinMode === "INSTANT" ? "⚡선착순" : "🙋승인제"}
-          </Text>
+          {/* ✅ 시스템 상태: 여기서만 노출 */}
+          {statePill ? (
+            <View style={[styles.pill, { backgroundColor: statePill.pill.bg }]}>
+              <Ionicons name={statePill.icon} size={14} color={statePill.pill.fg} style={{ marginRight: 6 }} />
+              <Text style={[t.typography.labelSmall, { color: statePill.pill.fg, fontWeight: "800" }]}>
+                {statePill.label}
+              </Text>
+            </View>
+          ) : null}
+        </View>
 
-          <View
-            style={[
-              styles.divider,
-              { backgroundColor: t.colors.neutral[200] }, // ✅ 하드코딩 제거
-            ]}
-          />
+        {/* ✅ 오른쪽: 모집 방식 + 참여 인원 */}
+        <View style={[styles.joinInfoBox, { backgroundColor: joinInfoBg }]}>
+          <View style={styles.joinModeChip}>
+            <Ionicons name={joinModeMeta.icon} size={14} color={joinModeMeta.color} style={{ marginRight: 4 }} />
+            <Text style={[t.typography.labelSmall, { color: joinModeMeta.color, fontWeight: "800" }]}>
+              {joinModeMeta.label}
+            </Text>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: t.colors.overlay[12] }]} />
 
           <Ionicons name="people" size={14} color={t.colors.textSub} />
-          <Text
-            style={[
-              t.typography.labelMedium,
-              { color: t.colors.textSub, marginLeft: 2 },
-            ]}
-          >
-            <Text
-              style={{
-                color: isDisabled ? t.colors.textSub : t.colors.primary,
-                fontWeight: "700",
-              }}
-            >
+          <Text style={[t.typography.labelMedium, { color: t.colors.textSub, marginLeft: 4 }]}>
+            <Text style={{ color: isDisabled ? t.colors.textSub : t.colors.primary, fontWeight: "800" }}>
               {item.capacityJoined}
             </Text>
             /{item.capacityTotal}
@@ -175,28 +269,15 @@ export default function MeetingCard({ item }: { item: MeetingPost }) {
         </View>
       </View>
 
-      {/* 4. [옵션] 본문 */}
       {item.content ? (
-        <View
-          style={[
-            styles.memoRow,
-            {
-              borderTopColor: isDisabled
-                ? t.colors.neutral[200]
-                : t.colors.neutral[100],
-            },
-          ]}
-        >
+        <View style={[styles.memoRow, { borderTopColor: t.colors.divider ?? t.colors.border }]}>
           <Ionicons
             name="chatbubble-ellipses-outline"
             size={14}
-            color={t.colors.neutral[400]}
+            color={isDisabled ? iconMuted : iconDefault}
             style={{ marginTop: 2 }}
           />
-          <Text
-            style={[t.typography.bodySmall, { color: t.colors.neutral[600], flex: 1 }]}
-            numberOfLines={1}
-          >
+          <Text style={[t.typography.bodySmall, { color: t.colors.textSub, flex: 1 }]} numberOfLines={1}>
             {item.content}
           </Text>
         </View>
@@ -206,50 +287,54 @@ export default function MeetingCard({ item }: { item: MeetingPost }) {
 }
 
 const styles = StyleSheet.create({
-  card: {
-    // ✅ 카드가 헤더 터치를 막지 않도록 기본 스택 낮게(특히 Android에서 중요)
-    zIndex: 0,
-    borderWidth: 1,
-  },
+  card: { zIndex: 0, borderWidth: 1 },
+
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
+    gap: 10,
   },
-  title: {
-    flex: 1,
-    marginRight: 10,
+  title: { flex: 1 },
+
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
-  timeBox: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
+
   locationRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     marginBottom: 14,
   },
+
   statusRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 10,
   },
+
   joinInfoBox: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 999,
+    gap: 8,
   },
-  divider: {
-    width: 1,
-    height: 10,
-    marginHorizontal: 8,
+  joinModeChip: {
+    flexDirection: "row",
+    alignItems: "center",
   },
+
+  divider: { width: 1, height: 12, marginHorizontal: 6 },
+
   memoRow: {
     marginTop: 12,
     flexDirection: "row",
