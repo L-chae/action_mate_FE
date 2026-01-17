@@ -8,12 +8,12 @@ import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-import { cancelJoin, cancelMeeting, getMeeting, joinMeeting } from "@/features/meetings/meetingService";
-import type { MeetingPost, Comment } from "@/features/meetings/types";
-import { ProfileDetailModal } from "@/features/meetings/components/ProfileDetailModal";
+import { cancelJoin, cancelMeeting, getMeeting, joinMeeting } from "@/features/meetings/api/meetingService";
+import type { MeetingPost, Comment } from "@/features/meetings/model/meeting.types";
+import { ProfileDetailModal } from "@/features/meetings/ui/ProfileDetailModal";
 
-import { MeetingDetailContent } from "./components/MeetingDetailContent";
-import { MeetingBottomBar } from "./components/MeetingBottomBar";
+import { MeetingDetailContent } from "./ui/MeetingDetailContent";
+import { MeetingBottomBar } from "./ui/MeetingBottomBar";
 import { useKeyboardAwareScroll } from "./hooks/useKeyboardAwareScroll";
 
 // =====================

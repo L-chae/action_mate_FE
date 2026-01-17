@@ -27,7 +27,7 @@ import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import TopBar from "@/shared/ui/TopBar";
 
-import { createMeeting } from "./meetingService";
+import { createMeeting } from "./api/meetingService";
 import type { CategoryKey, JoinMode } from "./types";
 
 // 안드로이드 애니메이션 활성화

@@ -30,8 +30,8 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import CategoryChips from "@/shared/ui/CategoryChips";
 
 // ✅ 서비스 및 타입 임포트
-import { getMeeting, updateMeeting } from "@/features/meetings/meetingService";
-import type { CategoryKey, JoinMode } from "@/features/meetings/types";
+import { getMeeting, updateMeeting } from "@/features/meetings/api/meetingService";
+import type { CategoryKey, JoinMode } from "@/features/meetings/model/meeting.types";
 
 // 안드로이드 레이아웃 애니메이션 활성화
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {

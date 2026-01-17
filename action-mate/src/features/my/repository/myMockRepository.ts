@@ -1,10 +1,10 @@
 // src/features/my/repository/myMockRepository.ts
 import type { MyRepository } from "./MyRepository";
 import type { MyProfile, MySummary, MyMeetingItem } from "../types";
-import type { MeetingPost } from "@/features/meetings/types";
+import type { MeetingPost } from "@/features/meetings/model/meeting.types";
 
-import { HOST_USERS } from "@/features/meetings/meetingMockData";
-import { __getMockDataUnsafe } from "@/features/meetings/meetingService"; // ✅ 핵심: 같은 DB 사용
+import { HOST_USERS } from "@/features/meetings/mocks/meetingMockData";
+import { __getMockDataUnsafe } from "@/features/meetings/api/meetingService"; // ✅ 핵심: 같은 DB 사용
 
 import {
   toMyMeetingItemFromMeetingPost,

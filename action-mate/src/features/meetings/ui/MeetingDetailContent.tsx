@@ -14,10 +14,10 @@ import MapView, { PROVIDER_GOOGLE } from "react-native-maps";
 
 import { Badge } from "@/shared/ui/Badge";
 import { withAlpha } from "@/shared/theme/colors";
-import type { MeetingPost, Comment } from "@/features/meetings/types";
+import type { MeetingPost, Comment } from "@/features/meetings/model/meeting.types";
 
 // ✅ 정책 단일 소스
-import { getMeetingStatusTokens } from "@/features/meetings/components/meetingStatus"; // 경로 맞게 조정
+import { getMeetingStatusTokens } from "@/features/meetings/model/meeting.constants"; // 경로 맞게 조정
 
 function timeAgo(iso: string) {
   const d = new Date(iso);

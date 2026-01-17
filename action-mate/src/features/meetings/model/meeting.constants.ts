@@ -1,5 +1,5 @@
-// src/features/meetings/components/meetingStatus.ts
-import type { MeetingPost } from "../types";
+// src/features/meetings/ui/meetingStatus.ts
+import type { MeetingPost } from "./meeting.types";
 import type { Ionicons } from "@expo/vector-icons";
 
 export type PillTone =

@@ -22,10 +22,10 @@ import EmptyView from "@/shared/ui/EmptyView";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 import CategoryChips from "@/shared/ui/CategoryChips";
-import { MeetingCard } from "@/features/meetings/components/MeetingCard";
-import { listHotMeetings, listMeetings } from "../meetings/meetingService";
-import type { CategoryKey, MeetingPost } from "../meetings/types";
-import type { HotMeetingItem } from "../meetings/meetingService";
+import { MeetingCard } from "@/features/meetings/ui/MeetingCard";
+import { listHotMeetings, listMeetings } from "../meetings/api/meetingService";
+import type { CategoryKey, MeetingPost } from "../meetings/model/meeting.types";
+import type { HotMeetingItem } from "../meetings/api/meetingService";
 
 export default function HomeScreen() {
   const t = useAppTheme();

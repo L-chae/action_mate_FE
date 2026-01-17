@@ -1,11 +1,11 @@
-// src/features/meetings/components/StatusPills.tsx
+// src/features/meetings/ui/StatusPills.tsx
 import React, { useMemo } from "react";
 import { StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
-import type { PillTone, StatusPillToken } from "./meetingStatus";
+import type { PillTone, StatusPillToken } from "../model/meeting.constants";
 
 type Props = {
   tokens: StatusPillToken[];

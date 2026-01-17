@@ -26,8 +26,8 @@ import AppLayout from "../../shared/ui/AppLayout";
 import { Card } from "../../shared/ui/Card";
 import { useAppTheme } from "../../shared/hooks/useAppTheme";
 
-import { listMeetingsAround } from "../meetings/meetingService";
-import type { MeetingPost, CategoryKey } from "../meetings/types";
+import { listMeetingsAround } from "../meetings/api/meetingService";
+import type { MeetingPost, CategoryKey } from "../meetings/model/meeting.types";
 
 /**
  * ✅ 목표(UX + 성능)
