@@ -13,7 +13,7 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
 import AppLayout from "@/shared/ui/AppLayout";
-import { useAuthStore, type Gender } from "@/features/auth/authStore";
+import { useAuthStore, type Gender } from "@/features/auth/store/authStore";
 
 type Form = {
   email: string;

@@ -1,5 +1,5 @@
-import type { DMMessage, DMThread } from "./types";
-import { DM_MESSAGES_SEED, DM_THREADS_SEED } from "./dmMockData";
+import type { DMMessage, DMThread } from "../model/dm.types";
+import { DM_MESSAGES_SEED, DM_THREADS_SEED } from "../mocks/dmMockData";
 
 /**
  * ✅ DM 도메인 단일 서비스

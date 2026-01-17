@@ -24,7 +24,7 @@ import {
   verifyPasswordResetCode,
   consumePasswordResetCode,
   updatePassword,
-} from "@/features/auth/localAuthService";
+} from "@/features/auth/api/authService";
 
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 

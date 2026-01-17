@@ -16,7 +16,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 
-import { useAuthStore } from "@/features/auth/authStore";
+import { useAuthStore } from "@/features/auth/store/authStore";
 
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
@@ -24,12 +24,12 @@ import { Card } from "@/shared/ui/Card";
 import { withAlpha } from "@/shared/theme/colors";
 import TopBar from "@/shared/ui/TopBar";
 
-import MeetingList from "./components/MeetingList";
-import ProfileEditModal from "./components/ProfileEditModal";
-import HostedMeetingEditModal from "./components/HostedMeetingEditModal";
+import MeetingList from "./ui/MeetingList";
+import ProfileEditModal from "./ui/ProfileEditModal";
+import HostedMeetingEditModal from "./ui/HostedMeetingEditModal";
 
-import { myService } from "./myService";
-import type { MyMeetingItem, MyProfile } from "./types";
+import { myService } from "./api/myService";
+import type { MyMeetingItem, MyProfile } from "./model/my.types";
 
 const PREVIEW_COUNT = 3;
 const WHITE = "#FFFFFF";

@@ -4,7 +4,7 @@ import "react-native-reanimated";
 
 import { Stack } from "expo-router";
 import { useEffect } from "react";
-import { useAuthStore } from "@/features/auth/authStore";
+import { useAuthStore } from "@/features/auth/store/authStore";
 
 export default function RootLayout() {
   useEffect(() => {

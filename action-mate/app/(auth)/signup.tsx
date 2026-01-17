@@ -22,8 +22,8 @@ import AppLayout from "@/shared/ui/AppLayout";
 import { Card } from "@/shared/ui/Card";
 import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import { type Gender } from "@/features/auth/authStore";
-import { createUser } from "@/features/auth/localAuthService";
+import { type Gender } from "@/features/auth/store/authStore";
+import { createUser } from "@/features/auth/api/authService";
 
 type Form = {
   email: string;

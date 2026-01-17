@@ -13,8 +13,8 @@ import {
 import { router } from "expo-router";
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import { useAuthStore } from "@/features/auth/authStore";
-import { verifyLogin } from "@/features/auth/localAuthService";
+import { useAuthStore } from "@/features/auth/store/authStore";
+import { verifyLogin } from "@/features/auth/api/authService";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 

@@ -1,8 +1,8 @@
-// features/auth/localAuthService.ts
+// features/auth/authService.ts
 // ⚠️ 데모/목업용: 비밀번호를 평문 저장합니다(실서비스 금지)
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { User, Gender } from "@/features/auth/authStore";
+import type { User, Gender } from "@/features/auth/store/authStore";
 
 type StoredUser = User & { password: string };
 

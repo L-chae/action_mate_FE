@@ -11,7 +11,7 @@ import {
   setCurrentUserEmail,
   clearCurrentUserEmail,
   getUserByEmail,
-} from "@/features/auth/localAuthService";
+} from "@/features/auth/api/authService";
 
 export type Gender = "male" | "female" | "none";
 

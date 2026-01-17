@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import { useAuthStore } from "@/features/auth/authStore";
+import { useAuthStore } from "@/features/auth/store/authStore";
 
 export default function LoginPage() {
   const t = useAppTheme();

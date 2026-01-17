@@ -2,7 +2,7 @@
 import React from "react";
 import { Stack } from "expo-router";
 import AppLayout from "@/shared/ui/AppLayout";
-import SettingsTab from "@/features/my/components/SettingsTab";
+import SettingsTab from "@/features/my/ui/SettingsTab";
 
 export default function SettingsPage() {
   return (

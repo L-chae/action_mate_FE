@@ -1,4 +1,4 @@
-import type { DMMessage, DMThread } from "./types";
+import type { DMMessage, DMThread } from "../model/dm.types";
 
 /**
  * ✅ DM 목업 원본 전용

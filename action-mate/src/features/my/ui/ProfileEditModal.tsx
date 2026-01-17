@@ -17,7 +17,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import type { MyProfile } from "../types";
+import type { MyProfile } from "../model/my.types";
 
 type Props = {
   visible: boolean;

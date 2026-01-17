@@ -1,7 +1,7 @@
 import { View, Image, StyleSheet } from "react-native";
 import { useEffect } from "react";
 import { router } from "expo-router";
-import { useAuthStore } from "@/features/auth/authStore";
+import { useAuthStore } from "@/features/auth/store/authStore";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 export default function SplashScreen() {

@@ -4,7 +4,7 @@ import { Alert, StyleSheet, Text, View, Pressable } from "react-native";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { Card } from "@/shared/ui/Card";
 import { Button } from "@/shared/ui/Button";
-import { useAuthStore } from "@/features/auth/authStore";
+import { useAuthStore } from "@/features/auth/store/authStore";
 import { router } from "expo-router";
 
 type Props = {

@@ -21,8 +21,8 @@ import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import TopBar from "@/shared/ui/TopBar";
 
-import { getDMMessages, sendDMMessage, getDMThread, markDMThreadRead } from "./dmService";
-import type { DMMessage, DMThread } from "./types";
+import { getDMMessages, sendDMMessage, getDMThread, markDMThreadRead } from "./api/dmService";
+import type { DMMessage, DMThread } from "./model/dm.types";
 
 export default function DMThreadScreen() {
   const t = useAppTheme();

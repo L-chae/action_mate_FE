@@ -1,7 +1,7 @@
 // src/features/my/myService.ts
-import type { MyRepository } from "./repository/MyRepository";
-import { myMockRepository } from "./repository/myMockRepository";
-import { myApiRepository } from "./repository/myApiRepository";
+import type { MyRepository } from "../repository/MyRepository";
+import { myMockRepository } from "../repository/myMockRepository";
+import { myApiRepository } from "../repository/myApiRepository";
 
 const USE_MOCK = __DEV__; // env로 변경 가능
 const repo: MyRepository = USE_MOCK ? myMockRepository : myApiRepository;
