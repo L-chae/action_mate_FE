@@ -1,3 +1,4 @@
+// src/features/auth/EmailLoginScreen.tsx
 import React, { useMemo, useRef, useState } from "react";
 import {
   View,
@@ -11,14 +12,13 @@ import {
   Image,
 } from "react-native";
 import { router } from "expo-router";
+
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { useAuthStore } from "@/features/auth/store/authStore";
 import { verifyLogin } from "@/features/auth/api/authService";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-// ✅ 이메일 형식 검증
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 function PrimaryButton({
@@ -41,21 +41,11 @@ function PrimaryButton({
 
   const pressIn = () => {
     if (disabled) return;
-    Animated.spring(scale, {
-      toValue: 0.985,
-      useNativeDriver: useNative,
-      speed: 30,
-      bounciness: 0,
-    }).start();
+    Animated.spring(scale, { toValue: 0.985, useNativeDriver: useNative, speed: 30, bounciness: 0 }).start();
   };
   const pressOut = () => {
     if (disabled) return;
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: useNative,
-      speed: 30,
-      bounciness: 0,
-    }).start();
+    Animated.spring(scale, { toValue: 1, useNativeDriver: useNative, speed: 30, bounciness: 0 }).start();
   };
 
   return (
@@ -78,7 +68,7 @@ function PrimaryButton({
   );
 }
 
-export default function IdLoginScreen() {
+export default function EmailLoginScreen() {
   const t = useAppTheme();
   const loginToStore = useAuthStore((s) => s.login);
 
@@ -95,11 +85,9 @@ export default function IdLoginScreen() {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
 
-  // ✅ 포커스(hover 느낌)
   const [focused, setFocused] = useState<"email" | "password" | null>(null);
   const isFocused = (k: "email" | "password") => focused === k;
 
-  // ✅ 이메일 UX용
   const [touchedEmail, setTouchedEmail] = useState(false);
   const [touchedPw, setTouchedPw] = useState(false);
 
@@ -109,13 +97,11 @@ export default function IdLoginScreen() {
   const emailOk = useMemo(() => isValidEmail(email), [email]);
   const emailError = touchedEmail && email.trim().length > 0 && !emailOk;
 
-  // ✅ 회원가입이 8자 기준이니까 로그인도 8자로 통일
   const pwOk = password.length >= 8;
   const pwError = touchedPw && password.length > 0 && !pwOk;
 
   const canSubmit = useMemo(() => emailOk && pwOk && !busy, [emailOk, pwOk, busy]);
 
-  // ✅ 토큰 fallback
   const c = t.colors as any;
   const danger = c.error ?? c.danger ?? c.negative ?? c.red ?? t.colors.primary;
   const activeBg = c.surfaceAlt ?? c.surface2 ?? c.card ?? t.colors.surface ?? t.colors.background;
@@ -134,9 +120,8 @@ export default function IdLoginScreen() {
 
     setBusy(true);
     try {
-      // ✅ 로컬 저장소 계정 검증
       const user = await verifyLogin(email.trim(), password);
-      await loginToStore(user);
+      await loginToStore(user as any);
       router.replace("/(tabs)");
     } catch (e: any) {
       setErrorMsg(e?.message ?? "로그인에 실패했어요.");
@@ -147,44 +132,21 @@ export default function IdLoginScreen() {
 
   return (
     <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <View
-          style={{
-            flex: 1,
-            paddingHorizontal: PH,
-            paddingTop: GAP_LG,
-            paddingBottom: PV,
-          }}
-        >
-          {/* ✅ 브랜드(로고) 영역 */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <View style={{ flex: 1, paddingHorizontal: PH, paddingTop: GAP_LG, paddingBottom: PV }}>
           <View style={styles.brand}>
-            <Image
-              source={require("../../../assets/images/logo.png")}
-              style={styles.logo}
-              resizeMode="contain"
-            />
+            <Image source={require("../../../assets/images/logo.png")} style={styles.logo} resizeMode="contain" />
             <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: GAP_SM }]}>
               아이디로 로그인
             </Text>
-            <Text
-              style={[
-                t.typography.bodySmall,
-                { color: t.colors.textSub, marginTop: GAP_XXS, textAlign: "center" },
-              ]}
-            >
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: GAP_XXS, textAlign: "center" }]}>
               이메일과 비밀번호를 입력해주세요
             </Text>
           </View>
 
           <View style={{ height: GAP_LG }} />
 
-          {/* Email */}
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>
-            이메일
-          </Text>
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>이메일</Text>
 
           <TextInput
             value={email}
@@ -225,10 +187,7 @@ export default function IdLoginScreen() {
 
           <View style={{ height: GAP_MD }} />
 
-          {/* Password */}
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>
-            비밀번호
-          </Text>
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>비밀번호</Text>
 
           <View
             style={[
@@ -267,9 +226,7 @@ export default function IdLoginScreen() {
             />
 
             <Pressable onPress={() => setShowPw((v) => !v)} hitSlop={10}>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                {showPw ? "숨기기" : "보기"}
-              </Text>
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{showPw ? "숨기기" : "보기"}</Text>
             </Pressable>
           </View>
 
@@ -280,14 +237,11 @@ export default function IdLoginScreen() {
           )}
 
           {errorMsg ? (
-            <Text style={[t.typography.bodySmall, { color: danger, marginTop: GAP_XXS }]}>
-              {errorMsg}
-            </Text>
+            <Text style={[t.typography.bodySmall, { color: danger, marginTop: GAP_XXS }]}>{errorMsg}</Text>
           ) : null}
 
           <View style={{ height: GAP_LG }} />
 
-          {/* Login Button */}
           <PrimaryButton
             title={busy ? "로그인 중..." : "로그인"}
             onPress={() => void onLogin()}
@@ -297,7 +251,6 @@ export default function IdLoginScreen() {
             fg={onPrimary}
           />
 
-          {/* ✅ 회원가입 버튼 크게 */}
           <View style={{ height: GAP_SM }} />
 
           <Pressable
@@ -316,11 +269,7 @@ export default function IdLoginScreen() {
             <Text style={[styles.signUpText, { color: t.colors.primary }]}>회원가입</Text>
           </Pressable>
 
-          <Pressable
-            onPress={() => router.push("/(auth)/forgot-password")}
-            disabled={busy}
-            style={{ marginTop: GAP_MD }}
-          >
+          <Pressable onPress={() => router.push("/(auth)/reset-password")} disabled={busy} style={{ marginTop: GAP_MD }}>
             <Text style={[t.typography.labelSmall, { color: t.colors.textSub, textAlign: "center" }]}>
               비밀번호를 잊으셨나요?
             </Text>
@@ -335,43 +284,17 @@ const styles = StyleSheet.create({
   page: { flex: 1 },
 
   brand: { alignItems: "center", justifyContent: "center" },
-
   logo: { width: 64, height: 64 },
 
-  input: {
-    borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    fontSize: 16,
-  },
-
+  input: { borderWidth: 1, paddingVertical: 14, paddingHorizontal: 14, fontSize: 16 },
   inputFocused: { borderWidth: 2 },
 
-  pwRow: {
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 10,
-  },
+  pwRow: { borderWidth: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 10, gap: 10 },
   pwInput: { flex: 1, fontSize: 16, paddingVertical: 4 },
 
-  primaryBtn: {
-    alignSelf: "stretch",
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  primaryBtn: { alignSelf: "stretch", paddingVertical: 16, alignItems: "center", justifyContent: "center" },
   primaryText: { fontSize: 16, fontWeight: "700" },
 
-  signUpBtn: {
-    alignSelf: "stretch",
-    minHeight: 52,
-    borderWidth: 1,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  signUpBtn: { alignSelf: "stretch", minHeight: 52, borderWidth: 1, paddingVertical: 16, alignItems: "center", justifyContent: "center" },
   signUpText: { fontSize: 16, fontWeight: "700" },
 });

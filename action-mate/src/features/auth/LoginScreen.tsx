@@ -1,121 +1,83 @@
 // src/features/auth/LoginScreen.tsx
-import React, { useEffect, useMemo, useRef } from "react";
-import { View, Text, Image, StyleSheet, Pressable, Animated } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, Image, StyleSheet, Pressable, Animated, ActivityIndicator } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-function SocialButton({
-  title,
-  bg,
-  fg,
-  radius,
-  onPress,
-}: {
-  title: string;
-  bg: string;
-  fg: string;
-  radius: number;
-  onPress: () => void;
-}) {
-  const scale = useRef(new Animated.Value(1)).current;
-
-  const pressIn = () => {
-    Animated.spring(scale, {
-      toValue: 0.985,
-      useNativeDriver: true,
-      speed: 30,
-      bounciness: 0,
-    }).start();
-  };
-
-  const pressOut = () => {
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 30,
-      bounciness: 0,
-    }).start();
-  };
-
-  return (
-    <AnimatedPressable
-      onPress={onPress}
-      onPressIn={pressIn}
-      onPressOut={pressOut}
-      style={[
-        styles.socialBtn,
-        {
-          backgroundColor: bg,
-          borderRadius: radius,
-          transform: [{ scale }],
-        },
-      ]}
-    >
-      <Text style={[styles.socialText, { color: fg }]} numberOfLines={1}>
-        {title}
-      </Text>
-    </AnimatedPressable>
-  );
-}
+import { useAuthStore } from "@/features/auth/store/authStore";
 
 export default function LoginScreen() {
   const t = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const login = useAuthStore((s) => s.login);
 
-  // ✅ spacing.ts 수정 안함: 존재하는 키만 사용
   const PH = t.spacing.pagePaddingH;
   const PV = t.spacing.pagePaddingV;
   const R = t.spacing.radiusMd;
+  const D = t.spacing.animNormal;
 
-  // ✅ spacing에 간격 토큰이 없으니 화면 로컬 상수로만 사용
-  const GAP_SM = 12;
-  const GAP_MD = 16;
-  const GAP_LG = 24;
+  const GAP_SM = t.spacing.space[3]; // 12
+  const GAP_LG = t.spacing.space[6]; // 24
 
-  // ---- stagger ----
-  const aLogo = useRef(new Animated.Value(0)).current;
-  const aTitle = useRef(new Animated.Value(0)).current;
-  const aDesc = useRef(new Animated.Value(0)).current;
-  const aCta = useRef(new Animated.Value(0)).current;
+  const [busy, setBusy] = useState(false);
 
-  // ---- background blobs ----
+  const mockKakaoLogin = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await login({
+        id: `kakao_${Date.now()}`,
+        email: `kakao@mock.local`,
+        nickname: "카카오 사용자",
+        gender: "none",
+        birthDate: "",
+      } as any);
+
+      router.replace("/(tabs)");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const logoTranslate = useRef(new Animated.Value(10)).current;
+
   const blob1 = useRef(new Animated.Value(0)).current;
   const blob2 = useRef(new Animated.Value(0)).current;
   const blob3 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.stagger(110, [
-      Animated.timing(aLogo, { toValue: 1, duration: 360, useNativeDriver: true }),
-      Animated.timing(aTitle, { toValue: 1, duration: 360, useNativeDriver: true }),
-      Animated.timing(aDesc, { toValue: 1, duration: 360, useNativeDriver: true }),
-      Animated.timing(aCta, { toValue: 1, duration: 360, useNativeDriver: true }),
+    Animated.parallel([
+      Animated.timing(logoOpacity, { toValue: 1, duration: D * 2, useNativeDriver: true }),
+      Animated.timing(logoTranslate, { toValue: 0, duration: D * 2, useNativeDriver: true }),
     ]).start();
 
-    const mkLoop = (v: Animated.Value, delay: number) =>
+    const loop = (v: Animated.Value, delay: number) =>
       Animated.loop(
         Animated.sequence([
           Animated.delay(delay),
-          Animated.timing(v, { toValue: 1, duration: 2600, useNativeDriver: true }),
-          Animated.timing(v, { toValue: 0, duration: 2600, useNativeDriver: true }),
+          Animated.timing(v, { toValue: 1, duration: 2800, useNativeDriver: true }),
+          Animated.timing(v, { toValue: 0, duration: 2800, useNativeDriver: true }),
         ])
       );
 
-    const l1 = mkLoop(blob1, 0);
-    const l2 = mkLoop(blob2, 250);
-    const l3 = mkLoop(blob3, 500);
+    const a = loop(blob1, 0);
+    const b = loop(blob2, 300);
+    const c = loop(blob3, 600);
 
-    l1.start();
-    l2.start();
-    l3.start();
+    a.start();
+    b.start();
+    c.start();
 
     return () => {
-      l1.stop();
-      l2.stop();
-      l3.stop();
+      a.stop();
+      b.stop();
+      c.stop();
     };
-  }, [aLogo, aTitle, aDesc, aCta, blob1, blob2, blob3]);
+  }, [D, logoOpacity, logoTranslate, blob1, blob2, blob3]);
 
   const blobStyles = useMemo(() => {
     const mk = (
@@ -125,12 +87,12 @@ export default function LoginScreen() {
       x1: number,
       y0: number,
       y1: number,
-      color: string
+      baseColor: string
     ) => {
       const translateX = v.interpolate({ inputRange: [0, 1], outputRange: [x0, x1] });
       const translateY = v.interpolate({ inputRange: [0, 1], outputRange: [y0, y1] });
-      const scale = v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.14] });
-      const opacity = v.interpolate({ inputRange: [0, 1], outputRange: [0.16, 0.26] });
+      const scale = v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
+      const opacity = v.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.14] });
 
       return [
         styles.blob,
@@ -138,134 +100,117 @@ export default function LoginScreen() {
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: color,
+          backgroundColor: baseColor,
           transform: [{ translateX }, { translateY }, { scale }],
           opacity,
         },
       ];
     };
 
-    const c1 = t.colors.primary;
-    const c2 = t.colors.point ?? t.colors.primary;
-
     return {
-      b1: mk(blob1, 240, -30, 10, -40, -10, c1),
-      b2: mk(blob2, 200, 220, 180, 90, 120, c2),
-      b3: mk(blob3, 260, 40, 70, 340, 300, c1),
+      b1: mk(blob1, 240, -30, 10, -40, -10, t.colors.primary),
+      b2: mk(blob2, 210, 220, 175, 70, 110, t.colors.point ?? t.colors.primary),
+      b3: mk(blob3, 280, 40, 70, 260, 230, t.colors.primary),
     };
   }, [blob1, blob2, blob3, t.colors.primary, t.colors.point]);
 
-  const fadeUp = (v: Animated.Value) => ({
-    opacity: v,
-    transform: [
-      {
-        translateY: v.interpolate({
-          inputRange: [0, 1],
-          outputRange: [10, 0],
-        }),
-      },
-    ],
-  });
+  const bottomPad = Math.max(PV, t.spacing.space[4]) + insets.bottom + t.spacing.space[4];
 
   return (
-    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
-      {/* animated background */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]} padded={false}>
+      <LinearGradient
+        colors={[t.colors.primaryLight, t.colors.background, t.colors.surface]}
+        locations={[0, 0.55, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View style={[StyleSheet.absoluteFill, { overflow: "hidden" }]} pointerEvents="none">
         <Animated.View style={blobStyles.b1 as any} />
         <Animated.View style={blobStyles.b2 as any} />
         <Animated.View style={blobStyles.b3 as any} />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.02)" }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: t.colors.neutral[900], opacity: 0.02 }]} />
       </View>
 
-      {/* center */}
       <View style={[styles.center, { paddingHorizontal: PH, paddingTop: GAP_LG }]}>
-        <Animated.View style={fadeUp(aLogo)}>
-          <Image
-            source={require("../../../assets/images/logo.png")}
-            style={styles.logo}
-            resizeMode="contain"
-          />
+        <Animated.View style={{ opacity: logoOpacity, transform: [{ translateY: logoTranslate }] }}>
+          <Image source={require("../../../assets/images/logo.png")} style={styles.logo} resizeMode="contain" />
         </Animated.View>
 
-        <Animated.View style={fadeUp(aTitle)}>
-          <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: GAP_LG, textAlign: "center" }]}>
+        <Animated.View style={{ opacity: logoOpacity, transform: [{ translateY: logoTranslate }] }}>
+          <Text style={[t.typography.titleLarge, styles.title, { color: t.colors.textMain, marginTop: GAP_LG }]}>
             내가 찾던 모든 모임
           </Text>
-        </Animated.View>
-
-        <Animated.View style={fadeUp(aDesc)}>
-          <Text style={[t.typography.bodySmall, { color: t.colors.textSub, textAlign: "center", marginTop: GAP_SM }]}>
-            부담없이 만나는 원데이 모임부터{"\n"}지속형 모임과 챌린지 모임까지
+          <Text style={[t.typography.bodySmall, styles.subtitle, { color: t.colors.textSub, marginTop: 10 }]}>
+            원데이부터 정기모임까지, 가볍게 시작해요.
           </Text>
         </Animated.View>
       </View>
 
-      {/* bottom */}
-      <Animated.View style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: PV }, fadeUp(aCta)]}>
-        <SocialButton
-          title="카카오톡으로 5초만에 시작하기"
-          bg="#FEE500"
-          fg="#191600"
-          radius={R}
-          onPress={() => router.replace("/(tabs)")}
-        />
+      <View style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: bottomPad }]}>
+        <View style={[styles.ctaCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border, shadowColor: t.colors.neutral[900] }]}>
+          <Pressable
+            onPress={mockKakaoLogin}
+            disabled={busy}
+            style={({ pressed }) => [
+              styles.socialBtn,
+              { backgroundColor: "#FEE500", borderRadius: R + 2, opacity: busy ? 0.6 : pressed ? 0.9 : 1 },
+            ]}
+          >
+            {busy ? <ActivityIndicator color="#191600" /> : <Text style={[styles.socialText, { color: "#191600" }]}>카카오로 시작하기</Text>}
+          </Pressable>
 
-        <View style={{ height: GAP_SM }} />
+          <View style={{ height: GAP_SM }} />
 
-        <SocialButton
-          title="네이버로 시작하기"
-          bg="#03C75A"
-          fg="#FFFFFF"
-          radius={R}
-          onPress={() => router.replace("/(tabs)")}
-        />
+          <Pressable
+            onPress={() => router.push("/(auth)/email-login")}
+            disabled={busy}
+            style={({ pressed }) => [
+              styles.socialBtn,
+              { backgroundColor: t.colors.primary, borderRadius: R + 2, opacity: busy ? 0.6 : pressed ? 0.9 : 1 },
+            ]}
+          >
+            <Text style={[styles.socialText, { color: t.colors.backgroundLight }]}>이메일로 로그인</Text>
+          </Pressable>
 
-        {/* ✅ 여기: 다른 방법으로 로그인 -> 아이디 로그인 */}
-        <Pressable onPress={() => router.push("/id-login")} style={{ marginTop: GAP_MD }}>
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, textAlign: "center" }]}>
-            다른 방법으로 로그인
+          <View style={styles.signupRow}>
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>계정이 없으신가요?</Text>
+            <Pressable onPress={() => router.push("/(auth)/signup")} disabled={busy} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+              <Text style={[t.typography.bodySmall, styles.signupLink, { color: t.colors.primary }]}>회원가입</Text>
+            </Pressable>
+          </View>
+
+          <Text style={[styles.terms, { color: t.colors.textSub, opacity: 0.6 }]}>
+            가입을 진행할 경우 서비스 약관 및 개인정보 처리방침에 동의한 것으로 간주합니다.
           </Text>
-        </Pressable>
-
-        <Text style={[t.typography.labelSmall, { color: t.colors.textSub, textAlign: "center", marginTop: GAP_SM, opacity: 0.85 }]}>
-          가입을 진행할 경우 서비스 약관 및 개인정보 처리방침에 동의한 것으로 간주합니다.
-        </Text>
-      </Animated.View>
+        </View>
+      </View>
     </AppLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-    justifyContent: "space-between",
+  page: { flex: 1, justifyContent: "space-between", overflow: "hidden" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  logo: { width: 110, height: 110 },
+  title: { textAlign: "center", letterSpacing: -0.3 },
+  subtitle: { textAlign: "center", lineHeight: 18, letterSpacing: -0.1 },
+
+  bottom: { width: "100%" },
+  ctaCard: {
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
   },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    transform: [{ translateY: -18 }],
-  },
-  logo: {
-    width: 120,
-    height: 120,
-  },
-  bottom: {
-    width: "100%",
-    alignSelf: "stretch",
-    overflow: "hidden",
-  },
-  socialBtn: {
-    alignSelf: "stretch",
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  socialText: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  blob: {
-    position: "absolute",
-  },
+  socialBtn: { width: "100%", alignItems: "center", justifyContent: "center", paddingVertical: 14 },
+  socialText: { fontSize: 14, fontWeight: "700", letterSpacing: -0.2 },
+
+  signupRow: { marginTop: 14, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 },
+  signupLink: { fontWeight: "800" },
+
+  terms: { marginTop: 12, textAlign: "center", fontSize: 11, lineHeight: 15 },
+  blob: { position: "absolute" },
 });

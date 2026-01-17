@@ -1,4 +1,4 @@
-// src/features/auth/ForgotPasswordScreen.tsx
+// src/features/auth/ResetPasswordScreen.tsx
 import React, { useMemo, useRef, useState } from "react";
 import {
   View,
@@ -75,9 +75,7 @@ function LabeledInput({
 
   return (
     <View style={{ marginTop: 12 }}>
-      <Text style={[t.typography.labelMedium, { color: t.colors.textSub, marginBottom: 6 }]}>
-        {label}
-      </Text>
+      <Text style={[t.typography.labelMedium, { color: t.colors.textSub, marginBottom: 6 }]}>{label}</Text>
 
       <TextInput
         value={value}
@@ -105,7 +103,7 @@ function LabeledInput({
   );
 }
 
-export default function ForgotPasswordScreen() {
+export default function ResetPasswordScreen() {
   const t = useAppTheme();
   const c = t.colors as any;
 
@@ -150,8 +148,7 @@ export default function ForgotPasswordScreen() {
 
   const pwLenOk = useMemo(() => newPw.length >= 8, [newPw]);
   const pwMatchOk = useMemo(() => newPw.length > 0 && newPw === confirmPw, [newPw, confirmPw]);
-  const pwError =
-    touchedPw && (newPw.length > 0 || confirmPw.length > 0) && (!pwLenOk || !pwMatchOk);
+  const pwError = touchedPw && (newPw.length > 0 || confirmPw.length > 0) && (!pwLenOk || !pwMatchOk);
 
   const step1Can = emailOk && !busy;
   const step2Can = codeOk && !busy;
@@ -167,7 +164,6 @@ export default function ForgotPasswordScreen() {
     setBusy(true);
     try {
       await delay(200);
-
       const res = await requestPasswordReset(email.trim());
       setDevCode(__DEV__ ? res.code : null);
 
@@ -175,10 +171,7 @@ export default function ForgotPasswordScreen() {
       setCode("");
       setTouchedCode(false);
 
-      Alert.alert(
-        "인증코드를 보냈어요",
-        __DEV__ ? `테스트 코드: ${res.code}` : "입력한 이메일로 인증코드를 전송했어요."
-      );
+      Alert.alert("인증코드를 보냈어요", __DEV__ ? `테스트 코드: ${res.code}` : "입력한 이메일로 인증코드를 전송했어요.");
     } catch (e: any) {
       Alert.alert("전송 실패", e?.message ?? "인증코드를 보낼 수 없어요.");
       runShake();
@@ -197,7 +190,6 @@ export default function ForgotPasswordScreen() {
     setBusy(true);
     try {
       await delay(150);
-
       await verifyPasswordResetCode(email.trim(), code.trim());
 
       setStep(3);
@@ -223,12 +215,11 @@ export default function ForgotPasswordScreen() {
     try {
       await delay(200);
 
-      // ✅ 비번 업데이트 + 코드 소모(재사용 방지)
       await updatePassword(email.trim(), newPw);
       await consumePasswordResetCode(email.trim());
 
       Alert.alert("비밀번호가 변경됐어요", "새 비밀번호로 로그인해 주세요.");
-      router.replace("/(auth)/id-login");
+      router.replace("/(auth)/email-login");
     } catch (e: any) {
       Alert.alert("변경 실패", e?.message ?? "비밀번호를 변경할 수 없어요.");
       runShake();
@@ -239,15 +230,10 @@ export default function ForgotPasswordScreen() {
 
   return (
     <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
-      <KeyboardAvoidingView
-        behavior={Platform.select({ ios: "padding", android: undefined })}
-        style={{ flex: 1 }}
-      >
+      <KeyboardAvoidingView behavior={Platform.select({ ios: "padding", android: undefined })} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <Text style={[t.typography.titleLarge, { color: t.colors.textMain }]}>
-              비밀번호 찾기
-            </Text>
+            <Text style={[t.typography.titleLarge, { color: t.colors.textMain }]}>비밀번호 찾기</Text>
             <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 6 }]}>
               {step === 1
                 ? "가입한 이메일로 인증코드를 받을게요."
@@ -289,22 +275,12 @@ export default function ForgotPasswordScreen() {
                   )}
 
                   <View style={{ marginTop: 16 }}>
-                    <Button
-                      title={busy ? "전송 중..." : "인증코드 보내기"}
-                      onPress={() => void sendResetCode()}
-                      disabled={!step1Can}
-                    />
+                    <Button title={busy ? "전송 중..." : "인증코드 보내기"} onPress={() => void sendResetCode()} disabled={!step1Can} />
                   </View>
 
                   <View style={styles.bottomRow}>
-                    <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>
-                      로그인으로 돌아갈까요?
-                    </Text>
-                    <Button
-                      title="로그인"
-                      variant="ghost"
-                      onPress={() => router.replace("/(auth)/id-login")}
-                    />
+                    <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>로그인으로 돌아갈까요?</Text>
+                    <Button title="로그인" variant="ghost" onPress={() => router.replace("/(auth)/email-login")} />
                   </View>
                 </>
               )}
@@ -343,7 +319,6 @@ export default function ForgotPasswordScreen() {
                     </Text>
                   )}
 
-                  {/* DEV에서만 힌트 */}
                   {__DEV__ && devCode ? (
                     <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 6 }]}>
                       테스트 코드: <Text style={{ color: t.colors.textMain }}>{devCode}</Text>
@@ -351,20 +326,11 @@ export default function ForgotPasswordScreen() {
                   ) : null}
 
                   <View style={{ marginTop: 16 }}>
-                    <Button
-                      title={busy ? "확인 중..." : "인증하기"}
-                      onPress={() => void verifyCode()}
-                      disabled={!step2Can}
-                    />
+                    <Button title={busy ? "확인 중..." : "인증하기"} onPress={() => void verifyCode()} disabled={!step2Can} />
                   </View>
 
                   <View style={{ marginTop: 10 }}>
-                    <Button
-                      title={busy ? "재전송 중..." : "인증코드 재전송"}
-                      variant="ghost"
-                      onPress={() => void sendResetCode()}
-                      disabled={busy}
-                    />
+                    <Button title={busy ? "재전송 중..." : "인증코드 재전송"} variant="ghost" onPress={() => void sendResetCode()} disabled={busy} />
                   </View>
 
                   <View style={{ marginTop: 6 }}>
@@ -436,11 +402,7 @@ export default function ForgotPasswordScreen() {
                   )}
 
                   <View style={{ marginTop: 16 }}>
-                    <Button
-                      title={busy ? "변경 중..." : "비밀번호 변경"}
-                      onPress={() => void resetPassword()}
-                      disabled={!step3Can}
-                    />
+                    <Button title={busy ? "변경 중..." : "비밀번호 변경"} onPress={() => void resetPassword()} disabled={!step3Can} />
                   </View>
 
                   <View style={{ marginTop: 10 }}>
@@ -481,9 +443,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     fontSize: 16,
   },
-  inputFocused: {
-    borderWidth: 2,
-  },
+  inputFocused: { borderWidth: 2 },
 
   bottomRow: {
     marginTop: 14,
