@@ -16,7 +16,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 
-import { useAuthStore } from "@/features/auth/store/authStore";
+import { useAuthStore } from "@/features/auth/model/authStore";
 
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";

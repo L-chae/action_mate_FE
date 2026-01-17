@@ -21,8 +21,8 @@ import { Card } from "@/shared/ui/Card";
 import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-import { type Gender } from "@/features/auth/store/authStore";
-import { createUser } from "@/features/auth/api/authService";
+import { type Gender } from "@/features/auth/model/authStore";
+import { authApi } from "@/features/auth/api/authApi";
 
 type Form = {
   email: string;
@@ -223,7 +223,7 @@ export default function SignupScreen() {
 
     setBusy(true);
     try {
-      await createUser({
+      await authApi.createUser({
         email: form.email.trim(),
         nickname: form.nickname.trim(),
         password: form.password,

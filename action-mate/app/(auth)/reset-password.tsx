@@ -3,10 +3,8 @@ import React from "react";
 import { Pressable } from "react-native";
 import { Stack, router } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
-
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import ResetPasswordScreen from "@/features/auth/ResetPasswordScreen";
-
 export default function ResetPasswordRoute() {
   const t = useAppTheme();
   const c = t.colors as any;

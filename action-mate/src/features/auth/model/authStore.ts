@@ -1,29 +1,8 @@
-// src/features/auth/authStore.ts
+// src/features/auth/model/authStore.ts
 import { create } from "zustand";
-import {
-  getAccessToken,
-  setAccessToken,
-  clearAuthTokens,
-} from "@/shared/api/authToken";
-
-import {
-  getCurrentUserEmail,
-  setCurrentUserEmail,
-  clearCurrentUserEmail,
-  getUserByEmail,
-} from "@/features/auth/api/authService";
-
-export type Gender = "male" | "female" | "none";
-
-export type User = {
-  id: string;
-  email: string;
-  nickname: string;
-
-  // ✅ 추가
-  gender: Gender; // "male" | "female" | "none"
-  birthDate: string; // "YYYY-MM-DD" (미선택이면 "" 허용)
-};
+import { getAccessToken, setAccessToken, clearAuthTokens } from "@/shared/api/authToken";
+import { authApi } from "@/features/auth/api/authApi";
+import type { User } from "./types";
 
 type AuthState = {
   hasHydrated: boolean;
@@ -45,24 +24,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrateFromStorage: async () => {
     try {
       const token = await getAccessToken();
-
-      // ✅ 토큰 없으면 확실히 로그아웃 상태
       if (!token) {
         set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
       }
 
-      // ✅ 토큰은 있는데, 마지막 로그인 유저 식별이 없으면 안전하게 로그아웃 처리
-      const email = await getCurrentUserEmail();
+      const email = await authApi.getCurrentUserEmail();
       if (!email) {
+        await clearAuthTokens();
         set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
       }
 
-      // ✅ 로컬 저장소에서 유저 조회
-      const user = await getUserByEmail(email);
+      const user = await authApi.getUserByEmail(email);
       if (!user) {
-        // 유저가 삭제됐거나 데이터가 깨졌을 수 있음
+        await clearAuthTokens();
+        await authApi.clearCurrentUserEmail();
         set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
       }
@@ -77,24 +54,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // ✅ 서버 없이도 되는 목업 토큰
     await setAccessToken(`mock.${Date.now()}`);
 
-    // ✅ 마지막 로그인 유저 이메일 저장(앱 재시작 후 hydrate용)
-    await setCurrentUserEmail(user.email);
+    // ✅ 마지막 로그인 유저 이메일 저장 (hydrate용)
+    await authApi.setCurrentUserEmail(user.email);
 
-    set({
-      hasHydrated: true,
-      isLoggedIn: true,
-      user,
-    });
+    set({ hasHydrated: true, isLoggedIn: true, user });
   },
 
   logout: async () => {
     await clearAuthTokens();
-    await clearCurrentUserEmail();
-
-    set({
-      isLoggedIn: false,
-      user: null,
-    });
+    await authApi.clearCurrentUserEmail();
+    set({ isLoggedIn: false, user: null });
   },
 
   updateUser: (patch) => {

@@ -15,8 +15,8 @@ import { router } from "expo-router";
 
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import { useAuthStore } from "@/features/auth/store/authStore";
-import { verifyLogin } from "@/features/auth/api/authService";
+import { useAuthStore } from "@/features/auth/model/authStore";
+import { authApi } from "@/features/auth/api/authApi";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -41,11 +41,22 @@ function PrimaryButton({
 
   const pressIn = () => {
     if (disabled) return;
-    Animated.spring(scale, { toValue: 0.985, useNativeDriver: useNative, speed: 30, bounciness: 0 }).start();
+    Animated.spring(scale, {
+      toValue: 0.985,
+      useNativeDriver: useNative,
+      speed: 30,
+      bounciness: 0,
+    }).start();
   };
+
   const pressOut = () => {
     if (disabled) return;
-    Animated.spring(scale, { toValue: 1, useNativeDriver: useNative, speed: 30, bounciness: 0 }).start();
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: useNative,
+      speed: 30,
+      bounciness: 0,
+    }).start();
   };
 
   return (
@@ -97,6 +108,7 @@ export default function EmailLoginScreen() {
   const emailOk = useMemo(() => isValidEmail(email), [email]);
   const emailError = touchedEmail && email.trim().length > 0 && !emailOk;
 
+  // ✅ 8자 정책으로 통일 (Signup/문구/검증)
   const pwOk = password.length >= 8;
   const pwError = touchedPw && password.length > 0 && !pwOk;
 
@@ -107,12 +119,17 @@ export default function EmailLoginScreen() {
   const activeBg = c.surfaceAlt ?? c.surface2 ?? c.card ?? t.colors.surface ?? t.colors.background;
   const onPrimary = c.onPrimary ?? "#ffffff";
 
+  const goTabs = () => router.replace("/(tabs)");
+
   const onLogin = async () => {
+    if (busy) return;
+
     setTouchedEmail(true);
     setTouchedPw(true);
     setErrorMsg(null);
 
     if (!emailOk) return;
+
     if (!pwOk) {
       setErrorMsg("비밀번호는 8자 이상으로 입력해 주세요.");
       return;
@@ -120,9 +137,9 @@ export default function EmailLoginScreen() {
 
     setBusy(true);
     try {
-      const user = await verifyLogin(email.trim(), password);
-      await loginToStore(user as any);
-      router.replace("/(tabs)");
+      const user = await authApi.verifyLogin(email.trim(), password);
+      await loginToStore(user);
+      goTabs(); // ✅ 성공 후 이동
     } catch (e: any) {
       setErrorMsg(e?.message ?? "로그인에 실패했어요.");
     } finally {
@@ -135,11 +152,17 @@ export default function EmailLoginScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={{ flex: 1, paddingHorizontal: PH, paddingTop: GAP_LG, paddingBottom: PV }}>
           <View style={styles.brand}>
+            {/* ✅ 현재 경로 기준 상대경로 유지(일단 번들 에러 방지 최우선) */}
             <Image source={require("../../../assets/images/logo.png")} style={styles.logo} resizeMode="contain" />
             <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: GAP_SM }]}>
               아이디로 로그인
             </Text>
-            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: GAP_XXS, textAlign: "center" }]}>
+            <Text
+              style={[
+                t.typography.bodySmall,
+                { color: t.colors.textSub, marginTop: GAP_XXS, textAlign: "center" },
+              ]}
+            >
               이메일과 비밀번호를 입력해주세요
             </Text>
           </View>
@@ -150,6 +173,7 @@ export default function EmailLoginScreen() {
 
           <TextInput
             value={email}
+            editable={!busy}
             onChangeText={(v) => {
               setEmail(v);
               if (!touchedEmail) setTouchedEmail(true);
@@ -197,13 +221,16 @@ export default function EmailLoginScreen() {
                 borderColor: pwError ? danger : isFocused("password") ? t.colors.primary : t.colors.border,
                 borderRadius: R,
                 backgroundColor: isFocused("password") ? activeBg : t.colors.surface,
+                opacity: busy ? 0.8 : 1,
               },
             ]}
           >
             <TextInput
               value={password}
+              editable={!busy}
               onChangeText={(v) => {
                 setPassword(v);
+                if (!touchedPw) setTouchedPw(true);
                 if (errorMsg) setErrorMsg(null);
               }}
               onFocus={() => setFocused("password")}
@@ -225,8 +252,10 @@ export default function EmailLoginScreen() {
               }}
             />
 
-            <Pressable onPress={() => setShowPw((v) => !v)} hitSlop={10}>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{showPw ? "숨기기" : "보기"}</Text>
+            <Pressable onPress={() => setShowPw((v) => !v)} hitSlop={10} disabled={busy}>
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+                {showPw ? "숨기기" : "보기"}
+              </Text>
             </Pressable>
           </View>
 
@@ -262,14 +291,18 @@ export default function EmailLoginScreen() {
                 borderRadius: R,
                 borderColor: t.colors.primary,
                 backgroundColor: t.colors.background,
-                opacity: pressed ? 0.88 : 1,
+                opacity: pressed ? 0.88 : busy ? 0.6 : 1,
               },
             ]}
           >
             <Text style={[styles.signUpText, { color: t.colors.primary }]}>회원가입</Text>
           </Pressable>
 
-          <Pressable onPress={() => router.push("/(auth)/reset-password")} disabled={busy} style={{ marginTop: GAP_MD }}>
+          <Pressable
+            onPress={() => router.push("/(auth)/reset-password")}
+            disabled={busy}
+            style={{ marginTop: GAP_MD, opacity: busy ? 0.6 : 1 }}
+          >
             <Text style={[t.typography.labelSmall, { color: t.colors.textSub, textAlign: "center" }]}>
               비밀번호를 잊으셨나요?
             </Text>
@@ -289,12 +322,26 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, paddingVertical: 14, paddingHorizontal: 14, fontSize: 16 },
   inputFocused: { borderWidth: 2 },
 
-  pwRow: { borderWidth: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 10, gap: 10 },
+  pwRow: {
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+  },
   pwInput: { flex: 1, fontSize: 16, paddingVertical: 4 },
 
   primaryBtn: { alignSelf: "stretch", paddingVertical: 16, alignItems: "center", justifyContent: "center" },
   primaryText: { fontSize: 16, fontWeight: "700" },
 
-  signUpBtn: { alignSelf: "stretch", minHeight: 52, borderWidth: 1, paddingVertical: 16, alignItems: "center", justifyContent: "center" },
+  signUpBtn: {
+    alignSelf: "stretch",
+    minHeight: 52,
+    borderWidth: 1,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   signUpText: { fontSize: 16, fontWeight: "700" },
 });

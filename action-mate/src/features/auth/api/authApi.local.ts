@@ -1,8 +1,9 @@
-// features/auth/authService.ts
-// ⚠️ 데모/목업용: 비밀번호를 평문 저장합니다(실서비스 금지)
-
+// src/features/auth/api/authApi.local.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { User, Gender } from "@/features/auth/store/authStore";
+import type { User, Gender, ResetRequestResult } from "@/features/auth/model/types";
+import { setAccessToken, clearAuthTokens } from "@/shared/api/authToken";
+
+// ⚠️ 데모/목업용: 비밀번호 평문 저장 (실서비스 금지)
 
 type StoredUser = User & { password: string };
 
@@ -29,6 +30,42 @@ async function writeJSON(key: string, value: any) {
 }
 
 // ---------------------
+// ✅ Session (authStore가 쓰는 핵심 2개)
+// ---------------------
+export async function persistSession(user: User): Promise<void> {
+  // 목업 토큰 저장
+  await setAccessToken(`mock.${Date.now()}`);
+  // 마지막 로그인 이메일 저장 (hydrate용)
+  await setCurrentUserEmail(user.email);
+}
+
+export async function clearSession(): Promise<void> {
+  await clearAuthTokens();
+  await clearCurrentUserEmail();
+}
+
+// ---------------------
+// ✅ (선택) 목업 계정 시드: 개발 중 "로그인 테스트" 편하게
+// ---------------------
+export async function seedMockUsers(): Promise<void> {
+  const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+  if (users.length > 0) return; // 이미 있으면 건드리지 않음
+
+  const demo: StoredUser[] = [
+    {
+      id: "user",
+      email: "test@test.com",
+      nickname: "테스트유저",
+      gender: "none",
+      birthDate: "2000-01-01",
+      password: "11112222",
+    },
+  ];
+
+  await writeJSON(KEY_USERS, demo);
+}
+
+// ---------------------
 // Users
 // ---------------------
 export async function getUserByEmail(email: string): Promise<User | null> {
@@ -36,7 +73,6 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   const users = await readJSON<StoredUser[]>(KEY_USERS, []);
   const found = users.find((u) => normEmail(u.email) === e);
   if (!found) return null;
-  // password 제거해서 반환
   const { password: _pw, ...user } = found;
   return user;
 }
@@ -46,7 +82,7 @@ export async function createUser(input: {
   nickname: string;
   password: string;
   gender: Gender;
-  birthDate: string; // "YYYY-MM-DD" or ""
+  birthDate: string;
 }): Promise<User> {
   const email = normEmail(input.email);
   const nickname = input.nickname.trim();
@@ -98,7 +134,7 @@ export async function updatePassword(email: string, newPassword: string): Promis
 }
 
 // ---------------------
-// current user email (hydrate용)
+// current user email
 // ---------------------
 export async function getCurrentUserEmail(): Promise<string | null> {
   const v = await AsyncStorage.getItem(KEY_CURRENT_EMAIL);
@@ -114,11 +150,11 @@ export async function clearCurrentUserEmail(): Promise<void> {
 }
 
 // ---------------------
-// password reset codes (목업)
+// password reset codes
 // ---------------------
 type ResetMap = Record<string, { code: string; expiresAt: number }>;
 
-export async function requestPasswordReset(email: string): Promise<{ code: string }> {
+export async function requestPasswordReset(email: string): Promise<ResetRequestResult> {
   const e = normEmail(email);
 
   const user = await getUserByEmail(e);

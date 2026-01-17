@@ -19,12 +19,7 @@ import { Card } from "@/shared/ui/Card";
 import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-import {
-  requestPasswordReset,
-  verifyPasswordResetCode,
-  consumePasswordResetCode,
-  updatePassword,
-} from "@/features/auth/api/authService";
+import { authApi } from "@/features/auth/api/authApi";
 
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
@@ -164,7 +159,7 @@ export default function ResetPasswordScreen() {
     setBusy(true);
     try {
       await delay(200);
-      const res = await requestPasswordReset(email.trim());
+      const res = await authApi.requestPasswordReset(email.trim());
       setDevCode(__DEV__ ? res.code : null);
 
       setStep(2);
@@ -190,7 +185,7 @@ export default function ResetPasswordScreen() {
     setBusy(true);
     try {
       await delay(150);
-      await verifyPasswordResetCode(email.trim(), code.trim());
+      await authApi.verifyPasswordResetCode(email.trim(), code.trim());
 
       setStep(3);
       setNewPw("");
@@ -215,8 +210,8 @@ export default function ResetPasswordScreen() {
     try {
       await delay(200);
 
-      await updatePassword(email.trim(), newPw);
-      await consumePasswordResetCode(email.trim());
+      await authApi.updatePassword(email.trim(), newPw);
+      await authApi.consumePasswordResetCode(email.trim());
 
       Alert.alert("비밀번호가 변경됐어요", "새 비밀번호로 로그인해 주세요.");
       router.replace("/(auth)/email-login");
