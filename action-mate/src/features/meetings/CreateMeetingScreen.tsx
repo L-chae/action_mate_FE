@@ -47,11 +47,23 @@ const CATEGORIES: { key: CategoryKey; label: string; icon: keyof typeof Ionicons
 ];
 
 const DURATION_PRESETS = [30, 60, 90, 120, 180];
-const DEFAULT_REGION: Region = { latitude: 37.5665, longitude: 126.978, latitudeDelta: 0.005, longitudeDelta: 0.005 };
+const DEFAULT_REGION: Region = {
+  latitude: 37.5665,
+  longitude: 126.978,
+  latitudeDelta: 0.005,
+  longitudeDelta: 0.005,
+};
 
 // --- Helpers ---
 const formatDateSimple = (date: Date) =>
-  date.toLocaleString("ko-KR", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  date.toLocaleString("ko-KR", {
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 
 const formatDuration = (mins: number) => {
   const h = Math.floor(mins / 60);
@@ -60,13 +72,27 @@ const formatDuration = (mins: number) => {
 };
 
 // --- Components ---
-const ExpandableHeader = ({ title, value, expanded, onPress }: { title: string; value: string; expanded: boolean; onPress: () => void }) => {
+const ExpandableHeader = ({
+  title,
+  value,
+  expanded,
+  onPress,
+}: {
+  title: string;
+  value: string;
+  expanded: boolean;
+  onPress: () => void;
+}) => {
   const t = useAppTheme();
   return (
     <Pressable onPress={onPress} style={styles.expandHeader}>
       <View>
         <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{title}</Text>
-        {!expanded && <Text style={[t.typography.bodyMedium, { color: t.colors.primary, fontWeight: "600", marginTop: 2 }]}>{value}</Text>}
+        {!expanded && (
+          <Text style={[t.typography.bodyMedium, { color: t.colors.primary, fontWeight: "600", marginTop: 2 }]}>
+            {value}
+          </Text>
+        )}
       </View>
       <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={20} color={t.colors.neutral[400]} />
     </Pressable>
@@ -78,6 +104,7 @@ export default function CreateMeetingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
+  const titleRef = useRef<TextInput>(null);
 
   // Form State
   const [title, setTitle] = useState("");
@@ -155,7 +182,6 @@ export default function CreateMeetingScreen() {
           >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
               <View style={{ paddingHorizontal: t.spacing.pagePaddingH }}>
-                
                 {/* 1. 카테고리 */}
                 <View style={{ marginTop: 16, marginBottom: 16 }}>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
@@ -165,44 +191,113 @@ export default function CreateMeetingScreen() {
                         <Pressable
                           key={item.key}
                           onPress={() => setCategory(item.key)}
-                          style={[styles.miniChip, { backgroundColor: isSelected ? t.colors.primary : t.colors.neutral[100] }]}
+                          style={[
+                            styles.miniChip,
+                            { backgroundColor: isSelected ? t.colors.primary : t.colors.neutral[100] },
+                          ]}
                         >
-                          <Ionicons name={item.icon} size={16} color={isSelected ? "#FFF" : t.colors.textSub} style={{ marginRight: 6 }} />
-                          <Text style={[t.typography.labelMedium, { color: isSelected ? "#FFF" : t.colors.textSub }]}>{item.label}</Text>
+                          <Ionicons
+                            name={item.icon}
+                            size={16}
+                            color={isSelected ? "#FFF" : t.colors.textSub}
+                            style={{ marginRight: 6 }}
+                          />
+                          <Text style={[t.typography.labelMedium, { color: isSelected ? "#FFF" : t.colors.textSub }]}>
+                            {item.label}
+                          </Text>
                         </Pressable>
                       );
                     })}
                   </ScrollView>
                 </View>
 
-                {/* 2. 제목 */}
-                <TextInput
-                  style={[styles.bigTitleInput, { color: t.colors.textMain }]}
-                  placeholder="모임 제목을 적어주세요"
-                  placeholderTextColor={t.colors.neutral[300]}
-                  value={title}
-                  onChangeText={setTitle}
-                  maxLength={40}
-                  multiline
-                />
+                {/* 2. 제목 (개선: 라벨/설명/카운터/카드화) */}
+                <View style={{ marginTop: 8 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "flex-end",
+                      justifyContent: "space-between",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={[t.typography.labelMedium, { color: t.colors.textSub }]}>모임 제목</Text>
+                    </View>
+
+                    <Text style={[t.typography.labelSmall, { color: t.colors.overlay[55] }]}>{title.length}/40</Text>
+                  </View>
+
+                  <View
+                    style={{
+                      backgroundColor: t.colors.surface,
+                      borderColor: t.colors.border,
+                      borderWidth: t.spacing.borderWidth,
+                      borderRadius: t.spacing.radiusLg,
+                      paddingHorizontal: t.spacing.space[4], // 16
+                      paddingVertical: t.spacing.space[3], // 12
+                    }}
+                  >
+                    <TextInput
+                      ref={titleRef}
+                      style={[
+                        t.typography.titleLarge,
+                        {
+                          color: t.colors.textMain,
+                          paddingVertical: 0,
+                        },
+                      ]}
+                      placeholder="예) 한강 러닝 5km 같이 뛰어요"
+                      placeholderTextColor={t.colors.placeholder}
+                      value={title}
+                      onChangeText={setTitle}
+                      maxLength={40}
+                      multiline
+                      returnKeyType="next"
+                      blurOnSubmit
+                      onSubmitEditing={() => {
+                        // 제목 입력 후 아래 흐름 유도(시간/장소 쪽으로)
+                        scrollViewRef.current?.scrollTo({ y: 260, animated: true });
+                      }}
+                    />
+                  </View>
+                </View>
 
                 {/* 3. 시간 & 장소 */}
                 <View style={{ flexDirection: "row", gap: 12, marginTop: 24 }}>
-                  <Pressable onPress={() => setDatePickerVisibility(true)} style={({ pressed }) => [styles.infoCard, { backgroundColor: t.colors.neutral[50], opacity: pressed ? 0.9 : 1 }]}>
+                  <Pressable
+                    onPress={() => setDatePickerVisibility(true)}
+                    style={({ pressed }) => [
+                      styles.infoCard,
+                      { backgroundColor: t.colors.neutral[50], opacity: pressed ? 0.9 : 1 },
+                    ]}
+                  >
                     <Ionicons name="calendar" size={24} color={selectedDate ? t.colors.primary : t.colors.neutral[400]} />
                     <View style={{ marginTop: 8 }}>
                       <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>날짜 및 시간</Text>
-                      <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "600", marginTop: 2 }]} numberOfLines={1}>
+                      <Text
+                        style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "600", marginTop: 2 }]}
+                        numberOfLines={1}
+                      >
                         {selectedDate ? formatDateSimple(selectedDate) : "선택하기"}
                       </Text>
                     </View>
                   </Pressable>
 
-                  <Pressable onPress={() => setLocationModalVisible(true)} style={({ pressed }) => [styles.infoCard, { backgroundColor: t.colors.neutral[50], opacity: pressed ? 0.9 : 1 }]}>
+                  <Pressable
+                    onPress={() => setLocationModalVisible(true)}
+                    style={({ pressed }) => [
+                      styles.infoCard,
+                      { backgroundColor: t.colors.neutral[50], opacity: pressed ? 0.9 : 1 },
+                    ]}
+                  >
                     <Ionicons name="location" size={24} color={pickedLocation ? t.colors.primary : t.colors.neutral[400]} />
                     <View style={{ marginTop: 8 }}>
                       <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>만남 장소</Text>
-                      <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "600", marginTop: 2 }]} numberOfLines={1}>
+                      <Text
+                        style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "600", marginTop: 2 }]}
+                        numberOfLines={1}
+                      >
                         {pickedLocation ? pickedLocation.addressText : "선택하기"}
                       </Text>
                     </View>
@@ -213,9 +308,12 @@ export default function CreateMeetingScreen() {
                 <View style={{ marginTop: 24 }}>
                   <Text style={[t.typography.labelMedium, { color: t.colors.textSub, marginBottom: 8 }]}>내용</Text>
                   <TextInput
-                    style={[styles.textArea, { backgroundColor: t.colors.surface, color: t.colors.textMain, borderColor: t.colors.neutral[200] }]}
+                    style={[
+                      styles.textArea,
+                      { backgroundColor: t.colors.surface, color: t.colors.textMain, borderColor: t.colors.neutral[200] },
+                    ]}
                     placeholder="활동 내용이나 준비물을 자유롭게 적어주세요."
-                    placeholderTextColor={t.colors.neutral[300]}
+                    placeholderTextColor={t.colors.placeholder}
                     multiline
                     value={content}
                     onChangeText={setContent}
@@ -223,7 +321,12 @@ export default function CreateMeetingScreen() {
                 </View>
 
                 {/* 5. 상세 설정 */}
-                <View style={[styles.optionsContainer, { borderColor: t.colors.neutral[200], backgroundColor: t.colors.surface }]}>
+                <View
+                  style={[
+                    styles.optionsContainer,
+                    { borderColor: t.colors.neutral[200], backgroundColor: t.colors.surface },
+                  ]}
+                >
                   <ExpandableHeader
                     title="상세 설정 (인원, 시간, 방식)"
                     value={`${capacity}명 · ${formatDuration(durationMinutes)} · ${joinMode === "INSTANT" ? "선착순" : "승인제"}`}
@@ -236,26 +339,47 @@ export default function CreateMeetingScreen() {
                       <View style={styles.optionRow}>
                         <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>모집 인원</Text>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                          <Pressable onPress={() => setCapacity(c => Math.max(2, c - 1))} style={[styles.circleBtn, { backgroundColor: t.colors.neutral[100] }]}><Ionicons name="remove" size={18} color={t.colors.textMain} /></Pressable>
-                          <Text style={[t.typography.titleMedium, { color: t.colors.textMain, minWidth: 20, textAlign: 'center' }]}>{capacity}</Text>
-                          <Pressable onPress={() => setCapacity(c => Math.min(20, c + 1))} style={[styles.circleBtn, { backgroundColor: t.colors.neutral[100] }]}><Ionicons name="add" size={18} color={t.colors.textMain} /></Pressable>
+                          <Pressable
+                            onPress={() => setCapacity((c) => Math.max(2, c - 1))}
+                            style={[styles.circleBtn, { backgroundColor: t.colors.neutral[100] }]}
+                          >
+                            <Ionicons name="remove" size={18} color={t.colors.textMain} />
+                          </Pressable>
+                          <Text style={[t.typography.titleMedium, { color: t.colors.textMain, minWidth: 20, textAlign: "center" }]}>
+                            {capacity}
+                          </Text>
+                          <Pressable
+                            onPress={() => setCapacity((c) => Math.min(20, c + 1))}
+                            style={[styles.circleBtn, { backgroundColor: t.colors.neutral[100] }]}
+                          >
+                            <Ionicons name="add" size={18} color={t.colors.textMain} />
+                          </Pressable>
                         </View>
                       </View>
                       <View style={[styles.divider, { backgroundColor: t.colors.neutral[100] }]} />
-                      
+
                       {/* 시간 */}
                       <View style={{ gap: 10, paddingVertical: 12 }}>
-                         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                            <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>소요 시간</Text>
-                            <Text style={[t.typography.titleSmall, { color: t.colors.primary }]}>{formatDuration(durationMinutes)}</Text>
-                         </View>
-                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                           {DURATION_PRESETS.map((m) => (
-                             <Pressable key={m} onPress={() => setDurationMinutes(m)} style={[styles.timeChip, { backgroundColor: durationMinutes === m ? t.colors.primary : t.colors.neutral[100] }]}>
-                               <Text style={[t.typography.labelSmall, { color: durationMinutes === m ? "#FFF" : t.colors.textSub }]}>{formatDuration(m)}</Text>
-                             </Pressable>
-                           ))}
-                         </ScrollView>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                          <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>소요 시간</Text>
+                          <Text style={[t.typography.titleSmall, { color: t.colors.primary }]}>{formatDuration(durationMinutes)}</Text>
+                        </View>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                          {DURATION_PRESETS.map((m) => (
+                            <Pressable
+                              key={m}
+                              onPress={() => setDurationMinutes(m)}
+                              style={[
+                                styles.timeChip,
+                                { backgroundColor: durationMinutes === m ? t.colors.primary : t.colors.neutral[100] },
+                              ]}
+                            >
+                              <Text style={[t.typography.labelSmall, { color: durationMinutes === m ? "#FFF" : t.colors.textSub }]}>
+                                {formatDuration(m)}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </ScrollView>
                       </View>
 
                       <View style={[styles.divider, { backgroundColor: t.colors.neutral[100] }]} />
@@ -265,13 +389,37 @@ export default function CreateMeetingScreen() {
                         <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, marginBottom: 8 }]}>참여 방식</Text>
                         <View style={{ flexDirection: "row", gap: 8 }}>
                           {(["INSTANT", "APPROVAL"] as JoinMode[]).map((mode) => (
-                            <Pressable key={mode} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setJoinMode(mode); }} style={[styles.modeBtn, { borderColor: joinMode === mode ? t.colors.primary : t.colors.neutral[200], backgroundColor: joinMode === mode ? t.colors.primaryLight : "transparent" }]}>
-                              <Text style={[t.typography.labelMedium, { color: joinMode === mode ? t.colors.primaryDark : t.colors.textSub }]}>{mode === "INSTANT" ? "⚡ 선착순" : "🙋 승인제"}</Text>
+                            <Pressable
+                              key={mode}
+                              onPress={() => {
+                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                setJoinMode(mode);
+                              }}
+                              style={[
+                                styles.modeBtn,
+                                {
+                                  borderColor: joinMode === mode ? t.colors.primary : t.colors.neutral[200],
+                                  backgroundColor: joinMode === mode ? t.colors.primaryLight : "transparent",
+                                },
+                              ]}
+                            >
+                              <Text style={[t.typography.labelMedium, { color: joinMode === mode ? t.colors.primaryDark : t.colors.textSub }]}>
+                                {mode === "INSTANT" ? "⚡ 선착순" : "🙋 승인제"}
+                              </Text>
                             </Pressable>
                           ))}
                         </View>
                         {joinMode === "APPROVAL" && (
-                          <TextInput style={[styles.smallInput, { marginTop: 10, color: t.colors.textMain, backgroundColor: t.colors.neutral[50] }]} placeholder="예: 20대 여성분만, 초보 환영 등" placeholderTextColor={t.colors.neutral[400]} value={conditions} onChangeText={setConditions} />
+                          <TextInput
+                            style={[
+                              styles.smallInput,
+                              { marginTop: 10, color: t.colors.textMain, backgroundColor: t.colors.neutral[50] },
+                            ]}
+                            placeholder="예: 20대 여성분만, 초보 환영 등"
+                            placeholderTextColor={t.colors.neutral[400]}
+                            value={conditions}
+                            onChangeText={setConditions}
+                          />
                         )}
                       </View>
                     </View>
@@ -281,22 +429,48 @@ export default function CreateMeetingScreen() {
             </TouchableWithoutFeedback>
           </ScrollView>
 
-          <View style={[styles.bottomBar, { backgroundColor: t.colors.background, borderTopColor: t.colors.neutral[200], paddingBottom: 12 + insets.bottom }]}>
-            <Button title={submitting ? "생성 중..." : "모임 만들기"} size="lg" onPress={handleSubmit} loading={submitting} disabled={submitting} />
+          <View
+            style={[
+              styles.bottomBar,
+              {
+                backgroundColor: t.colors.background,
+                borderTopColor: t.colors.neutral[200],
+                paddingBottom: 12 + insets.bottom,
+              },
+            ]}
+          >
+            <Button
+              title={submitting ? "생성 중..." : "모임 만들기"}
+              size="lg"
+              onPress={handleSubmit}
+              loading={submitting}
+              disabled={submitting}
+            />
           </View>
         </KeyboardAvoidingView>
 
-        <DateTimePickerModal isVisible={isDatePickerVisible} mode="datetime" onConfirm={(date) => { setSelectedDate(date); setDatePickerVisibility(false); }} onCancel={() => setDatePickerVisibility(false)} locale="ko_KR" confirmTextIOS="선택" cancelTextIOS="취소" />
-        
+        <DateTimePickerModal
+          isVisible={isDatePickerVisible}
+          mode="datetime"
+          onConfirm={(date) => {
+            setSelectedDate(date);
+            setDatePickerVisibility(false);
+          }}
+          onCancel={() => setDatePickerVisibility(false)}
+          locale="ko_KR"
+          confirmTextIOS="선택"
+          cancelTextIOS="취소"
+        />
+
         {/* ✅ 타입 오류 수정됨 */}
-        <LocationPickerModal 
-          visible={locationModalVisible} 
-          initialLocation={pickedLocation} 
-          onClose={() => setLocationModalVisible(false)} 
-          onConfirm={(loc: LocationData) => { 
-            setPickedLocation(loc); 
-            setLocationModalVisible(false); 
-          }} 
+        <LocationPickerModal
+          visible={locationModalVisible}
+          initialLocation={pickedLocation}
+          onClose={() => setLocationModalVisible(false)}
+          onConfirm={(loc: LocationData) => {
+            setPickedLocation(loc);
+            setLocationModalVisible(false);
+          }}
         />
       </AppLayout>
     </>
@@ -320,10 +494,10 @@ function LocationPickerModal({
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView | null>(null);
-  
+
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [address, setAddress] = useState("");
-  const debounceRef = useRef<any>(null); // Timeout typing fix
+  const debounceRef = useRef<any>(null);
 
   React.useEffect(() => {
     if (visible) {
@@ -334,7 +508,7 @@ function LocationPickerModal({
         (async () => {
           try {
             const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status === 'granted') {
+            if (status === "granted") {
               const pos = await Location.getCurrentPositionAsync({});
               const r = { ...DEFAULT_REGION, latitude: pos.coords.latitude, longitude: pos.coords.longitude };
               mapRef.current?.animateToRegion(r, 500);
@@ -345,6 +519,7 @@ function LocationPickerModal({
         })();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   const fetchAddress = async (lat: number, lng: number) => {
@@ -358,10 +533,13 @@ function LocationPickerModal({
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: t.colors.background }}>
         <View style={[styles.modalHeader, { paddingTop: 14 + insets.top }]}>
-          <Pressable onPress={onClose}><Ionicons name="close" size={28} color={t.colors.textMain} /></Pressable>
+          <Pressable onPress={onClose}>
+            <Ionicons name="close" size={28} color={t.colors.textMain} />
+          </Pressable>
           <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]}>위치 선택</Text>
           <View style={{ width: 28 }} />
         </View>
+
         <View style={{ flex: 1 }}>
           <MapView
             ref={mapRef}
@@ -375,11 +553,25 @@ function LocationPickerModal({
             provider={PROVIDER_GOOGLE}
             rotateEnabled={false}
           />
-          <View style={styles.centerPin} pointerEvents="none"><Ionicons name="location-sharp" size={36} color={t.colors.primary} /></View>
+          <View style={styles.centerPin} pointerEvents="none">
+            <Ionicons name="location-sharp" size={36} color={t.colors.primary} />
+          </View>
         </View>
-        <View style={[styles.modalBottom, { paddingBottom: 20 + insets.bottom }]}>
-          <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginBottom: 16, textAlign: 'center' }]}>{address || "위치 잡는 중..."}</Text>
-          <Button title="이 위치로 설정" onPress={() => onConfirm({ addressText: address || "선택된 위치", lat: region.latitude, lng: region.longitude })} />
+
+        <View style={[styles.modalBottom, { paddingBottom: 20 + insets.bottom, backgroundColor: t.colors.surface }]}>
+          <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginBottom: 16, textAlign: "center" }]}>
+            {address || "위치 잡는 중..."}
+          </Text>
+          <Button
+            title="이 위치로 설정"
+            onPress={() =>
+              onConfirm({
+                addressText: address || "선택된 위치",
+                lat: region.latitude,
+                lng: region.longitude,
+              })
+            }
+          />
         </View>
       </View>
     </Modal>
@@ -387,20 +579,27 @@ function LocationPickerModal({
 }
 
 const styles = StyleSheet.create({
-  miniChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
-  bigTitleInput: { fontSize: 24, fontWeight: "800", paddingVertical: 4 },
+  miniChip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
+
   infoCard: { flex: 1, borderRadius: 16, padding: 16, justifyContent: "space-between", minHeight: 100 },
+
   textArea: { minHeight: 120, borderRadius: 12, borderWidth: 1, padding: 16, fontSize: 16, textAlignVertical: "top", lineHeight: 22 },
+
   optionsContainer: { marginTop: 32, borderWidth: 1, borderRadius: 12, padding: 16, marginBottom: 40 },
-  expandHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  optionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
-  circleBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  expandHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+
+  optionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12 },
+  circleBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   timeChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
-  modeBtn: { flex: 1, paddingVertical: 10, borderWidth: 1, borderRadius: 8, alignItems: 'center' },
+  modeBtn: { flex: 1, paddingVertical: 10, borderWidth: 1, borderRadius: 8, alignItems: "center" },
+
   smallInput: { height: 40, borderRadius: 8, paddingHorizontal: 12, fontSize: 14 },
-  divider: { height: 1, width: '100%' },
+
+  divider: { height: 1, width: "100%" },
+
   bottomBar: { paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
-  centerPin: { position: 'absolute', top: '50%', left: '50%', marginTop: -36, marginLeft: -18 },
-  modalBottom: { paddingHorizontal: 16, paddingTop: 16, backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12 },
+  centerPin: { position: "absolute", top: "50%", left: "50%", marginTop: -36, marginLeft: -18 },
+  modalBottom: { paddingHorizontal: 16, paddingTop: 16, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
 });
