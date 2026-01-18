@@ -28,7 +28,7 @@ import MeetingList from "./ui/MeetingList";
 import ProfileEditModal from "./ui/ProfileEditModal";
 import HostedMeetingEditModal from "./ui/HostedMeetingEditModal";
 
-import { myService } from "./api/myService";
+import { myApi } from "./api/myApi";
 import type { MyMeetingItem, MyProfile } from "./model/types";
 
 const PREVIEW_COUNT = 3;
@@ -45,10 +45,9 @@ function tempIconName(temp: number): keyof typeof MaterialIcons.glyphMap {
   return "whatshot";
 }
 
-// ✅ myService.getMySummary()가 { praiseCount, temperature } 형태라고 가정
 type LocalSummary = {
   praiseCount: number;
-  temperature: number; // 32~42
+  temperature: number;
 };
 
 type PillTone = { text: string; bg: string };
@@ -106,27 +105,31 @@ export default function MyScreen() {
 
   const fillAnim = useRef(new Animated.Value(0)).current;
 
+  // ✅ API 호출부 이름 변경 (getMyProfile -> getProfile 등)
   const loadAll = useCallback(async () => {
-    const [p, s, h, j] = await Promise.all([
-      myService.getMyProfile(),
-      myService.getMySummary(),
-      myService.getMyHostedMeetings(),
-      myService.getMyJoinedMeetings(),
-    ]);
+    try {
+      const [p, s, h, j] = await Promise.all([
+        myApi.getProfile(),
+        myApi.getSummary(),
+        myApi.getHostedMeetings(),
+        myApi.getJoinedMeetings(),
+      ]);
 
-    setProfile(p);
+      setProfile(p);
 
-    // ✅ Summary: praise/temperature 기반
-    const praiseCount = Number((s as any)?.praiseCount ?? 0);
-    const temperature = clamp(Number((s as any)?.temperature ?? 36.5), 32, 42);
+      const praiseCount = Number((s as any)?.praiseCount ?? 0);
+      const temperature = clamp(Number((s as any)?.temperature ?? 36.5), 32, 42);
 
-    setSummary({
-      praiseCount: Number.isFinite(praiseCount) ? praiseCount : 0,
-      temperature: Number.isFinite(temperature) ? temperature : 36.5,
-    });
+      setSummary({
+        praiseCount: Number.isFinite(praiseCount) ? praiseCount : 0,
+        temperature: Number.isFinite(temperature) ? temperature : 36.5,
+      });
 
-    setHosted(h);
-    setJoined(j);
+      setHosted(h);
+      setJoined(j);
+    } catch (e) {
+      console.error("MyScreen load error:", e);
+    }
   }, []);
 
   // ✅ 최초 1회
@@ -134,7 +137,7 @@ export default function MyScreen() {
     loadAll();
   }, [loadAll]);
 
-  // ✅ 상세 → 뒤로 돌아올 때마다 갱신(핵심!)
+  // ✅ 상세 → 뒤로 돌아올 때마다 갱신
   useFocusEffect(
     useCallback(() => {
       loadAll();
@@ -155,7 +158,6 @@ export default function MyScreen() {
   // -----------------------
   const temp = clamp(summary.temperature, 32, 42);
 
-  // (선택) 기존 별점 UI를 유지하고 싶으면 온도→별점으로 환산
   const rating = useMemo(() => {
     const r = ((temp - 32) / 10) * 5;
     return clamp(Number(r.toFixed(1)), 0, 5);
@@ -451,7 +453,8 @@ export default function MyScreen() {
             if (!editingMeeting) return;
             setRefreshing(true);
             try {
-              const updated = await myService.updateMyHostedMeeting(editingMeeting.id, patch);
+              // ✅ 메서드 이름 수정 (updateMyHostedMeeting -> updateHostedMeeting)
+              const updated = await myApi.updateHostedMeeting(editingMeeting.id, patch);
               setHosted((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
               setEditingMeeting(updated);
             } finally {
@@ -467,7 +470,8 @@ export default function MyScreen() {
           onSave={async (next) => {
             setRefreshing(true);
             try {
-              const saved = await myService.updateMyProfile(next);
+              // ✅ 메서드 이름 수정 (updateMyProfile -> updateProfile)
+              const saved = await myApi.updateProfile(next);
               setProfile(saved);
             } finally {
               setRefreshing(false);
