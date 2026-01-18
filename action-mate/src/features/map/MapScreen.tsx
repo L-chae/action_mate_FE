@@ -1,3 +1,5 @@
+// 📂 src/features/map/MapScreen.tsx
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
@@ -10,7 +12,6 @@ import {
 import { useRouter } from "expo-router";
 import MapView, {
   Circle,
-  Marker,
   PROVIDER_GOOGLE,
   Region,
   MarkerPressEvent,
@@ -24,9 +25,11 @@ import AppLayout from "@/shared/ui/AppLayout";
 import { Card } from "@/shared/ui/Card";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-// ✅ [수정 1] API 객체 import
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, CategoryKey } from "@/features/meetings/model/types";
+
+// ✅ 분리한 컴포넌트 Import
+import { MapMarker, getCategoryMeta } from "./ui/MapMarker";
 
 const MAP_STYLE = [
   { featureType: "poi", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
@@ -36,41 +39,6 @@ const MAP_STYLE = [
 const INITIAL_REGION: Region = {
   latitude: 37.498095, longitude: 127.02761, latitudeDelta: 0.015, longitudeDelta: 0.015,
 };
-
-const CATEGORY_META = {
-  SPORTS: { color: "#4A90E2", icon: "basketball" as const, label: "스포츠" },
-  GAMES: { color: "#9B59B6", icon: "game-controller" as const, label: "게임" },
-  MEAL: { color: "#FF9F43", icon: "restaurant" as const, label: "식사" },
-  STUDY: { color: "#2ECC71", icon: "book" as const, label: "스터디" },
-  ETC: { color: "#95A5A6", icon: "ellipsis-horizontal" as const, label: "기타" },
-} satisfies Record<CategoryKey, { color: string; icon: keyof typeof Ionicons.glyphMap; label: string }>;
-
-function getCategoryMeta(key: CategoryKey) {
-  return CATEGORY_META[key] ?? CATEGORY_META.ETC;
-}
-
-const MeetingMarkerNative = React.memo(function MeetingMarkerNative(props: {
-  meeting: MeetingPost; selected: boolean; onPress: (e: MarkerPressEvent) => void;
-}) {
-  const { meeting: m, selected, onPress } = props;
-  const coordinate = useMemo(() => ({
-    latitude: m.locationLat ?? INITIAL_REGION.latitude,
-    longitude: m.locationLng ?? INITIAL_REGION.longitude,
-  }), [m.locationLat, m.locationLng]);
-
-  const meta = getCategoryMeta(m.category);
-
-  return (
-    <Marker
-      identifier={m.id}
-      coordinate={coordinate}
-      onPress={onPress}
-      pinColor={meta.color}
-      zIndex={selected ? 999 : 1}
-      opacity={selected ? 1 : 0.9}
-    />
-  );
-});
 
 export default function MapScreen() {
   const t = useAppTheme();
@@ -103,7 +71,6 @@ export default function MapScreen() {
   const loadMeetings = useCallback(async (lat: number, lng: number) => {
     setLoading(true);
     try {
-      // ✅ [수정 2] API 호출 방식 변경
       const data = await meetingApi.listMeetingsAround(lat, lng);
       setList(data);
     } catch (error) { console.error(error); } finally { setLoading(false); }
@@ -155,7 +122,6 @@ export default function MapScreen() {
 
   const selectedMeeting = useMemo(() => (!selectedId ? undefined : meetingsById.get(selectedId)), [meetingsById, selectedId]);
 
-  // ✅ [수정 3] 파라미터 타입 명시 (m: MeetingPost)
   const filteredList = useMemo(() => (
     categoryFilter === "ALL" 
       ? list 
@@ -207,8 +173,9 @@ export default function MapScreen() {
           mapPadding={{ top: 20, right: 0, bottom: 160, left: 0 }} moveOnMarkerPress={false}
         >
           {selectedCircle}
+          {/* ✅ 분리된 MapMarker 사용 */}
           {list.map((m: MeetingPost) => (
-            <MeetingMarkerNative key={m.id} meeting={m} selected={selectedId === m.id} onPress={onMarkerPress} />
+            <MapMarker key={m.id} meeting={m} selected={selectedId === m.id} onPress={onMarkerPress} />
           ))}
         </MapView>
 
@@ -244,9 +211,8 @@ export default function MapScreen() {
 
           <BottomSheetFlatList
             data={listData} 
-            keyExtractor={(m: any) => m.id} // TS가 혼란스러워하면 any로 우회 가능하나 가급적 타입 유지
+            keyExtractor={(m: any) => m.id} 
             contentContainerStyle={{ paddingBottom: 16 }}
-            // ✅ [수정 4] item 타입 명시 ({ item }: { item: MeetingPost })
             renderItem={({ item }: { item: MeetingPost }) => (
               <Pressable onPress={() => goToDetail(item.id)} onLongPress={() => onSelectFromList(item)} style={({ pressed }) => [{ opacity: pressed ? 0.92 : 1 }]}>
                 <MapListRow t={t} item={item} selected={item.id === selectedId} />
@@ -264,6 +230,9 @@ export default function MapScreen() {
     </AppLayout>
   );
 }
+
+// ... (ScrollChips, MapListRow, styles는 이전 코드와 동일하게 유지)
+// (코드 중복을 줄이기 위해 이 부분은 생략했으나, 실제 파일에는 포함되어야 합니다.)
 
 function ScrollChips({ t, value, onChange }: { t: ReturnType<typeof useAppTheme>; value: CategoryKey | "ALL"; onChange: (v: CategoryKey | "ALL") => void; }) {
   const items: Array<{ key: CategoryKey | "ALL"; label: string }> = [
