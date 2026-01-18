@@ -24,8 +24,8 @@ export function createTheme(mode: ThemeMode) {
 
   // ✅ card/chip은 기존 의도를 유지
   const card = themeColors.surface;
-  const chipBg = isDark ? withAlpha(themeColors.primary, 0.18) : colors.primaryLight;
-  const chipText = themeColors.primary;
+  const chipBg = isDark ? themeColors.neutral[800] : themeColors.neutral[100];
+  const chipText = themeColors.textSub;
 
   const typography = createTypography({
     main: themeColors.textMain,

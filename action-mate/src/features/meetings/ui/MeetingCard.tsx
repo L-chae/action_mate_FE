@@ -7,7 +7,7 @@ import { Card } from "@/shared/ui/Card";
 import { Badge } from "@/shared/ui/Badge";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
-import type { MeetingPost } from "../types";
+import type { MeetingPost } from "@/features/meetings/model/types";
 
 type Pill = { bg: string; fg: string };
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -129,18 +129,18 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
   }, [isHost, isMember, isPending, isJoinBlocked]);
 
   // ✅ 모집 방식(meta) - 아이콘/색상 정책 통일
-const joinModeMeta = useMemo(() => {
-  const isInstant = item.joinMode === "INSTANT";
+  const joinModeMeta = useMemo(() => {
+    const isInstant = item.joinMode === "INSTANT";
 
-  const icon: IconName = isInstant ? "flash-outline" : "shield-checkmark-outline";
-  const color = isInstant ? t.colors.point : t.colors.info; // 원하는 정책 색
+    const icon: IconName = isInstant ? "flash-outline" : "shield-checkmark-outline";
+    const color = isInstant ? t.colors.point : t.colors.info; // 원하는 정책 색
 
-  return {
-    label: isInstant ? "선착순" : "승인제",
-    icon,
-    color,
-  };
-}, [item.joinMode, t.colors.point, t.colors.info]);
+    return {
+      label: isInstant ? "선착순" : "승인제",
+      icon,
+      color,
+    };
+  }, [item.joinMode, t.colors.point, t.colors.info]);
 
 
   // ✅ 비활성 스타일
@@ -177,10 +177,7 @@ const joinModeMeta = useMemo(() => {
 
   const iconMuted = t.colors.icon?.muted ?? t.colors.textSub;
   const iconDefault = t.colors.icon?.default ?? t.colors.textMain;
-
-  const joinInfoBg = isDisabled
-    ? withAlpha(t.colors.textMain, 0.05)
-    : withAlpha(t.colors.textMain, 0.03);
+  const joinInfoBg = t.colors.overlay[6];
 
   const androidLowerElevation =
     Platform.OS === "android" ? { elevation: 0, zIndex: 0 } : { zIndex: 0 };

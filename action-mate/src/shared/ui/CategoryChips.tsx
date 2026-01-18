@@ -9,13 +9,13 @@ type ChipKey = CategoryKey | "ALL";
 const WHITE = "#FFFFFF";
 
 const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
-  SPORTS: "basketball-outline",
-  GAMES: "game-controller-outline",
-  MEAL: "restaurant-outline",
-  STUDY: "book-outline",
-  ETC: "ellipsis-horizontal-outline",
+  SPORTS: "basketball",
+  GAMES: "game-controller",
+  MEAL: "restaurant",
+  STUDY: "book",
+  ETC: "ellipsis-horizontal-circle",
 };
-const ALL_ICON: keyof typeof Ionicons.glyphMap = "apps-outline";
+const ALL_ICON: keyof typeof Ionicons.glyphMap = "apps";
 
 const CATEGORIES: { id: ChipKey; label: string; iconName: keyof typeof Ionicons.glyphMap }[] = [
   { id: "ALL", label: "전체", iconName: ALL_ICON },
@@ -33,21 +33,8 @@ export default function CategoryChips({ value, onChange }: Props) {
   const draggingRef = useRef(false);
   const pendingIdRef = useRef<ChipKey | null>(null);
 
-  const categoryColor = (key: CategoryKey) => {
-    switch (key) {
-      case "SPORTS":
-        return t.colors.info;
-      case "GAMES":
-        return t.colors.point;
-      case "MEAL":
-        return t.colors.warning;
-      case "STUDY":
-        return t.colors.success;
-      case "ETC":
-      default:
-        return t.colors.textSub;
-    }
-  };
+  // ✅ 미선택 아이콘은 항상 회색
+  const iconGray = t.colors.icon.muted;
 
   return (
     <View
@@ -57,6 +44,7 @@ export default function CategoryChips({ value, onChange }: Props) {
         {
           backgroundColor: t.colors.background,
           borderBottomColor: t.colors.border,
+          paddingVertical: t.spacing.space[3], // 12
         },
       ]}
     >
@@ -65,7 +53,13 @@ export default function CategoryChips({ value, onChange }: Props) {
         showsHorizontalScrollIndicator={false}
         nestedScrollEnabled
         keyboardShouldPersistTaps="always"
-        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: t.spacing.pagePaddingH }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingHorizontal: t.spacing.pagePaddingH,
+            gap: t.spacing.space[2], // 8
+          },
+        ]}
         onScrollBeginDrag={() => {
           draggingRef.current = true;
           pendingIdRef.current = null;
@@ -81,8 +75,6 @@ export default function CategoryChips({ value, onChange }: Props) {
       >
         {CATEGORIES.map((cat) => {
           const isSelected = value === cat.id;
-          const inactiveIconColor =
-            cat.id === "ALL" ? t.colors.textSub : categoryColor(cat.id as CategoryKey);
 
           return (
             <Pressable
@@ -101,7 +93,7 @@ export default function CategoryChips({ value, onChange }: Props) {
                 pendingIdRef.current = null;
               }}
               style={({ pressed }) => [
-                styles.chip,
+                styles.miniChip,
                 {
                   backgroundColor: isSelected ? t.colors.primary : t.colors.chipBg,
                   opacity: pressed ? 0.88 : 1,
@@ -111,7 +103,7 @@ export default function CategoryChips({ value, onChange }: Props) {
               <Ionicons
                 name={cat.iconName}
                 size={16}
-                color={isSelected ? WHITE : inactiveIconColor}
+                color={isSelected ? WHITE : iconGray}
                 style={{ marginRight: 6 }}
               />
               <Text
@@ -135,22 +127,26 @@ export default function CategoryChips({ value, onChange }: Props) {
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
     position: "relative",
-    zIndex: 20,       // ✅ 1000 -> 20
-    elevation: 2,     // ✅ 1000 -> 2
+    zIndex: 20,
+    // ✅ Android 그림자 약하게
+    elevation: 0,
+
+    // ✅ iOS 그림자 아주 연하게
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
   scrollContent: {
-    gap: 8,
     paddingRight: 16,
   },
-  chip: {
+
+  miniChip: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
   },
 });
