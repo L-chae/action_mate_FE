@@ -1,35 +1,34 @@
 // src/features/my/MyScreen.tsx
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Image,
+  Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Animated,
-  Pressable,
-  Platform,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { MaterialIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
 
-import { useAuthStore } from "@/features/auth/authStore";
+import { useAuthStore } from "@/features/auth/model/authStore";
 
-import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import { Card } from "@/shared/ui/Card";
 import { withAlpha } from "@/shared/theme/colors";
+import AppLayout from "@/shared/ui/AppLayout";
+import { Card } from "@/shared/ui/Card";
 import TopBar from "@/shared/ui/TopBar";
 
-import MeetingList from "./components/MeetingList";
-import ProfileEditModal from "./components/ProfileEditModal";
-import HostedMeetingEditModal from "./components/HostedMeetingEditModal";
+import HostedMeetingEditModal from "./ui/HostedMeetingEditModal";
+import MeetingList from "./ui/MeetingList";
+import ProfileEditModal from "./ui/ProfileEditModal";
 
-import { myService } from "./myService";
-import type { MyMeetingItem, MyProfile } from "./types";
+import { myApi } from "./api/myApi";
+import type { MyMeetingItem, MyProfile } from "./model/types";
 
 const PREVIEW_COUNT = 3;
 const WHITE = "#FFFFFF";
@@ -45,10 +44,9 @@ function tempIconName(temp: number): keyof typeof MaterialIcons.glyphMap {
   return "whatshot";
 }
 
-// ✅ myService.getMySummary()가 { praiseCount, temperature } 형태라고 가정
 type LocalSummary = {
   praiseCount: number;
-  temperature: number; // 32~42
+  temperature: number;
 };
 
 type PillTone = { text: string; bg: string };
@@ -62,7 +60,7 @@ export default function MyScreen() {
   const [profile, setProfile] = useState<MyProfile>({ nickname: "액션메이트" });
   const [summary, setSummary] = useState<LocalSummary>({ praiseCount: 0, temperature: 36.5 });
 
-  // ✅ authStore(user) → profile(fallback)
+  // authStore(user) → profile(fallback)
   const genderRaw: any = (user as any)?.gender ?? (profile as any)?.gender;
   const birthRaw: string =
     (user as any)?.birthDate ??
@@ -107,34 +105,35 @@ export default function MyScreen() {
   const fillAnim = useRef(new Animated.Value(0)).current;
 
   const loadAll = useCallback(async () => {
-    const [p, s, h, j] = await Promise.all([
-      myService.getMyProfile(),
-      myService.getMySummary(),
-      myService.getMyHostedMeetings(),
-      myService.getMyJoinedMeetings(),
-    ]);
+    try {
+      const [p, s, h, j] = await Promise.all([
+        myApi.getProfile(),
+        myApi.getSummary(),
+        myApi.getHostedMeetings(),
+        myApi.getJoinedMeetings(),
+      ]);
 
-    setProfile(p);
+      setProfile(p);
 
-    // ✅ Summary: praise/temperature 기반
-    const praiseCount = Number((s as any)?.praiseCount ?? 0);
-    const temperature = clamp(Number((s as any)?.temperature ?? 36.5), 32, 42);
+      const praiseCount = Number((s as any)?.praiseCount ?? 0);
+      const temperature = clamp(Number((s as any)?.temperature ?? 36.5), 32, 42);
 
-    setSummary({
-      praiseCount: Number.isFinite(praiseCount) ? praiseCount : 0,
-      temperature: Number.isFinite(temperature) ? temperature : 36.5,
-    });
+      setSummary({
+        praiseCount: Number.isFinite(praiseCount) ? praiseCount : 0,
+        temperature: Number.isFinite(temperature) ? temperature : 36.5,
+      });
 
-    setHosted(h);
-    setJoined(j);
+      setHosted(h);
+      setJoined(j);
+    } catch (e) {
+      console.error("MyScreen load error:", e);
+    }
   }, []);
 
-  // ✅ 최초 1회
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
-  // ✅ 상세 → 뒤로 돌아올 때마다 갱신(핵심!)
   useFocusEffect(
     useCallback(() => {
       loadAll();
@@ -150,18 +149,16 @@ export default function MyScreen() {
     }
   }, [loadAll]);
 
-  // -----------------------
-  // ✅ UI 계산 값들
-  // -----------------------
+  // UI 계산
   const temp = clamp(summary.temperature, 32, 42);
 
-  // (선택) 기존 별점 UI를 유지하고 싶으면 온도→별점으로 환산
   const rating = useMemo(() => {
     const r = ((temp - 32) / 10) * 5;
     return clamp(Number(r.toFixed(1)), 0, 5);
   }, [temp]);
 
   const pillTone: PillTone = useMemo(() => {
+    // 의미상 bg는 info/warning/primary/error의 soft 버전이므로 withAlpha 유지 (brand 색 기준)
     const soft = (hex: string, a: number) => withAlpha(hex, a);
 
     if (temp <= 35.5) return { text: t.colors.info, bg: soft(t.colors.info, 0.12) };
@@ -211,11 +208,42 @@ export default function MyScreen() {
   const hostedHasMore = hosted.length > PREVIEW_COUNT;
   const joinedHasMore = joined.length > PREVIEW_COUNT;
 
-  const iconDefault = withAlpha(t.colors.textMain, 0.75);
-  const iconMuted = withAlpha(t.colors.textMain, 0.55);
-  const soft06 = withAlpha(t.colors.textMain, 0.06);
-  const soft45 = withAlpha(t.colors.textMain, 0.45);
-  const soft55 = withAlpha(t.colors.textMain, 0.55);
+  // ✅ theme semantic token 사용
+  const iconDefault = t.colors.icon.default;
+  const iconMuted = t.colors.icon.muted;
+  const soft06 = t.colors.overlay[6];
+  const soft45 = t.colors.overlay[45];
+  const soft55 = t.colors.overlay[55];
+
+  // theme 기반 스타일(간격/폰트 일부를 테마로)
+  const s = useMemo(() => {
+    return {
+      scrollContent: {
+        paddingBottom: t.spacing.space[7], // 28
+        paddingHorizontal: t.spacing.pagePaddingH,
+        paddingTop: t.spacing.pagePaddingV,
+      },
+      cardPadding: {
+        paddingVertical: t.spacing.space[3], // 12(기존 14 근사치)
+        paddingHorizontal: t.spacing.space[3], // 12(기존 14 근사치)
+      },
+      subLine: { marginTop: t.spacing.space[1] }, // 4
+      mannerWrap: {
+        marginTop: t.spacing.space[3], // 12
+        paddingTop: t.spacing.space[3], // 12
+        borderTopWidth: t.spacing.borderWidth,
+        borderTopColor: t.colors.divider,
+      },
+      barTrack: { marginTop: t.spacing.space[2] }, // 8~10 근사치
+      scaleRow: { marginTop: t.spacing.space[2] }, // 8
+      sectionHeader: {
+        marginTop: t.spacing.space[3], // 12~14 근사치
+        marginBottom: t.spacing.space[2], // 8
+        paddingHorizontal: 2,
+      },
+      inlineMoreBtn: { marginTop: 2, paddingVertical: t.spacing.space[2] }, // 8(기존 6 근사치)
+    } as const;
+  }, [t]);
 
   return (
     <AppLayout padded={false}>
@@ -223,29 +251,15 @@ export default function MyScreen() {
         title="마이페이지"
         showBorder
         showNoti={false}
-        renderRight={() => (
-          <Pressable
-            onPress={() => router.push("/(modals)/settings")}
-            hitSlop={10}
-            style={({ pressed }) => [{ padding: 4, opacity: pressed ? 0.85 : 1 }]}
-          >
-            <MaterialIcons name="settings" size={22} color={iconDefault} />
-          </Pressable>
-        )}
+        renderRight={() => <MaterialIcons name="settings" size={22} color={iconDefault} />}
       />
 
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            paddingHorizontal: t.spacing.pagePaddingH,
-            paddingTop: t.spacing.pagePaddingV,
-          },
-        ]}
+        contentContainerStyle={[styles.scrollContentBase, s.scrollContent]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {/* 프로필 카드 */}
-        <Card style={{ paddingVertical: 14, paddingHorizontal: 14 }}>
+        <Card style={s.cardPadding}>
           <View style={styles.topRow}>
             <View style={styles.profileLeft}>
               <View style={styles.avatarWrap}>
@@ -297,37 +311,39 @@ export default function MyScreen() {
                 </Pressable>
               </View>
 
-              <View style={{ marginLeft: 12, flex: 1, minWidth: 0 }}>
+              <View style={{ marginLeft: t.spacing.space[3], flex: 1, minWidth: 0 }}>
                 <View style={styles.nameLine}>
                   <Text style={t.typography.titleMedium} numberOfLines={1}>
                     {profile.nickname}
                   </Text>
 
                   <View style={[styles.tempPill, { backgroundColor: pillTone.bg }]}>
-                    <Text style={[styles.tempPillText, { color: pillTone.text }]}>
+                    <Text style={[t.typography.labelMedium, { color: pillTone.text }]}>
                       {temp.toFixed(1)}℃
                     </Text>
                   </View>
                 </View>
 
                 {metaLine ? (
-                  <Text style={[styles.subLine, { color: t.colors.textSub }]}>{metaLine}</Text>
+                  <Text style={[t.typography.bodySmall, s.subLine]}>{metaLine}</Text>
                 ) : null}
               </View>
             </View>
 
             {/* 별점(온도 환산) */}
             <View style={styles.ratingRight}>
-              <Text style={[styles.star, { color: t.colors.point }]}>★</Text>
-              <Text style={[styles.ratingText, { color: t.colors.point }]}>{rating.toFixed(1)}</Text>
+              <Text style={[styles.star, { color: t.colors.ratingStar }]}>★</Text>
+              <Text style={[t.typography.labelMedium, { color: t.colors.ratingStar }]}>
+                {rating.toFixed(1)}
+              </Text>
             </View>
           </View>
 
           {/* 매너온도 */}
-          <View style={[styles.mannerWrap, { borderTopColor: t.colors.divider }]}>
+          <View style={s.mannerWrap}>
             <View style={styles.mannerTop}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.mannerLabel, { color: t.colors.textSub }]}>매너온도</Text>
+                <Text style={t.typography.labelSmall}>매너온도</Text>
                 <Text style={[styles.mannerTemp, { color: pillTone.text }]}>{temp.toFixed(1)}℃</Text>
               </View>
 
@@ -336,7 +352,7 @@ export default function MyScreen() {
               </View>
             </View>
 
-            <View style={[styles.barTrack, { backgroundColor: t.colors.border }]}>
+            <View style={[styles.barTrack, s.barTrack, { backgroundColor: t.colors.border }]}>
               <Animated.View style={[styles.barFill, { width: widthPct }]}>
                 <LinearGradient
                   colors={grad}
@@ -347,29 +363,29 @@ export default function MyScreen() {
               </Animated.View>
             </View>
 
-            <View style={styles.scaleRow}>
-              <Text style={[styles.scaleText, { color: soft45 }]}>32</Text>
-              <Text style={[styles.scaleText, { color: soft45 }]}>42</Text>
+            <View style={[styles.scaleRow, s.scaleRow]}>
+              <Text style={[t.typography.labelSmall, { color: soft45 }]}>32</Text>
+              <Text style={[t.typography.labelSmall, { color: soft45 }]}>42</Text>
             </View>
           </View>
         </Card>
 
         {/* 내가 만든 모임 */}
-        <View style={styles.sectionHeader}>
+        <View style={s.sectionHeader}>
           <Pressable
             onPress={() => setHostedExpanded((v) => !v)}
             style={({ pressed }) => [styles.sectionHeaderRow, { opacity: pressed ? 0.9 : 1 }]}
           >
             <View style={styles.sectionLeft}>
-              <Text style={styles.sectionTitle}>내가 만든 모임</Text>
+              <Text style={t.typography.titleMedium}>내가 만든 모임</Text>
 
               <View style={[styles.countPill, { backgroundColor: soft06 }]}>
-                <Text style={[styles.countText, { color: soft55 }]}>{hosted.length}</Text>
+                <Text style={[t.typography.labelMedium, { color: soft55 }]}>{hosted.length}</Text>
               </View>
             </View>
 
             <View style={styles.sectionRight}>
-              <Text style={[styles.moreText, { color: t.colors.textSub }]}>
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                 {hostedExpanded ? "접기" : "펼치기"}
               </Text>
               <MaterialIcons
@@ -383,9 +399,9 @@ export default function MyScreen() {
           {!hostedExpanded && hostedHasMore ? (
             <Pressable
               onPress={() => setHostedExpanded(true)}
-              style={({ pressed }) => [styles.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
+              style={({ pressed }) => [s.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={[styles.inlineMoreText, { color: soft55 }]}>
+              <Text style={[t.typography.bodySmall, { color: soft55 }]}>
                 최근 {PREVIEW_COUNT}개만 보여요 · 더보기
               </Text>
             </Pressable>
@@ -403,21 +419,21 @@ export default function MyScreen() {
         />
 
         {/* 참여한 모임 */}
-        <View style={styles.sectionHeader}>
+        <View style={s.sectionHeader}>
           <Pressable
             onPress={() => setJoinedExpanded((v) => !v)}
             style={({ pressed }) => [styles.sectionHeaderRow, { opacity: pressed ? 0.9 : 1 }]}
           >
             <View style={styles.sectionLeft}>
-              <Text style={styles.sectionTitle}>참여한 모임</Text>
+              <Text style={t.typography.titleMedium}>참여한 모임</Text>
 
               <View style={[styles.countPill, { backgroundColor: soft06 }]}>
-                <Text style={[styles.countText, { color: soft55 }]}>{joined.length}</Text>
+                <Text style={[t.typography.labelMedium, { color: soft55 }]}>{joined.length}</Text>
               </View>
             </View>
 
             <View style={styles.sectionRight}>
-              <Text style={[styles.moreText, { color: t.colors.textSub }]}>
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                 {joinedExpanded ? "접기" : "펼치기"}
               </Text>
               <MaterialIcons
@@ -431,9 +447,9 @@ export default function MyScreen() {
           {!joinedExpanded && joinedHasMore ? (
             <Pressable
               onPress={() => setJoinedExpanded(true)}
-              style={({ pressed }) => [styles.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
+              style={({ pressed }) => [s.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={[styles.inlineMoreText, { color: soft55 }]}>
+              <Text style={[t.typography.bodySmall, { color: soft55 }]}>
                 최근 {PREVIEW_COUNT}개만 보여요 · 더보기
               </Text>
             </Pressable>
@@ -451,7 +467,7 @@ export default function MyScreen() {
             if (!editingMeeting) return;
             setRefreshing(true);
             try {
-              const updated = await myService.updateMyHostedMeeting(editingMeeting.id, patch);
+              const updated = await myApi.updateHostedMeeting(editingMeeting.id, patch);
               setHosted((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
               setEditingMeeting(updated);
             } finally {
@@ -467,7 +483,7 @@ export default function MyScreen() {
           onSave={async (next) => {
             setRefreshing(true);
             try {
-              const saved = await myService.updateMyProfile(next);
+              const saved = await myApi.updateProfile(next);
               setProfile(saved);
             } finally {
               setRefreshing(false);
@@ -480,8 +496,8 @@ export default function MyScreen() {
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingBottom: 28,
+  scrollContentBase: {
+    // theme 기반 padding은 s.scrollContent에서 붙임
   },
 
   topRow: {
@@ -511,21 +527,11 @@ const styles = StyleSheet.create({
   nameLine: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
 
   tempPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
-  tempPillText: { fontSize: 12, fontWeight: "800" },
-
-  subLine: { marginTop: 4, fontSize: 12 },
 
   ratingRight: { flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 6 },
   star: { fontSize: 12, marginTop: 1 },
-  ratingText: { fontSize: 12, fontWeight: "800" },
 
-  mannerWrap: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-  },
   mannerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  mannerLabel: { fontSize: 12, fontWeight: "700" },
   mannerTemp: { marginTop: 6, fontSize: 20, fontWeight: "900" },
 
   tempBadge: {
@@ -536,13 +542,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  barTrack: { marginTop: 10, height: 6, borderRadius: 999, overflow: "hidden" },
+  barTrack: { height: 6, borderRadius: 999, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 999, overflow: "hidden" },
 
-  scaleRow: { marginTop: 8, flexDirection: "row", justifyContent: "space-between" },
-  scaleText: { fontSize: 11 },
+  scaleRow: { flexDirection: "row", justifyContent: "space-between" },
 
-  sectionHeader: { marginTop: 14, marginBottom: 8, paddingHorizontal: 2 },
   sectionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -551,13 +555,6 @@ const styles = StyleSheet.create({
   },
   sectionLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   sectionRight: { flexDirection: "row", alignItems: "center", gap: 4 },
-  sectionTitle: { fontSize: 16, fontWeight: "900" },
 
   countPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  countText: { fontSize: 12, fontWeight: "800" },
-
-  moreText: { fontSize: 12, fontWeight: "800" },
-
-  inlineMoreBtn: { marginTop: 2, paddingVertical: 6 },
-  inlineMoreText: { fontSize: 12 },
 });

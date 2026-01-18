@@ -1,13 +1,11 @@
-// app/(auth)/signup.tsx
+// app/(auth)/reset-password.tsx
 import React from "react";
 import { Pressable } from "react-native";
 import { Stack, router } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
-
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import SignupScreen from "@/features/auth/SignupScreen";
-
-export default function SignupRoute() {
+import ResetPasswordScreen from "@/features/auth/ResetPasswordScreen";
+export default function ResetPasswordRoute() {
   const t = useAppTheme();
   const c = t.colors as any;
 
@@ -23,19 +21,13 @@ export default function SignupRoute() {
           headerShadowVisible: false,
           headerStyle: { backgroundColor: headerBg },
           headerLeft: () => (
-            <Pressable
-              onPress={() => router.back()}
-              hitSlop={12}
-              style={{ padding: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="뒤로가기"
-            >
+            <Pressable onPress={() => router.back()} hitSlop={12} style={{ padding: 8 }}>
               <MaterialIcons name="arrow-back-ios-new" size={22} color={iconColor} />
             </Pressable>
           ),
         }}
       />
-      <SignupScreen />
+      <ResetPasswordScreen />
     </>
   );
 }
