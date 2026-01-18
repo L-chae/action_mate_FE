@@ -16,8 +16,8 @@ import AppLayout from "@/shared/ui/AppLayout";
 import EmptyView from "@/shared/ui/EmptyView";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-import { listDMThreads } from "./api/dmService";
-import type { DMThread } from "./model/dm.types";
+import { listDMThreads } from "./api/dmApi";
+import type { DMThread } from "./model/types";
 
 function formatTime(isoString: string) {
   const date = new Date(isoString);

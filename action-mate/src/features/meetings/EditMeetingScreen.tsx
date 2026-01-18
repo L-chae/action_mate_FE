@@ -13,7 +13,6 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   LayoutAnimation,
-  UIManager,
   ActivityIndicator,
 } from "react-native";
 import { Stack, useRouter, useLocalSearchParams } from "expo-router";
@@ -31,10 +30,6 @@ import CategoryChips from "@/shared/ui/CategoryChips";
 // ✅ [수정 1] 개별 함수 대신 객체 import
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { CategoryKey, JoinMode } from "@/features/meetings/model/types";
-
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 // -------------------------------------------------------------------------
 // Types & Constants

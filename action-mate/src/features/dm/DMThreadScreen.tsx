@@ -17,18 +17,19 @@ import { Stack, useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+// Shared
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import TopBar from "@/shared/ui/TopBar";
 
-import { getDMMessages, sendDMMessage, getDMThread, markDMThreadRead } from "./api/dmService";
-import type { DMMessage, DMThread } from "./model/dm.types";
+// Feature: DM
+import ChatBubble from "./ui/ChatBubble";
+import { getDMMessages, sendDMMessage, getDMThread, markDMThreadRead } from "./api/dmApi";
+import type { DMMessage, DMThread } from "./model/types";
 
 export default function DMThreadScreen() {
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
-
-  // ✅ threadId만 받으면 됨 (나머지는 thread에서 가져오기)
   const { threadId } = useLocalSearchParams<{ threadId: string }>();
 
   const [thread, setThread] = useState<DMThread | null>(null);
@@ -39,7 +40,6 @@ export default function DMThreadScreen() {
   const [sending, setSending] = useState(false);
 
   const listRef = useRef<FlatList<DMMessage>>(null);
-
   const [keyboardLift, setKeyboardLift] = useState(0);
   const [composerHeight, setComposerHeight] = useState(0);
   const translateY = useRef(new Animated.Value(0)).current;
@@ -51,24 +51,20 @@ export default function DMThreadScreen() {
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
   }, []);
 
+  // 1. 데이터 로드 (Local API 호출)
   useEffect(() => {
     let mounted = true;
-
     const load = async () => {
       try {
         setLoading(true);
-
         const [th, msgs] = await Promise.all([
           getDMThread(threadId),
           getDMMessages(threadId),
         ]);
 
         if (!mounted) return;
-
         setThread(th);
         setMessages(msgs);
-
-        // ✅ 들어오면 읽음 처리 (상대가 보낸 것)
         await markDMThreadRead(threadId);
       } catch (e) {
         console.error(e);
@@ -79,13 +75,11 @@ export default function DMThreadScreen() {
         }
       }
     };
-
     load();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [threadId, scrollToBottom]);
 
+  // 2. 키보드 핸들링
   useEffect(() => {
     let showSub: EmitterSubscription | undefined;
     let hideSub: EmitterSubscription | undefined;
@@ -96,15 +90,12 @@ export default function DMThreadScreen() {
     showSub = Keyboard.addListener(showEvent, (e) => {
       const h = e.endCoordinates?.height ?? 0;
       const lift = Platform.OS === "ios" ? Math.max(0, h - insets.bottom) : h;
-
       setKeyboardLift(lift);
-
       Animated.timing(translateY, {
         toValue: -lift,
         duration: Platform.OS === "ios" ? 220 : 160,
         useNativeDriver: true,
       }).start();
-
       scrollToBottom(true);
     });
 
@@ -125,7 +116,6 @@ export default function DMThreadScreen() {
 
   const handleSend = useCallback(async () => {
     if (!text.trim() || sending) return;
-
     const content = text.trim();
     setText("");
     setSending(true);
@@ -142,52 +132,20 @@ export default function DMThreadScreen() {
     }
   }, [text, sending, threadId, scrollToBottom]);
 
-  const renderMessage = useCallback(
-    ({ item }: { item: DMMessage }) => {
-      const isMe = item.senderId === "me";
-
-      return (
-        <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
-          {!isMe && (
-            <View style={[styles.avatar, { backgroundColor: t.colors.neutral[200] }]}>
-              <Ionicons name="person" size={16} color={t.colors.neutral[400]} />
-            </View>
-          )}
-
-          <View
-            style={[
-              styles.bubble,
-              isMe
-                ? { backgroundColor: t.colors.primary, borderBottomRightRadius: 4 }
-                : { backgroundColor: t.colors.neutral[100], borderBottomLeftRadius: 4 },
-            ]}
-          >
-            <Text style={[t.typography.bodyMedium, { color: isMe ? "white" : t.colors.textMain }]}>
-              {item.text}
-            </Text>
-          </View>
-
-          <Text style={[t.typography.labelSmall, styles.timeText, { color: t.colors.neutral[400] }]}>
-            {new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
-          </Text>
-        </View>
-      );
-    },
-    [t.colors.neutral, t.colors.primary, t.colors.textMain, t.typography.bodyMedium, t.typography.labelSmall]
-  );
+  const renderMessage = useCallback(({ item }: { item: DMMessage }) => {
+    return <ChatBubble message={item} />;
+  }, []);
 
   const onComposerLayout = (e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
     if (h !== composerHeight) setComposerHeight(h);
   };
 
-  const listContentStyle = useMemo(() => {
-    return {
-      paddingHorizontal: 16,
-      paddingTop: 16,
-      paddingBottom: composerHeight + bottomSafe + 12 + keyboardLift,
-    } as const;
-  }, [composerHeight, bottomSafe, keyboardLift]);
+  const listContentStyle = useMemo(() => ({
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: composerHeight + bottomSafe + 12 + keyboardLift,
+  }), [composerHeight, bottomSafe, keyboardLift]);
 
   const relatedMeetingId = thread?.relatedMeetingId;
   const relatedMeetingTitle = thread?.relatedMeetingTitle;
@@ -200,7 +158,6 @@ export default function DMThreadScreen() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-
       <AppLayout padded={false}>
         <View style={{ flex: 1, backgroundColor: t.colors.background }}>
           <TopBar
@@ -208,11 +165,9 @@ export default function DMThreadScreen() {
             showBorder
             showBack
             onPressBack={() => router.back()}
-            showNoti={false}
-            showMenu={false}
           />
 
-          {/* ✅ 상단 카드: 모임글로 이동 (thread 기반) */}
+          {/* 연결된 모임 카드 */}
           {relatedMeetingId ? (
             <Pressable
               onPress={goMeeting}
@@ -226,15 +181,13 @@ export default function DMThreadScreen() {
               ]}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>연결된 모임글</Text>
-                <Text
-                  style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 2 }]}
-                  numberOfLines={1}
-                >
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+                  연결된 모임글
+                </Text>
+                <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 2 }]} numberOfLines={1}>
                   {relatedMeetingTitle ?? "모임 상세로 이동"}
                 </Text>
               </View>
-
               <Ionicons name="chevron-forward" size={18} color={t.colors.textSub} />
             </Pressable>
           ) : null}
@@ -282,7 +235,6 @@ export default function DMThreadScreen() {
               onChangeText={setText}
               multiline
             />
-
             <Pressable
               onPress={handleSend}
               disabled={!text.trim() || sending}
@@ -306,7 +258,6 @@ export default function DMThreadScreen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-
   meetingCard: {
     marginHorizontal: 16,
     marginTop: 10,
@@ -319,29 +270,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-
-  msgRow: { flexDirection: "row", alignItems: "flex-end", marginBottom: 12 },
-  msgRowMe: { flexDirection: "row-reverse" },
-  msgRowOther: { flexDirection: "row" },
-
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 8,
-  },
-
-  bubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-    maxWidth: "70%",
-  },
-
-  timeText: { marginHorizontal: 6, marginBottom: 2, fontSize: 10 },
-
   inputContainer: {
     position: "absolute",
     left: 0,
@@ -353,7 +281,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
   },
-
   input: {
     flex: 1,
     minHeight: 40,
@@ -364,7 +291,6 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderWidth: 1,
   },
-
   sendBtn: {
     width: 40,
     height: 40,

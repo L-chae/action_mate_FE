@@ -12,7 +12,6 @@ import {
   Text,
   TextInput,
   TouchableWithoutFeedback,
-  UIManager,
   View,
 } from "react-native";
 import { Stack, useRouter } from "expo-router";
@@ -30,10 +29,6 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 // ✅ API & Model
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { CategoryKey, JoinMode } from "@/features/meetings/model/types";
-
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 // --- Types ---
 type LocationData = {
