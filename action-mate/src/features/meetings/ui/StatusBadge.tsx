@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
-import type { PillTone, StatusPillToken } from "../model/meeting.constants";
+import type { PillTone, StatusPillToken } from "../model/constants";
 
 type Props = {
   tokens: StatusPillToken[];

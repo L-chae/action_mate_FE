@@ -29,7 +29,7 @@ import ProfileEditModal from "./ui/ProfileEditModal";
 import HostedMeetingEditModal from "./ui/HostedMeetingEditModal";
 
 import { myService } from "./api/myService";
-import type { MyMeetingItem, MyProfile } from "./model/my.types";
+import type { MyMeetingItem, MyProfile } from "./model/types";
 
 const PREVIEW_COUNT = 3;
 const WHITE = "#FFFFFF";

@@ -3,7 +3,7 @@ import React, { useRef } from "react";
 import { ScrollView, Pressable, Text, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import type { CategoryKey } from "@/features/meetings/model/meeting.types";
+import type { CategoryKey } from "@/features/meetings/model/types";
 
 type ChipKey = CategoryKey | "ALL";
 const WHITE = "#FFFFFF";

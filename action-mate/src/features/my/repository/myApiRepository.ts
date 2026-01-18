@@ -1,6 +1,6 @@
 // src/features/my/repository/myApiRepository.ts
 import type { MyRepository } from "./MyRepository";
-import type { MyMeetingItem, MyProfile, MySummary } from "../types";
+import type { MyMeetingItem, MyProfile, MySummary } from "../model/types";
 
 /**
  * ✅ 여기서는 "API 응답 DTO"를 받아서 MyMeetingItem으로 매핑하는 구조로 가면 유지보수 최상

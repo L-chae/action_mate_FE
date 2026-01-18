@@ -1,5 +1,5 @@
 // src/features/my/repository/MyRepository.ts
-import type { MyMeetingItem, MyProfile, MySummary } from "../types";
+import type { MyMeetingItem, MyProfile, MySummary } from "../model/types";
 
 export interface MyRepository {
   getProfile(): Promise<MyProfile>;

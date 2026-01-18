@@ -2,7 +2,7 @@ import React from "react";
 import { Modal, View, Text, StyleSheet, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import type { HostSummary } from "../types";
+import type { HostSummary } from "../model/types";
 
 // 🔥 매너 온도 바 (내부 컴포넌트)
 function MannerTempBar({ temp }: { temp: number }) {
@@ -28,7 +28,7 @@ function MannerTempBar({ temp }: { temp: number }) {
 }
 
 // 🟢 프로필 모달 메인
-export function ProfileDetailModal({ 
+export function ProfileModal({ 
   visible, 
   user, 
   onClose 
@@ -65,7 +65,7 @@ export function ProfileDetailModal({
             {user.nickname}
           </Text>
           
-          {/* ✅ Fix: 쌍따옴표 에러 해결 (중괄호와 백틱으로 감싸기) */}
+          {/* ✅ 소개글 (쌍따옴표 포함하여 출력) */}
           <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, marginTop: 8, textAlign: 'center', lineHeight: 20 }]}>
             {`"${user.intro || "자기소개가 없습니다."}"`}
           </Text>

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Keyboard, StyleSheet, View } from "react-native";
 import { Button } from "@/shared/ui/Button";
 
-export function MeetingBottomBar({
+export function BottomBar({
   t,
   insetsBottom,
   isKeyboardVisible,

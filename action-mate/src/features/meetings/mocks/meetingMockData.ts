@@ -1,5 +1,5 @@
 // features/meetings/meetingMockData.ts
-import type { HostSummary, MeetingPost } from "../model/meeting.types";
+import type { HostSummary, MeetingPost } from "../model/types";
 
 /**
  * ✅ 목업 원본만 담당하는 파일

@@ -1,6 +1,6 @@
 // src/features/my/repository/my.mapper.ts
-import type { MyMeetingItem } from "../types";
-import type { MeetingPost } from "@/features/meetings/model/meeting.types";
+import type { MyMeetingItem } from "../model/types";
+import type { MeetingPost } from "@/features/meetings/model/types";
 
 /**
  * ✅ MeetingPost -> MyMeetingItem

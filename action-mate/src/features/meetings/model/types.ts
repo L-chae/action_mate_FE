@@ -1,16 +1,11 @@
-// ✅ UI의 CategoryChips와 키값 일치
+// --- ENUMS & KEYS ---
 export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
-
-// ✅ [추가됨] 홈 화면 정렬 옵션 (meetingService.ts에서 이동)
 export type HomeSort = "LATEST" | "NEAR" | "SOON";
-
 export type JoinMode = "INSTANT" | "APPROVAL";
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
-
-// "JOINED" -> "MEMBER"로 변경, "HOST" 추가
 export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED";
 
-// 호스트 정보
+// --- SUB TYPES ---
 export type HostSummary = {
   id: string;
   nickname: string;
@@ -20,49 +15,81 @@ export type HostSummary = {
   intro?: string;
 };
 
-// 내 참여 상태
 export type MyState = {
   membershipStatus: MembershipStatus;
   canJoin: boolean;
   reason?: string;
 };
 
+// --- MAIN ENTITY ---
 export type MeetingPost = {
   id: string;
   category: CategoryKey;
   title: string;
-  
-  // 본문 내용
   content?: string; 
 
-  // --- 🕒 시간 관련 ---
+  // Time
   meetingTimeText: string;
-  meetingTime?: string;
+  meetingTime?: string; // ISO String
   durationHours?: number;
   durationMinutes?: number;
 
-  // --- 📍 위치 관련 ---
+  // Location
   locationText: string;
   locationLat?: number;
   locationLng?: number;
   distanceText?: string;
 
-  // --- 👥 인원 ---
+  // Capacity
   capacityJoined: number;
   capacityTotal: number;
 
-  // --- ⚙️ 설정 ---
+  // Settings
   joinMode: JoinMode;
   conditions?: string;
   status: PostStatus;
-
-  // --- 📝 기타 ---
-  memoUpdatedAtText?: string;
+  
+  // Meta
   items?: string;
-
-  // --- 🔗 관계 데이터 ---
   host?: HostSummary;
   myState?: MyState; 
+};
+
+// --- API DTOs (Request/Response Types) ---
+
+// 모임 생성/수정 Params
+export type MeetingParams = {
+  title: string;
+  category: CategoryKey;
+  meetingTimeText: string;
+  meetingTimeIso?: string;
+  locationText: string;
+  locationLat?: number;
+  locationLng?: number;
+  capacityTotal: number;
+  content: string;
+  joinMode: JoinMode;
+  conditions?: string;
+  durationMinutes: number;
+  items?: string;
+};
+
+// 지도/주변 조회 옵션
+export type AroundMeetingsOptions = {
+  radiusKm?: number;
+  category?: CategoryKey | "ALL";
+  sort?: HomeSort;
+};
+
+// 홈 핫딜 카드 아이템
+export type HotMeetingItem = {
+  id: string;
+  meetingId: string;
+  badge: string;
+  title: string;
+  place: string;
+  capacityJoined: number;
+  capacityTotal: number;
 };
 
 export type Comment = {

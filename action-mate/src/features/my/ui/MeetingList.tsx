@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { Card } from "@/shared/ui/Card";
 import EmptyView from "@/shared/ui/EmptyView";
-import type { MyMeetingItem } from "../model/my.types";
+import type { MyMeetingItem } from "../model/types";
 
 type Props = {
   items: MyMeetingItem[];

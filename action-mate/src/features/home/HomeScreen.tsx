@@ -1,4 +1,3 @@
-// HomeScreen.tsx
 import React, { useEffect, useState, useCallback } from "react";
 import {
   FlatList,
@@ -23,9 +22,10 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 import CategoryChips from "@/shared/ui/CategoryChips";
 import { MeetingCard } from "@/features/meetings/ui/MeetingCard";
-import { listHotMeetings, listMeetings } from "../meetings/api/meetingService";
-import type { CategoryKey, MeetingPost } from "../meetings/model/meeting.types";
-import type { HotMeetingItem } from "../meetings/api/meetingService";
+
+// ✅ [수정 1] 개별 함수 대신 API 객체 import
+import { meetingApi } from "@/features/meetings/api/meetingApi";
+import type { CategoryKey, MeetingPost, HotMeetingItem } from "@/features/meetings/model/types";
 
 export default function HomeScreen() {
   const t = useAppTheme();
@@ -37,11 +37,13 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (!isRefresh) setLoading(true);
     try {
+      // ✅ [수정 2] meetingApi 객체의 메서드 호출
       const [data, hot] = await Promise.all([
-        listMeetings(cat === "ALL" ? undefined : { category: cat }),
-        listHotMeetings({ limit: 8, withinMinutes: 180 }),
+        meetingApi.listMeetings(cat === "ALL" ? undefined : { category: cat }),
+        meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 }),
       ]);
       setItems(data);
       setHotItems(hot);
@@ -54,21 +56,18 @@ export default function HomeScreen() {
   }, [cat]);
 
   useEffect(() => {
-    setLoading(true);
     fetchData();
   }, [fetchData]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchData();
+    fetchData(true);
   };
 
   const isDark = t.mode === "dark";
-
-  // ✅ 다크모드에서 트랙/디바이더/스티키 그림자 안정화
   const dividerColor = t.colors.divider ?? t.colors.border;
-  const trackBg = t.colors.border; // neutral[200] 대신 border가 훨씬 안전
-  const stickyBg = t.colors.background; // 칩 영역은 배경과 동일
+  const trackBg = t.colors.border;
+  const stickyBg = t.colors.background;
 
   return (
     <AppLayout padded={false}>
@@ -120,7 +119,6 @@ export default function HomeScreen() {
             }}
             renderItem={({ item }) => {
               const progress = item.capacityJoined / item.capacityTotal;
-
               return (
                 <Card
                   onPress={() => router.push(`/meetings/${item.meetingId}`)}
@@ -128,12 +126,10 @@ export default function HomeScreen() {
                   padded
                 >
                   <Badge label={item.badge} tone="error" size="sm" style={{ marginBottom: 12 }} />
-
                   <View style={{ gap: 4, marginBottom: 16 }}>
                     <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
                       {item.title}
                     </Text>
-
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Ionicons name="location-outline" size={14} color={t.colors.textSub} />
                       <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
@@ -141,9 +137,7 @@ export default function HomeScreen() {
                       </Text>
                     </View>
                   </View>
-
                   <View style={{ flex: 1 }} />
-
                   <View>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
                       <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>참여 인원</Text>
@@ -151,17 +145,8 @@ export default function HomeScreen() {
                         {item.capacityJoined}/{item.capacityTotal}
                       </Text>
                     </View>
-
                     <View style={[styles.track, { backgroundColor: trackBg }]}>
-                      <View
-                        style={[
-                          styles.fill,
-                          {
-                            width: `${Math.round(progress * 100)}%`,
-                            backgroundColor: t.colors.primary,
-                          },
-                        ]}
-                      />
+                      <View style={[styles.fill, { width: `${Math.round(progress * 100)}%`, backgroundColor: t.colors.primary }]} />
                     </View>
                   </View>
                 </Card>
@@ -171,28 +156,13 @@ export default function HomeScreen() {
         )}
 
         {/* 3) Sticky Header */}
-        <View
-          style={[
-            styles.stickyHeader,
-            {
-              backgroundColor: stickyBg,
-              borderBottomColor: dividerColor,
-              // ✅ 다크에서 검정 그림자(#000) 고정 제거
-              ...(Platform.OS === "ios"
-                ? {
-                    shadowColor: isDark ? "transparent" : "#000",
-                    shadowOpacity: isDark ? 0 : 0.03,
-                  }
-                : {}),
-            },
-          ]}
-        >
+        <View style={[styles.stickyHeader, { backgroundColor: stickyBg, borderBottomColor: dividerColor, ...(Platform.OS === "ios" ? { shadowColor: isDark ? "transparent" : "#000", shadowOpacity: isDark ? 0 : 0.03 } : {}) }]}>
           <CategoryChips value={cat} onChange={setCat} />
         </View>
 
         {/* 4) 메인 리스트 */}
         <View style={{ paddingHorizontal: t.spacing.pagePaddingH, minHeight: 300 }}>
-          {loading ? (
+          {loading && !refreshing ? (
             <View style={{ marginTop: 40 }}>
               <ActivityIndicator size="large" color={t.colors.primary} />
             </View>
@@ -219,28 +189,14 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  hotCard: {
-    width: 150,
-    height: 180,
-    marginRight: 12,
-  },
-  track: {
-    height: 6,
-    borderRadius: 99,
-    overflow: "hidden",
-  },
-  fill: {
-    height: "100%",
-    borderRadius: 99,
-  },
+  hotCard: { width: 150, height: 180, marginRight: 12 },
+  track: { height: 6, borderRadius: 99, overflow: "hidden" },
+  fill: { height: "100%", borderRadius: 99 },
   stickyHeader: {
     paddingVertical: 0,
     borderBottomWidth: 1,
     // iOS
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 1,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 1,
     // Android
     elevation: 1,
   },
