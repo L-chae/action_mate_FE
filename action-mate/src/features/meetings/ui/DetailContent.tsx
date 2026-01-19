@@ -22,6 +22,7 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import type { MeetingPost, Comment } from "@/features/meetings/model/types";
 import { getMeetingStatusTokens } from "@/features/meetings/model/constants";
 import { meetingTimeTextFromIso } from "@/features/meetings/utils/timeText";
+
 // -------------------------------------------------------------------------
 // Helper Functions
 // -------------------------------------------------------------------------
@@ -65,6 +66,15 @@ function toneColor(t: Theme, tone?: string) {
     default:
       return t.colors.textSub;
   }
+}
+
+function getDurationLabel(mins?: number | null) {
+  if (!mins || mins <= 0) return "소요 시간 미정";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h > 0 && m > 0) return `${h}시간 ${m}분`;
+  if (h > 0) return `${h}시간`;
+  return `${m}분`;
 }
 
 // -------------------------------------------------------------------------
@@ -115,15 +125,6 @@ function MetaLine({
   );
 }
 
-function getDurationLabel(mins?: number | null) {
-  if (!mins || mins <= 0) return "소요 시간 미정";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h > 0 && m > 0) return `${h}시간 ${m}분`;
-  if (h > 0) return `${h}시간`;
-  return `${m}분`;
-}
-
 // -------------------------------------------------------------------------
 // Main Component
 // -------------------------------------------------------------------------
@@ -133,7 +134,6 @@ type DetailContentProps = {
   comments: Comment[];
   currentUserId: string;
 
-  // ✅ [추가] MeetingDetailScreen에서 내려주는 상단 삽입 컴포넌트
   headerComponent?: ReactNode;
 
   scrollViewRef: React.RefObject<ScrollView | null>;
@@ -165,21 +165,16 @@ export function DetailContent({
   post,
   comments,
   currentUserId,
-
-  headerComponent, // ✅ [추가]
-
+  headerComponent,
   scrollViewRef,
   bottomPadding,
-
   onPressHostProfile,
   onReply,
   onEditComment,
   onDeleteComment,
-
   onContentHeightChange,
   onScrollViewHeightChange,
   onScroll,
-
   commentText,
   setCommentText,
   inputRef,
@@ -189,7 +184,6 @@ export function DetailContent({
   onSubmitComment,
   onFocusComposer,
 }: DetailContentProps) {
-  const hasLocation = !!(post.locationLat && post.locationLng);
   const isDark = t.mode === "dark";
 
   // ✅ 공용 색상 토큰
@@ -218,10 +212,19 @@ export function DetailContent({
   const metaToken = meta[0];
   const rightToken = right[0];
 
+  // ✅ 시간 라벨: meetingTime(ISO) 기준으로 생성
   const timeLabel = useMemo(() => {
-    const iso = post.meetingTime || (post as any).meetingTimeIso; // 프로젝트에 맞게 하나로 통일 추천
-    return iso ? meetingTimeTextFromIso(iso) : (post.meetingTimeText ?? "");
-  }, [post.meetingTime, post.meetingTimeText]);
+    const iso = post.meetingTime || (post as any).meetingTimeIso;
+    return iso ? meetingTimeTextFromIso(iso) : "";
+  }, [post.meetingTime]);
+
+  // ✅ 지도 좌표: 무조건 number로 안전 변환 (문자열/undefined/NaN 방어)
+  const map = useMemo(() => {
+    const lat = Number((post as any).locationLat);
+    const lng = Number((post as any).locationLng);
+    const ok = Number.isFinite(lat) && Number.isFinite(lng);
+    return { lat, lng, ok };
+  }, [post]);
 
   return (
     <ScrollView
@@ -233,9 +236,6 @@ export function DetailContent({
       onScroll={onScroll}
       scrollEventThrottle={16}
     >
-      {/* ✅ [추가] host 전용 상단 섹션 삽입 (예: ManageApplicants)
-          - 위치는 "지도 위"로 넣고 싶으면 이 블록을 mapContainer 위로 옮기면 됩니다.
-          - 현재는 UX 상 "지도 아래, 본문 시작 전에" 배치 */}
       {headerComponent ? (
         <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingTop: 12 }}>
           {headerComponent}
@@ -244,18 +244,17 @@ export function DetailContent({
 
       {/* 1. 지도 영역 */}
       <View style={[styles.mapContainer, { backgroundColor: subtleBg2 }]}>
-        {hasLocation ? (
+        {map.ok ? (
           <View style={{ flex: 1 }} pointerEvents="none">
             <MapView
               provider={PROVIDER_GOOGLE}
               style={StyleSheet.absoluteFill}
               region={{
-                latitude: post.locationLat!,
-                longitude: post.locationLng!,
+                latitude: map.lat,
+                longitude: map.lng,
                 latitudeDelta: 0.003,
                 longitudeDelta: 0.003,
               }}
-              liteMode
               scrollEnabled={false}
               zoomEnabled={false}
             />
@@ -279,11 +278,7 @@ export function DetailContent({
           onPress={onPressHostProfile}
           style={({ pressed }) => [
             styles.hostRow,
-            {
-              backgroundColor: surface,
-              borderColor: border,
-              opacity: pressed ? 0.86 : 1,
-            },
+            { backgroundColor: surface, borderColor: border, opacity: pressed ? 0.86 : 1 },
           ]}
         >
           <View style={[styles.hostAvatar, { backgroundColor: subtleBg }]}>
@@ -296,7 +291,9 @@ export function DetailContent({
 
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>{post.host?.nickname}</Text>
+              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>
+                {post.host?.nickname}
+              </Text>
               <View style={[styles.hostBadge, { backgroundColor: hostPillBg }]}>
                 <Text style={[styles.hostBadgeText, { color: hostPillFg }]}>HOST</Text>
               </View>
@@ -306,6 +303,7 @@ export function DetailContent({
               매너 {post.host?.mannerTemp}°C
             </Text>
           </View>
+
           <Ionicons name="chevron-forward" size={20} color={mutedIcon} />
         </Pressable>
 
@@ -313,14 +311,8 @@ export function DetailContent({
         <View style={styles.headerSection}>
           <View style={styles.headerMetaRow}>
             <Badge label={post.category} tone="neutral" />
-
-            {metaToken && (
-              <MetaLine t={t} iconName={metaToken.iconName} label={metaToken.label} tone={metaToken.tone} />
-            )}
-
-            {rightToken && (
-              <MetaLine t={t} iconName={rightToken.iconName} label={rightToken.label} tone={rightToken.tone} />
-            )}
+            {metaToken ? <MetaLine t={t} iconName={metaToken.iconName} label={metaToken.label} tone={metaToken.tone} /> : null}
+            {rightToken ? <MetaLine t={t} iconName={rightToken.iconName} label={rightToken.label} tone={rightToken.tone} /> : null}
           </View>
 
           <Text style={[t.typography.headlineMedium, { marginTop: 12, color: t.colors.textMain }]}>
@@ -332,12 +324,11 @@ export function DetailContent({
         <View style={[styles.infoBox, { backgroundColor: surface, borderColor: border }]}>
           <InfoRow
             icon="time-outline"
-            text={timeLabel}
+            text={timeLabel || "시간 정보 없음"}
             subText={`약 ${getDurationLabel(post.durationMinutes)} 예정`}
             t={t}
             iconColor={iconMain}
           />
-
           <View style={[styles.divider, { backgroundColor: dividerColor }]} />
 
           <InfoRow
@@ -358,23 +349,18 @@ export function DetailContent({
           />
         </View>
 
-        {/* ✅ 5. 승인 조건 표시 */}
-        {post.joinMode === "APPROVAL" && (
+        {/* 5. 승인 조건 표시 */}
+        {post.joinMode === "APPROVAL" ? (
           <View style={[styles.conditionBox, { backgroundColor: conditionBg, borderColor: "transparent" }]}>
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={18}
-                color={conditionText}
-                style={{ marginRight: 6 }}
-              />
+              <Ionicons name="checkmark-circle-outline" size={18} color={conditionText} style={{ marginRight: 6 }} />
               <Text style={[t.typography.labelLarge, { color: conditionText }]}>참여 승인 조건</Text>
             </View>
             <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
               {post.conditions || "호스트가 설정한 별도의 조건이 없습니다. 편하게 신청해주세요!"}
             </Text>
           </View>
-        )}
+        ) : null}
 
         {/* 6. 호스트의 한마디 */}
         <View style={styles.section}>
@@ -432,14 +418,14 @@ export function DetailContent({
                           </Text>
                         </View>
 
-                        {isReply && (
+                        {isReply ? (
                           <View style={[styles.replyMeta, { backgroundColor: subtleBg }]}>
                             <Ionicons name="return-down-forward" size={14} color={t.colors.textSub} />
                             <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                               {reply!.nickname}님에게 답글
                             </Text>
                           </View>
-                        )}
+                        ) : null}
 
                         <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 6 }]}>
                           {isReply ? reply!.body : item.content}
@@ -450,7 +436,7 @@ export function DetailContent({
                             <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>답글</Text>
                           </Pressable>
 
-                          {item.authorId === currentUserId && (
+                          {item.authorId === currentUserId ? (
                             <>
                               <Pressable onPress={() => onEditComment(item)} hitSlop={8}>
                                 <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>수정</Text>
@@ -459,7 +445,7 @@ export function DetailContent({
                                 <Text style={[t.typography.labelSmall, { color: t.colors.error }]}>삭제</Text>
                               </Pressable>
                             </>
-                          )}
+                          ) : null}
                         </View>
                       </View>
                     </View>
@@ -471,14 +457,10 @@ export function DetailContent({
 
           {/* 댓글 입력창 */}
           <View style={[styles.composerWrap, { borderColor: border, backgroundColor: surface }]}>
-            {(replyTarget || editingComment) && (
+            {(replyTarget || editingComment) ? (
               <View style={[styles.composerStatus, { backgroundColor: subtleBg, borderColor: border }]}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Ionicons
-                    name={replyTarget ? "return-down-forward" : "pencil"}
-                    size={16}
-                    color={t.colors.textSub}
-                  />
+                  <Ionicons name={replyTarget ? "return-down-forward" : "pencil"} size={16} color={t.colors.textSub} />
                   <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                     {replyTarget ? `${replyTarget.authorNickname}님에게 답글 작성 중` : "댓글 수정 중"}
                   </Text>
@@ -488,7 +470,7 @@ export function DetailContent({
                   <Ionicons name="close" size={16} color={t.colors.textSub} />
                 </Pressable>
               </View>
-            )}
+            ) : null}
 
             <View style={styles.composerRow}>
               <TextInput
@@ -532,14 +514,20 @@ export function DetailContent({
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 
-  mapContainer: {
-    height: 200,
-    width: "100%",
-    overflow: "hidden",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  centerPin: { position: "absolute", left: "50%", top: "50%", marginLeft: -16, marginTop: -32 },
+mapContainer: {
+  position: "relative",
+  height: 200,
+  width: "100%",
+  overflow: "hidden",
+}
+,
+centerPin: {
+  position: "absolute",
+  left: "50%",
+  top: "50%",
+  transform: [{ translateX: -16 }, { translateY: -32 }],
+},
+
 
   hostRow: {
     flexDirection: "row",
@@ -571,7 +559,6 @@ const styles = StyleSheet.create({
   infoTextCtx: { marginLeft: 14, gap: 2 },
   divider: { height: 1, marginVertical: 16, marginLeft: 34 },
 
-  // ✅ 승인 조건 스타일
   conditionBox: {
     padding: 16,
     borderRadius: 12,
