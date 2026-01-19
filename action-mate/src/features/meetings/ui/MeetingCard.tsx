@@ -8,6 +8,7 @@ import { Badge } from "@/shared/ui/Badge";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
 import type { MeetingPost } from "@/features/meetings/model/types";
+import { meetingTimeTextFromIso } from "@/features/meetings/utils/timeText";
 
 type Pill = { bg: string; fg: string };
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -54,6 +55,13 @@ function statusLabel(s: MeetingPost["status"]) {
 export function MeetingCard({ item }: { item: MeetingPost }) {
   const t = useAppTheme();
   const router = useRouter();
+  // ✅ 추가: timeLabel을 ISO 기반으로 계산
+  const timeLabel = useMemo(() => {
+    if (item.meetingTime) return meetingTimeTextFromIso(item.meetingTime);
+    const legacyIso = (item as any).meetingTimeIso;
+    if (legacyIso) return meetingTimeTextFromIso(legacyIso);
+    return item.meetingTimeText ?? "";
+  }, [item.meetingTime, item.meetingTimeText]);
 
   const myStatus = item.myState?.membershipStatus;
   const isHost = myStatus === "HOST";
@@ -205,7 +213,8 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
         <View style={[styles.pill, { backgroundColor: timePill.bg }]}>
           <Ionicons name="time-outline" size={14} color={timePill.fg} style={{ marginRight: 4 }} />
           <Text style={[t.typography.labelMedium, { color: timePill.fg }]} numberOfLines={1}>
-            {item.meetingTimeText}
+            {/* ✅ 교체 */}
+            {timeLabel}
           </Text>
         </View>
       </View>

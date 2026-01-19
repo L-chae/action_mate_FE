@@ -17,6 +17,8 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";//“화면 포커스될 때마다 재조회”
+
 
 // ✅ Shared UI & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
@@ -168,9 +170,12 @@ export default function MeetingDetailScreen() {
     }
   }, [meetingId]);
 
-  useEffect(() => {
+useFocusEffect(
+  useCallback(() => {
+    // 포커스될 때마다 최신 데이터로 동기화
     loadInitialData();
-  }, [loadInitialData]);
+  }, [loadInitialData])
+);
 
   // --- 6. Handlers ---
   const handleCancelInputMode = () => {

@@ -29,7 +29,7 @@ export type MeetingPost = {
   content?: string; 
 
   // Time
-  meetingTimeText: string;
+  meetingTimeText?: string;
   meetingTime?: string; // ISO String
   durationHours?: number;
   durationMinutes?: number;
@@ -61,7 +61,7 @@ export type MeetingPost = {
 export type MeetingParams = {
   title: string;
   category: CategoryKey;
-  meetingTimeText: string;
+  meetingTimeText?: string;
   meetingTimeIso: string;
   locationText: string;
   locationLat?: number;

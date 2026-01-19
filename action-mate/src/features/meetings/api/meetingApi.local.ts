@@ -132,40 +132,44 @@ export const meetingApiLocal: MeetingApi = {
     return { ...found };
   },
 
-  async createMeeting(data) {
-    await delay(800);
-    const newId = Date.now().toString();
-    const timeIso = data.meetingTimeIso || new Date().toISOString();
+async createMeeting(data) {
+  await delay(800);
+  const newId = Date.now().toString();
+  const timeIso = data.meetingTimeIso || new Date().toISOString();
 
-    const newPost: MeetingPost = {
-      ...data,
-      id: newId,
-      status: "OPEN",
-      capacityJoined: 1,
-      distanceText: "0km",
-      meetingTime: timeIso, 
-      durationHours: data.durationMinutes ? Math.floor(data.durationMinutes / 60) : 1, 
-      myState: { membershipStatus: "HOST", canJoin: false },
-      host: { id: "me", nickname: "나(Host)", mannerTemp: 36.5, kudosCount: 0, intro: "안녕하세요!" },
-    };
-    
-    _DATA.unshift(newPost);
-    return newPost;
-  },
+  const newPost: MeetingPost = {
+    ...data,
+    id: newId,
+    status: "OPEN",
+    capacityJoined: 1,
+    distanceText: "0km",
+    meetingTime: timeIso,
+    // ✅ durationMinutes는 그대로 들어가게 둠 (MeetingParams에서 넘어옴)
+    // durationHours ❌ 제거
+    myState: { membershipStatus: "HOST", canJoin: false },
+    host: { id: "me", nickname: "나(Host)", mannerTemp: 36.5, kudosCount: 0, intro: "안녕하세요!" },
+  };
 
-  async updateMeeting(id, data) {
-    await delay(800);
-    const idx = _DATA.findIndex((m) => m.id === id);
-    if (idx === -1) throw new Error("Meeting not found");
+  _DATA.unshift(newPost);
+  return newPost;
+},
 
-    _DATA[idx] = {
-      ..._DATA[idx],
-      ...data,
-      meetingTime: data.meetingTimeIso ?? _DATA[idx].meetingTime,
-    };
-    return { ..._DATA[idx] };
-  },
+ async updateMeeting(id, data) {
+  await delay(800);
+  const idx = _DATA.findIndex((m) => m.id === id);
+  if (idx === -1) throw new Error("Meeting not found");
 
+  const prev = _DATA[idx];
+
+  _DATA[idx] = {
+    ...prev,
+    ...data,
+    meetingTime: data.meetingTimeIso ?? prev.meetingTime,
+    durationMinutes: data.durationMinutes ?? prev.durationMinutes, 
+  };
+
+  return { ..._DATA[idx] };
+},
   async joinMeeting(id) {
     await delay();
     const idx = _DATA.findIndex((m) => m.id === id);

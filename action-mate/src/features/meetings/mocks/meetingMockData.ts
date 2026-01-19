@@ -1,10 +1,10 @@
-// features/meetings/meetingMockData.ts
+// features/meetings/mocks/meetingMockData.ts
 import type { HostSummary, MeetingPost } from "../model/types";
 
 /**
- * ✅ 목업 원본만 담당하는 파일
- * - 서비스 로직과 분리(응집/유지보수)
- * - 실서비스처럼 보이도록: 지역/카테고리/시간/상태/승인모드 다양화
+ * ✅ 목업 원본만 담당
+ * ✅ durationMinutes(정식 필드)로 통일
+ * - 기존 durationHours 제거/미사용
  */
 
 // ✅ Mock Hosts
@@ -55,7 +55,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     kudosCount: 1,
     intro: "퇴근 후 가볍게 이야기 나눠요.",
   },
-    me: {
+  me: {
     id: "me",
     nickname: "나(호스트)",
     mannerTemp: 36.8,
@@ -63,7 +63,6 @@ export const HOST_USERS: Record<string, HostSummary> = {
     intro: "내가 만든 모임이에요 🙂",
     avatarUrl: "https://i.pravatar.cc/150?u=me",
   },
-
 };
 
 // ✅ 시간 헬퍼 (실서비스처럼 ISO 생성)
@@ -76,14 +75,15 @@ const d = (daysFromNow: number, hour = 12, minute = 0) => {
   return base.toISOString();
 };
 
-// ✅ 목업 모임 원본
+// ✅ durationMinutes 헬퍼 (타입 통일용)
+const mins = (m: number) => m;
+
+// ✅ 목업 모임 원본 (meetingTimeText 제거)
 export const MOCK_MEETINGS_SEED: MeetingPost[] = [
-  // --- 강남/서초 ---
   {
     id: "101",
     category: "SPORTS",
     title: "🏸 배드민턴 2게임만 (초보 환영)",
-    meetingTimeText: "오늘 19:00",
     meetingTime: h(2),
     distanceText: "0.6km",
     locationText: "잠원지구 3주차장",
@@ -95,15 +95,14 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "라켓 여분 있어요! 몸만 오세요.",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 2,
+    durationMinutes: mins(120),
     host: HOST_USERS.user1,
   },
   {
     id: "102",
     category: "MEAL",
     title: "🍔 강남 버거 같이 먹을 분",
-    meetingTimeText: "오늘 12:30",
-    meetingTime: h(1), // 임박(핫에 노출되기 좋게)
+    meetingTime: h(1),
     distanceText: "1.1km",
     locationText: "강남역 근처 버거집",
     locationLat: 37.4981,
@@ -114,14 +113,13 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "가볍게 점심!",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 1,
+    durationMinutes: mins(60),
     host: HOST_USERS.user4,
   },
   {
     id: "103",
     category: "STUDY",
     title: "📚 모각코 (조용히 각자)",
-    meetingTimeText: "내일 14:00",
     meetingTime: d(1, 14, 0),
     distanceText: "0.9km",
     locationText: "스타벅스 강남R점",
@@ -134,16 +132,14 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "룰: 서로 말 걸기 X, 필요 시 채팅으로.",
     myState: { membershipStatus: "PENDING", canJoin: false, reason: "승인 대기중" },
-    durationHours: 3,
+    durationMinutes: mins(180),
     host: HOST_USERS.user5,
   },
 
-  // --- 성수/홍대 ---
   {
     id: "104",
     category: "GAMES",
     title: "🎲 보드게임 가볍게 한 판",
-    meetingTimeText: "내일 15:00",
     meetingTime: d(1, 15, 0),
     distanceText: "2.0km",
     locationText: "성수 보드게임 카페",
@@ -156,15 +152,14 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "전략/파티게임 섞어서 해요!",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 3,
+    durationMinutes: mins(180),
     host: HOST_USERS.user2,
   },
   {
     id: "105",
     category: "MEAL",
     title: "🍜 홍대 라멘 번개",
-    meetingTimeText: "오늘 20:30",
-    meetingTime: h(3), // 임박(핫)
+    meetingTime: h(3),
     distanceText: "1.2km",
     locationText: "홍대 라멘집",
     locationLat: 37.5558,
@@ -175,17 +170,15 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "FULL",
     content: "맛집이라 웨이팅 있을 수 있어요.",
     myState: { membershipStatus: "NONE", canJoin: false, reason: "정원마감" },
-    durationHours: 1.5,
+    durationMinutes: mins(90),
     host: HOST_USERS.user4,
   },
 
-  // --- 한강/반포 ---
   {
     id: "106",
     category: "SPORTS",
     title: "🏃 한강 러닝 5km (600~630)",
-    meetingTimeText: "오늘 21:00",
-    meetingTime: h(4), // 임박(핫)
+    meetingTime: h(4),
     distanceText: "2.4km",
     locationText: "반포 나들목",
     locationLat: 37.509,
@@ -196,16 +189,14 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "가볍게 뛰고 스트레칭까지!",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 1,
+    durationMinutes: mins(60),
     host: HOST_USERS.user3,
   },
 
-  // --- 분당/판교 ---
   {
     id: "107",
     category: "STUDY",
     title: "🧑‍💻 판교 카페 사이드프로젝트",
-    meetingTimeText: "이번 주말 13:00",
     meetingTime: d(2, 13, 0),
     distanceText: "0.8km",
     locationText: "판교역 근처 카페",
@@ -218,16 +209,14 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "각자 할 일 하고 30분마다 공유해요.",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 4,
+    durationMinutes: mins(240),
     host: HOST_USERS.user5,
   },
 
-  // --- 수원/광교 ---
   {
     id: "108",
     category: "GAMES",
     title: "🎮 광교에서 마리오카트",
-    meetingTimeText: "내일 19:30",
     meetingTime: d(1, 19, 30),
     distanceText: "1.5km",
     locationText: "광교 카페",
@@ -239,17 +228,15 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "2명 더 오면 토너먼트!",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 2,
+    durationMinutes: mins(120),
     host: HOST_USERS.user2,
   },
 
-  // --- 동탄 ---
   {
     id: "109",
     category: "SPORTS",
     title: "🏃‍♂️ 동탄 센트럴파크 야간 러닝",
-    meetingTimeText: "오늘 20:00",
-    meetingTime: h(2.5), // 임박(핫)
+    meetingTime: h(2.5),
     distanceText: "100m",
     locationText: "동탄 센트럴파크",
     locationLat: 37.2005,
@@ -260,14 +247,13 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "페이스 630~700, 초보 환영!",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 1.2,
+    durationMinutes: mins(72),
     host: HOST_USERS.user3,
   },
   {
     id: "110",
     category: "MEAL",
     title: "🍝 동탄 타임테라스 파스타",
-    meetingTimeText: "내일 12:30",
     meetingTime: d(1, 12, 30),
     distanceText: "500m",
     locationText: "동탄 타임테라스",
@@ -280,16 +266,14 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "메뉴 미리 보고 오면 좋아요.",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 1.5,
+    durationMinutes: mins(90),
     host: HOST_USERS.user6,
   },
 
-  // --- 인천/송도 ---
   {
     id: "111",
     category: "STUDY",
     title: "📖 송도 영어회화 스터디",
-    meetingTimeText: "이번 주말 10:00",
     meetingTime: d(3, 10, 0),
     distanceText: "1.0km",
     locationText: "송도 센트럴파크 근처",
@@ -302,16 +286,15 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "주제: 여행/일상. 난이도: 초중급",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationHours: 2,
+    durationMinutes: mins(120),
     host: HOST_USERS.user1,
   },
-    // --- 내가 작성한 모임(호스트=me) ---
+
   {
     id: "201",
     category: "MEAL",
     title: "✍️ 강남역 점심 김치찌개 같이 먹어요",
-    meetingTimeText: "오늘 12:10",
-    meetingTime: h(0.8), // 약 48분 후 (핫 리스트에도 잘 잡힘)
+    meetingTime: h(0.8),
     distanceText: "0.3km",
     locationText: "강남역 11번 출구 근처",
     locationLat: 37.4986,
@@ -322,14 +305,13 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "혼밥 싫어서 만들었어요. 40분 정도만 가볍게!",
     myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" },
-    durationHours: 1,
+    durationMinutes: mins(40),
     host: HOST_USERS.me,
   },
   {
     id: "202",
     category: "STUDY",
     title: "✍️ 저녁 모각코 2시간 (초집중)",
-    meetingTimeText: "내일 20:00",
     meetingTime: d(1, 20, 0),
     distanceText: "0.7km",
     locationText: "서초 카페 (조용한 곳)",
@@ -342,8 +324,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     status: "OPEN",
     content: "각자 할 일 하고 마지막 10분만 공유해요.",
     myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" },
-    durationHours: 2,
+    durationMinutes: mins(120),
     host: HOST_USERS.me,
   },
-
 ];

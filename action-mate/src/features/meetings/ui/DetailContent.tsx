@@ -21,7 +21,7 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 // ✅ Model & Constants
 import type { MeetingPost, Comment } from "@/features/meetings/model/types";
 import { getMeetingStatusTokens } from "@/features/meetings/model/constants";
-
+import { meetingTimeTextFromIso } from "@/features/meetings/utils/timeText";
 // -------------------------------------------------------------------------
 // Helper Functions
 // -------------------------------------------------------------------------
@@ -113,6 +113,15 @@ function MetaLine({
       <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{label}</Text>
     </View>
   );
+}
+
+function getDurationLabel(mins?: number | null) {
+  if (!mins || mins <= 0) return "소요 시간 미정";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h > 0 && m > 0) return `${h}시간 ${m}분`;
+  if (h > 0) return `${h}시간`;
+  return `${m}분`;
 }
 
 // -------------------------------------------------------------------------
@@ -208,6 +217,11 @@ export function DetailContent({
   const { meta, right } = useMemo(() => getMeetingStatusTokens(post), [post]);
   const metaToken = meta[0];
   const rightToken = right[0];
+
+  const timeLabel = useMemo(() => {
+    const iso = post.meetingTime || (post as any).meetingTimeIso; // 프로젝트에 맞게 하나로 통일 추천
+    return iso ? meetingTimeTextFromIso(iso) : (post.meetingTimeText ?? "");
+  }, [post.meetingTime, post.meetingTimeText]);
 
   return (
     <ScrollView
@@ -318,11 +332,12 @@ export function DetailContent({
         <View style={[styles.infoBox, { backgroundColor: surface, borderColor: border }]}>
           <InfoRow
             icon="time-outline"
-            text={post.meetingTimeText}
-            subText={`약 ${post.durationHours}시간 예정`}
+            text={timeLabel}
+            subText={`약 ${getDurationLabel(post.durationMinutes)} 예정`}
             t={t}
             iconColor={iconMain}
           />
+
           <View style={[styles.divider, { backgroundColor: dividerColor }]} />
 
           <InfoRow
