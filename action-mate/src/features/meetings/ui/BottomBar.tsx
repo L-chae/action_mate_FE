@@ -1,27 +1,14 @@
 import React, { useEffect, useRef } from "react";
 import { Keyboard, StyleSheet, View } from "react-native";
 import { Button } from "@/shared/ui/Button";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-export function BottomBar({
-  t,
-  insetsBottom,
-  isKeyboardVisible,
-
-  membership, // "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED"
-  canJoin,
-  joinDisabledReason,
-
-  onJoin,
-  onCancelJoin,
-  onEnterChat,
-
-  onLayoutHeight,
-}: {
-  t: any;
+type Props = {
+  t: ReturnType<typeof useAppTheme>;
   insetsBottom: number;
   isKeyboardVisible: boolean;
 
-  membership: string;
+  membership: string; // "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED"
   canJoin: boolean;
   joinDisabledReason?: string;
 
@@ -30,7 +17,24 @@ export function BottomBar({
   onEnterChat: () => void;
 
   onLayoutHeight: (h: number) => void;
-}) {
+};
+
+export function BottomBar({
+  t,
+  insetsBottom,
+  isKeyboardVisible,
+
+  membership,
+  canJoin,
+  joinDisabledReason,
+
+  onJoin,
+  onCancelJoin,
+  onEnterChat,
+
+  onLayoutHeight,
+}: Props) {
+  // 키보드가 올라와 있으면 하단 버튼 바를 숨김 (댓글 입력창 확보)
   const hidden = isKeyboardVisible;
   const lastMeasuredHeightRef = useRef(0);
 
@@ -40,23 +44,20 @@ export function BottomBar({
     } else {
       onLayoutHeight(lastMeasuredHeightRef.current);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hidden]);
+  }, [hidden, onLayoutHeight]);
 
   const renderButtons = () => {
     // 1. 승인 대기 중 (PENDING)
     if (membership === "PENDING") {
       return (
         <Button
-          title="승인 대기 (요청 취소)"
+          title="승인 대기 중 (요청 취소)"
           variant="secondary"
-          // ✅ 오류 수정: textStyle 제거
-          // variant="secondary"가 적용되면 보통 검은 글씨가 나옵니다.
-          // 배경색만 회색으로 덮어씌워서 눈에 띄게 만듭니다.
-          style={{ 
-            backgroundColor: t.colors.neutral[200] ?? "#E5E7EB", 
+          style={{
+            backgroundColor: t.colors.neutral[200],
             borderColor: "transparent",
           }}
+          // secondary variant는 보통 텍스트가 검정색이므로 별도 color 설정 불필요
           size="lg"
           onPress={onCancelJoin}
         />
@@ -71,7 +72,7 @@ export function BottomBar({
             <Button
               title="참여 취소"
               variant="secondary"
-              style={{ flex: 1 }}
+              style={{ flex: 1, borderColor: t.colors.neutral[300] }}
               onPress={onCancelJoin}
             />
           )}
@@ -84,14 +85,14 @@ export function BottomBar({
       );
     }
 
-    // 3. 미참여
+    // 3. 미참여 (NONE / CANCELED)
     return (
       <Button
         title={canJoin ? "참여하기" : joinDisabledReason || "참여 불가"}
         disabled={!canJoin}
         size="lg"
         onPress={() => {
-          Keyboard.dismiss();
+          Keyboard.dismiss(); // 참여 버튼 누를 때 키보드 내림
           onJoin();
         }}
       />
@@ -104,16 +105,18 @@ export function BottomBar({
       onLayout={(e) => {
         const h = e.nativeEvent.layout.height;
         if (h > 0) lastMeasuredHeightRef.current = h;
-        onLayoutHeight(hidden ? 0 : h);
+        // 현재 숨김 상태가 아닐 때만 높이 업데이트
+        if (!hidden) onLayoutHeight(h);
       }}
       style={[
         styles.wrap,
         {
           backgroundColor: t.colors.surface,
           borderTopColor: t.colors.neutral[200],
+          // 숨김 처리 시 높이 0, 패딩 0
           height: hidden ? 0 : undefined,
           paddingBottom: hidden ? 0 : 12 + insetsBottom,
-          paddingTop: hidden ? 0 : 8,
+          paddingTop: hidden ? 0 : 12,
           overflow: "hidden",
           opacity: hidden ? 0 : 1,
         },
@@ -129,5 +132,6 @@ const styles = StyleSheet.create({
   wrap: {
     borderTopWidth: 1,
     paddingHorizontal: 16,
+    width: "100%",
   },
 });

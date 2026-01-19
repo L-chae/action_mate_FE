@@ -1,5 +1,19 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, TextInput, findNodeHandle } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  findNodeHandle,
+} from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,13 +22,14 @@ import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-// ✅ API 연결
+// ✅ API & Types
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, Comment } from "@/features/meetings/model/types";
 
+// ✅ UI Components
 import { ProfileModal } from "@/features/meetings/ui/ProfileModal";
-import { DetailContent } from "./ui/DetailContent"; 
-import { BottomBar } from "./ui/BottomBar";         
+import { DetailContent } from "./ui/DetailContent";
+import { BottomBar } from "./ui/BottomBar";
 
 import { useKeyboardAwareScroll } from "./hooks/useKeyboardAwareScroll";
 
@@ -42,8 +57,12 @@ export default function MeetingDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [profileVisible, setProfileVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  
+  // Layout State
   const [bottomBarHeight, setBottomBarHeight] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  
+  // Comment State
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [replyTarget, setReplyTarget] = useState<Comment | null>(null);
@@ -62,7 +81,9 @@ export default function MeetingDetailScreen() {
     scrollToBottomSoon(true);
   });
 
+  // Layout Calculations
   const effectiveBottomBarHeight = isKeyboardVisible ? 0 : bottomBarHeight;
+  // Android에서 키보드가 올라왔을 때 ScrollView 하단에 패딩을 줘서 가려지지 않게 함
   const extraKeyboardPadding = Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0;
   const contentBottomPadding = effectiveBottomBarHeight + EXTRA_BOTTOM_PADDING + extraKeyboardPadding;
   const keyboardVerticalOffset = Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : TOPBAR_HEIGHT;
@@ -71,7 +92,7 @@ export default function MeetingDetailScreen() {
   const membership = post?.myState?.membershipStatus ?? "NONE";
   const canJoin = post?.myState?.canJoin ?? post?.status === "OPEN";
 
-  // Scroll Helpers
+  // --- Scroll Logic ---
   const scrollToBottomWithoutGap = (animated = true) => {
     const contentH = contentHeightRef.current;
     const viewH = scrollViewHeightRef.current;
@@ -101,14 +122,16 @@ export default function MeetingDetailScreen() {
     scrollToBottomSoon(true);
   };
 
-  // Effects
+  // --- Effects ---
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) => setKeyboardHeight(e.endCoordinates?.height ?? 0));
     const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
-  useEffect(() => { if (isKeyboardVisible) setBottomBarHeight(0); }, [isKeyboardVisible]);
+  useEffect(() => {
+    if (isKeyboardVisible) setBottomBarHeight(0);
+  }, [isKeyboardVisible]);
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;
@@ -134,7 +157,7 @@ export default function MeetingDetailScreen() {
     return () => { alive = false; };
   }, [meetingId]);
 
-  // Actions
+  // --- Actions ---
   const handleJoin = async () => {
     if (!post) return;
     try {

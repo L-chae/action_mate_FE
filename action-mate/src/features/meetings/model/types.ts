@@ -62,7 +62,7 @@ export type MeetingParams = {
   title: string;
   category: CategoryKey;
   meetingTimeText: string;
-  meetingTimeIso?: string;
+  meetingTimeIso: string;
   locationText: string;
   locationLat?: number;
   locationLng?: number;

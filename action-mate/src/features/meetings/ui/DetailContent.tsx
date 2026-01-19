@@ -12,13 +12,18 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import MapView, { PROVIDER_GOOGLE } from "react-native-maps";
 
+// ✅ Shared
 import { Badge } from "@/shared/ui/Badge";
 import { withAlpha } from "@/shared/theme/colors";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
+
+// ✅ Model & Constants
 import type { MeetingPost, Comment } from "@/features/meetings/model/types";
+import { getMeetingStatusTokens } from "@/features/meetings/model/constants";
 
-// ✅ 정책 단일 소스
-import { getMeetingStatusTokens } from "@/features/meetings/model/constants"; // 경로 맞게 조정
-
+// -------------------------------------------------------------------------
+// Helper Functions
+// -------------------------------------------------------------------------
 function timeAgo(iso: string) {
   const d = new Date(iso);
   const now = new Date();
@@ -39,26 +44,24 @@ function parseReplyPrefix(content: string) {
   return { nickname, body };
 }
 
-/** meetingStatus.ts의 tone을 theme color로 매핑 */
-function toneColor(t: any, tone?: string) {
+/** 테마 타입 정의 */
+type Theme = ReturnType<typeof useAppTheme>;
+
+function toneColor(t: Theme, tone?: string) {
   switch (tone) {
-    case "point":
-      return t.colors.point;
-    case "info":
-      return t.colors.info;
-    case "success":
-      return t.colors.success;
-    case "warning":
-      return t.colors.warning;
-    case "error":
-      return t.colors.error;
-    case "primary":
-      return t.colors.primary;
-    default:
-      return t.colors.textSub;
+    case "point": return t.colors.point;
+    case "info": return t.colors.info;
+    case "success": return t.colors.success;
+    case "warning": return t.colors.warning;
+    case "error": return t.colors.error;
+    case "primary": return t.colors.primary;
+    default: return t.colors.textSub;
   }
 }
 
+// -------------------------------------------------------------------------
+// Sub Components
+// -------------------------------------------------------------------------
 function InfoRow({
   icon,
   text,
@@ -69,7 +72,7 @@ function InfoRow({
   icon: keyof typeof Ionicons.glyphMap;
   text: string;
   subText: string;
-  t: any;
+  t: Theme;
   iconColor: string;
 }) {
   return (
@@ -89,7 +92,7 @@ function MetaLine({
   label,
   tone,
 }: {
-  t: any;
+  t: Theme;
   iconName?: keyof typeof Ionicons.glyphMap;
   label: string;
   tone?: string;
@@ -108,6 +111,39 @@ function MetaLine({
     </View>
   );
 }
+
+// -------------------------------------------------------------------------
+// Main Component
+// -------------------------------------------------------------------------
+type DetailContentProps = {
+  t: Theme;
+  post: MeetingPost;
+  comments: Comment[];
+  currentUserId: string;
+
+  scrollViewRef: React.RefObject<ScrollView | null>;
+  bottomPadding: number;
+
+  onPressHostProfile: () => void;
+  onReply: (c: Comment) => void;
+  onEditComment: (c: Comment) => void;
+  onDeleteComment: (id: string) => void;
+
+  onContentHeightChange: (h: number) => void;
+  onScrollViewHeightChange: (h: number) => void;
+  onScroll: (e: any) => void;
+
+  commentText: string;
+  setCommentText: (v: string) => void;
+  inputRef: React.RefObject<TextInput | null>;
+
+  replyTarget: Comment | null;
+  editingComment: Comment | null;
+  onCancelInputMode: () => void;
+
+  onSubmitComment: () => void;
+  onFocusComposer: () => void;
+};
 
 export function DetailContent({
   t,
@@ -135,61 +171,35 @@ export function DetailContent({
   onCancelInputMode,
   onSubmitComment,
   onFocusComposer,
-}: {
-  t: any;
-  post: MeetingPost;
-  comments: Comment[];
-  currentUserId: string;
-
-  scrollViewRef: React.RefObject<ScrollView | null>;
-  bottomPadding: number;
-
-  onPressHostProfile: () => void;
-  onReply: (c: Comment) => void;
-  onEditComment: (c: Comment) => void;
-  onDeleteComment: (id: string) => void;
-
-  onContentHeightChange: (h: number) => void;
-  onScrollViewHeightChange: (h: number) => void;
-  onScroll: (e: any) => void;
-
-  commentText: string;
-  setCommentText: (v: string) => void;
-  inputRef: React.RefObject<TextInput | null>;
-
-  replyTarget: Comment | null;
-  editingComment: Comment | null;
-  onCancelInputMode: () => void;
-
-  onSubmitComment: () => void;
-  onFocusComposer: () => void;
-}) {
+}: DetailContentProps) {
   const hasLocation = !!(post.locationLat && post.locationLng);
   const isDark = t.mode === "dark";
 
-  // ✅ 공용 토큰
+  // ✅ 공용 색상 토큰
   const pageBg = t.colors.background;
   const surface = t.colors.surface;
   const border = t.colors.border;
   const subtleBg = t.colors.overlay[6];
   const subtleBg2 = t.colors.overlay[8];
-  const divider = t.colors.divider ?? border;
+  const dividerColor = t.colors.divider ?? border;
 
   const mutedIcon = t.colors.icon?.muted ?? t.colors.textSub;
   const iconMain = t.colors.icon?.default ?? t.colors.textMain;
 
-  // ✅ Host pill
+  // ✅ Colors
   const hostPillBg = withAlpha(t.colors.primary, isDark ? 0.24 : 0.14);
   const hostPillFg = t.colors.primary;
-
-  // ✅ 말풍선/입력창 배경
   const bubbleBg = withAlpha(t.colors.primary, isDark ? 0.18 : 0.12);
   const inputBg = isDark ? subtleBg2 : subtleBg;
+  
+  // ✅ 승인 조건 박스 색상
+  const conditionBg = withAlpha(t.colors.point ?? "#FF5722", 0.08);
+  const conditionText = t.colors.point ?? "#FF5722";
 
-  // ✅ 정책 토큰 (MeetingCard와 동일)
+  // ✅ 상태 토큰
   const { meta, right } = useMemo(() => getMeetingStatusTokens(post), [post]);
-  const metaToken = meta.at(0);   // 선착순/승인제(항상 1개)
-  const rightToken = right.at(0); // FULL/ENDED/CANCELED/STARTED(있을 수도)
+  const metaToken = meta[0];   
+  const rightToken = right[0]; 
 
   return (
     <ScrollView
@@ -201,7 +211,7 @@ export function DetailContent({
       onScroll={onScroll}
       scrollEventThrottle={16}
     >
-      {/* 지도 */}
+      {/* 1. 지도 영역 */}
       <View style={[styles.mapContainer, { backgroundColor: subtleBg2 }]}>
         {hasLocation ? (
           <View style={{ flex: 1 }} pointerEvents="none">
@@ -233,7 +243,8 @@ export function DetailContent({
       </View>
 
       <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingTop: 20 }}>
-        {/* 호스트 프로필 */}
+        
+        {/* 2. 호스트 프로필 */}
         <Pressable
           onPress={onPressHostProfile}
           style={({ pressed }) => [
@@ -258,7 +269,6 @@ export function DetailContent({
               <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>
                 {post.host?.nickname}
               </Text>
-
               <View style={[styles.hostBadge, { backgroundColor: hostPillBg }]}>
                 <Text style={[styles.hostBadgeText, { color: hostPillFg }]}>HOST</Text>
               </View>
@@ -268,33 +278,31 @@ export function DetailContent({
               매너 {post.host?.mannerTemp}°C
             </Text>
           </View>
-
           <Ionicons name="chevron-forward" size={20} color={mutedIcon} />
         </Pressable>
 
-        {/* 게시글 헤더 */}
+        {/* 3. 게시글 헤더 */}
         <View style={styles.headerSection}>
-          {/* ✅ 통일감: 카테고리는 Badge, 나머지는 아이콘+텍스트(불필요한 pill 제거) */}
           <View style={styles.headerMetaRow}>
             <Badge label={post.category} tone="neutral" />
 
-            {metaToken ? (
+            {metaToken && (
               <MetaLine
                 t={t}
                 iconName={metaToken.iconName}
                 label={metaToken.label}
                 tone={metaToken.tone}
               />
-            ) : null}
+            )}
 
-            {rightToken ? (
+            {rightToken && (
               <MetaLine
                 t={t}
                 iconName={rightToken.iconName}
                 label={rightToken.label}
                 tone={rightToken.tone}
               />
-            ) : null}
+            )}
           </View>
 
           <Text style={[t.typography.headlineMedium, { marginTop: 12, color: t.colors.textMain }]}>
@@ -302,6 +310,7 @@ export function DetailContent({
           </Text>
         </View>
 
+        {/* 4. 정보 박스 (시간, 장소, 인원) */}
         <View style={[styles.infoBox, { backgroundColor: surface, borderColor: border }]}>
           <InfoRow
             icon="time-outline"
@@ -310,16 +319,16 @@ export function DetailContent({
             t={t}
             iconColor={iconMain}
           />
-          <View style={[styles.divider, { backgroundColor: divider }]} />
+          <View style={[styles.divider, { backgroundColor: dividerColor }]} />
 
           <InfoRow
             icon="location-outline"
-            text={post.locationText}
-            subText={post.distanceText || "위치 정보"}
+            text={post.locationText || "위치 정보 없음"}
+            subText={post.distanceText || ""}
             t={t}
             iconColor={iconMain}
           />
-          <View style={[styles.divider, { backgroundColor: divider }]} />
+          <View style={[styles.divider, { backgroundColor: dividerColor }]} />
 
           <InfoRow
             icon="people-outline"
@@ -330,20 +339,33 @@ export function DetailContent({
           />
         </View>
 
+        {/* ✅ 5. 승인 조건 표시 (신규 추가) */}
+        {post.joinMode === "APPROVAL" && (
+          <View style={[styles.conditionBox, { backgroundColor: conditionBg, borderColor: "transparent" }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <Ionicons name="checkmark-circle-outline" size={18} color={conditionText} style={{ marginRight: 6 }} />
+              <Text style={[t.typography.labelLarge, { color: conditionText }]}>참여 승인 조건</Text>
+            </View>
+            <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
+              {post.conditions || "호스트가 설정한 별도의 조건이 없습니다. 편하게 신청해주세요!"}
+            </Text>
+          </View>
+        )}
+
+        {/* 6. 호스트의 한마디 */}
         <View style={styles.section}>
           <Text style={[t.typography.titleMedium, { marginBottom: 12, color: t.colors.textMain }]}>
             호스트의 한마디
           </Text>
-
           <View style={[styles.bubble, { backgroundColor: bubbleBg, borderColor: border }]}>
             <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
-              {`"${post.content || "편하게 오세요!"}"`}
+              {post.content || "편하게 오세요!"}
             </Text>
             <View style={[styles.bubbleTail, { borderTopColor: bubbleBg }]} />
           </View>
         </View>
 
-        {/* 댓글 */}
+        {/* 7. 댓글 섹션 */}
         <View style={styles.section}>
           <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]}>
             댓글 {comments.length}
@@ -360,7 +382,7 @@ export function DetailContent({
               style={{ marginTop: 12 }}
               data={comments}
               keyExtractor={(c) => c.id}
-              scrollEnabled={false}
+              scrollEnabled={false} 
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               renderItem={({ item }) => {
                 const reply = parseReplyPrefix(item.content);
@@ -479,7 +501,6 @@ export function DetailContent({
               </Pressable>
             </View>
           </View>
-
           <View style={{ height: 8 }} />
         </View>
       </View>
@@ -516,41 +537,29 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   avatarImg: { width: 40, height: 40, borderRadius: 20 },
-
   hostBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   hostBadgeText: { fontSize: 10, fontWeight: "800" },
 
   headerSection: { marginBottom: 24 },
-
-  // ✅ 상단 메타: Badge + 아이콘텍스트를 한 줄로 정돈
-  headerMetaRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 10,
-  },
-  metaLine: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  metaIcon: {
-    marginRight: 6,
-    marginTop: 1, // baseline 보정
-  },
+  headerMetaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 },
+  metaLine: { flexDirection: "row", alignItems: "center" },
+  metaIcon: { marginRight: 6, marginTop: 1 },
 
   infoBox: { borderWidth: 1, borderRadius: 16, padding: 20, marginBottom: 32 },
   infoRow: { flexDirection: "row", alignItems: "center" },
   infoTextCtx: { marginLeft: 14, gap: 2 },
   divider: { height: 1, marginVertical: 16, marginLeft: 34 },
 
-  section: { marginBottom: 32 },
-
-  bubble: {
-    padding: 20,
-    borderRadius: 16,
-    borderBottomLeftRadius: 6,
+  // ✅ 승인 조건 스타일
+  conditionBox: {
+    padding: 16,
+    borderRadius: 12,
     borderWidth: 1,
+    marginBottom: 32, // 섹션 간 간격 확보
   },
+
+  section: { marginBottom: 32 },
+  bubble: { padding: 20, borderRadius: 16, borderBottomLeftRadius: 6, borderWidth: 1 },
   bubbleTail: {
     position: "absolute",
     bottom: -10,
@@ -575,7 +584,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 2,
   },
-
   replyCard: { marginLeft: 14, borderLeftWidth: 3, paddingLeft: 10 },
   replyMeta: {
     marginTop: 6,

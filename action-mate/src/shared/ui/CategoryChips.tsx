@@ -1,11 +1,14 @@
-// src/shared/ui/CategoryChips.tsx
-import React, { useRef } from "react";
-import { ScrollView, Pressable, Text, StyleSheet, View } from "react-native";
+import React, { useMemo, useRef } from "react";
+// ✅ 바텀시트 내부 스크롤 충돌 방지를 위해 gesture-handler 사용
+import { ScrollView } from "react-native-gesture-handler";
+import { Pressable, Text, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import type { CategoryKey } from "@/features/meetings/model/types";
 
-type ChipKey = CategoryKey | "ALL";
+// 타입을 export해야 다른 곳에서 import해서 쓸 수 있습니다.
+export type ChipKey = CategoryKey | "ALL";
+
 const WHITE = "#FFFFFF";
 
 const CATEGORY_ICONS: Record<CategoryKey, keyof typeof Ionicons.glyphMap> = {
@@ -26,19 +29,34 @@ const CATEGORIES: { id: ChipKey; label: string; iconName: keyof typeof Ionicons.
   { id: "ETC", label: "기타", iconName: CATEGORY_ICONS.ETC },
 ];
 
-type Props = { value: ChipKey; onChange: (val: ChipKey) => void };
+type Props = {
+  value: ChipKey;
+  onChange: (val: ChipKey) => void;
+  /**
+   * - filter: 지도/목록 조회용 (전체 포함)
+   * - select: 생성/입력용 (전체 제외)
+   * @default "filter"
+   */
+  mode?: "filter" | "select";
+};
 
-export default function CategoryChips({ value, onChange }: Props) {
+export default function CategoryChips({ value, onChange, mode = "filter" }: Props) {
   const t = useAppTheme();
+  
+  // 스크롤 중 클릭 방지를 위한 Refs
   const draggingRef = useRef(false);
   const pendingIdRef = useRef<ChipKey | null>(null);
 
-  // ✅ 미선택 아이콘은 항상 회색
-  const iconGray = t.colors.icon.muted;
+  // ✅ 모드에 따라 '전체' 칩 포함 여부 결정
+  const visibleCategories = useMemo(() => {
+    if (mode === "select") {
+      return CATEGORIES.filter((c) => c.id !== "ALL");
+    }
+    return CATEGORIES;
+  }, [mode]);
 
   return (
     <View
-      pointerEvents="auto"
       style={[
         styles.container,
         {
@@ -51,6 +69,7 @@ export default function CategoryChips({ value, onChange }: Props) {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        // ✅ 바텀시트 등 중첩 환경 호환
         nestedScrollEnabled
         keyboardShouldPersistTaps="always"
         contentContainerStyle={[
@@ -60,6 +79,7 @@ export default function CategoryChips({ value, onChange }: Props) {
             gap: t.spacing.space[2], // 8
           },
         ]}
+        // 스크롤 제스처 감지 로직
         onScrollBeginDrag={() => {
           draggingRef.current = true;
           pendingIdRef.current = null;
@@ -73,8 +93,9 @@ export default function CategoryChips({ value, onChange }: Props) {
           draggingRef.current = false;
         }}
       >
-        {CATEGORIES.map((cat) => {
+        {visibleCategories.map((cat) => {
           const isSelected = value === cat.id;
+          const iconColor = isSelected ? WHITE : t.colors.icon.muted;
 
           return (
             <Pressable
@@ -85,11 +106,14 @@ export default function CategoryChips({ value, onChange }: Props) {
                 pendingIdRef.current = cat.id;
               }}
               onPressOut={() => {
+                // 스크롤 중이었다면 클릭 무시
                 if (draggingRef.current) {
                   pendingIdRef.current = null;
                   return;
                 }
-                if (pendingIdRef.current === cat.id) onChange(cat.id);
+                if (pendingIdRef.current === cat.id) {
+                  onChange(cat.id);
+                }
                 pendingIdRef.current = null;
               }}
               style={({ pressed }) => [
@@ -103,7 +127,7 @@ export default function CategoryChips({ value, onChange }: Props) {
               <Ionicons
                 name={cat.iconName}
                 size={16}
-                color={isSelected ? WHITE : iconGray}
+                color={iconColor}
                 style={{ marginRight: 6 }}
               />
               <Text
@@ -129,10 +153,8 @@ const styles = StyleSheet.create({
   container: {
     position: "relative",
     zIndex: 20,
-    // ✅ Android 그림자 약하게
     elevation: 0,
-
-    // ✅ iOS 그림자 아주 연하게
+    // iOS 그림자 미세 조정
     shadowColor: "#000",
     shadowOpacity: 0.03,
     shadowRadius: 6,
@@ -141,7 +163,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingRight: 16,
   },
-
   miniChip: {
     flexDirection: "row",
     alignItems: "center",
