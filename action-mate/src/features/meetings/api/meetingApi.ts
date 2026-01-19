@@ -5,7 +5,8 @@ import {
   CategoryKey, 
   HomeSort, 
   AroundMeetingsOptions,
-  MembershipStatus
+  MembershipStatus,
+  Participant // ✅ 추가된 타입 (model/types.ts에 정의되어 있어야 함)
 } from "../model/types";
 import { meetingApiLocal } from "./meetingApi.local";
 import { meetingApiRemote } from "./meetingApi.remote";
@@ -29,6 +30,13 @@ export interface MeetingApi {
   cancelJoin(id: string): Promise<{ post: MeetingPost }>;
   
   cancelMeeting(id: string): Promise<{ post: MeetingPost }>;
+
+  // ✅ [신규] 참여자 관리 메서드
+  getParticipants(meetingId: string): Promise<Participant[]>;
+  
+  approveParticipant(meetingId: string, userId: string): Promise<Participant[]>;
+  
+  rejectParticipant(meetingId: string, userId: string): Promise<Participant[]>;
 }
 
 // ✅ 2. 구현체 선택 (환경변수나 설정값으로 제어 가능)

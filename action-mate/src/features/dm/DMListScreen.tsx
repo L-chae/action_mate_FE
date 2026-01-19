@@ -19,6 +19,12 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { listDMThreads } from "./api/dmApi";
 import type { DMThread } from "./model/types";
 
+// ✅ 알림 점 표시용 (호스트 PENDING 체크)
+import { meetingApi } from "@/features/meetings/api/meetingApi";
+import type { MeetingPost, Participant } from "@/features/meetings/model/types";
+
+const CURRENT_USER_ID = "me";
+
 function formatTime(isoString: string) {
   const date = new Date(isoString);
   const now = new Date();
@@ -39,6 +45,31 @@ export default function DMListScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [hasNoti, setHasNoti] = useState(false);
+
+  const checkHasNoti = useCallback(async () => {
+    try {
+      const all = await meetingApi.listMeetings(undefined);
+      const hostMeetings = all.filter((m: MeetingPost) => m.host?.id === CURRENT_USER_ID);
+
+      const flags = await Promise.all(
+        hostMeetings.map(async (m) => {
+          try {
+            const parts: Participant[] = await meetingApi.getParticipants(String(m.id));
+            return parts.some((p) => p.status === "PENDING");
+          } catch {
+            return false;
+          }
+        })
+      );
+
+      setHasNoti(flags.some(Boolean));
+    } catch (e) {
+      console.error(e);
+      setHasNoti(false);
+    }
+  }, []);
+
   const fetchData = useCallback(async () => {
     try {
       const data = await listDMThreads();
@@ -53,11 +84,13 @@ export default function DMListScreen() {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    checkHasNoti();
+  }, [fetchData, checkHasNoti]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchData();
+    checkHasNoti();
   };
 
   const renderItem = ({ item }: { item: DMThread }) => (
@@ -90,13 +123,18 @@ export default function DMListScreen() {
           <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
             {item.otherUser.nickname}
           </Text>
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{formatTime(item.updatedAt)}</Text>
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+            {formatTime(item.updatedAt)}
+          </Text>
         </View>
 
         {item.relatedMeetingTitle ? (
           <View style={[styles.meetingBadge, { backgroundColor: t.colors.neutral[50] }]}>
             <Ionicons name="pricetag-outline" size={10} color={t.colors.primary} />
-            <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontSize: 10 }]} numberOfLines={1}>
+            <Text
+              style={[t.typography.labelSmall, { color: t.colors.textSub, fontSize: 10 }]}
+              numberOfLines={1}
+            >
               {item.relatedMeetingTitle}
             </Text>
           </View>
@@ -119,7 +157,14 @@ export default function DMListScreen() {
 
   return (
     <AppLayout padded={false}>
-      <TopBar title="채팅" showBorder showNoti showNotiDot={false} showMenu={false} />
+      <TopBar
+        title="채팅"
+        showBorder
+        showNoti
+        showNotiDot={hasNoti} // ✅ 빨간 점
+        showMenu={false}
+        onPressNoti={() => router.push("/notifications")} // ✅ 전역 알림 화면으로
+      />
 
       {loading ? (
         <View style={styles.center}>
@@ -131,7 +176,13 @@ export default function DMListScreen() {
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingBottom: 100 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.colors.primary} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={t.colors.primary}
+            />
+          }
           ListEmptyComponent={
             <View style={{ marginTop: 100 }}>
               <EmptyView title="대화 내역이 없어요" description="모임에 참여하여 호스트와 대화를 나눠보세요!" />
@@ -161,5 +212,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     maxWidth: "100%",
   },
-  unreadBadge: { minWidth: 18, height: 18, borderRadius: 9, justifyContent: "center", alignItems: "center", paddingHorizontal: 5, marginLeft: 8 },
+  unreadBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 5,
+    marginLeft: 8,
+  },
 });

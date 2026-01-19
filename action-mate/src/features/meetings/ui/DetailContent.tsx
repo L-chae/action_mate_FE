@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import type { ReactNode } from "react";
 import {
   FlatList,
   Image,
@@ -49,13 +50,20 @@ type Theme = ReturnType<typeof useAppTheme>;
 
 function toneColor(t: Theme, tone?: string) {
   switch (tone) {
-    case "point": return t.colors.point;
-    case "info": return t.colors.info;
-    case "success": return t.colors.success;
-    case "warning": return t.colors.warning;
-    case "error": return t.colors.error;
-    case "primary": return t.colors.primary;
-    default: return t.colors.textSub;
+    case "point":
+      return t.colors.point;
+    case "info":
+      return t.colors.info;
+    case "success":
+      return t.colors.success;
+    case "warning":
+      return t.colors.warning;
+    case "error":
+      return t.colors.error;
+    case "primary":
+      return t.colors.primary;
+    default:
+      return t.colors.textSub;
   }
 }
 
@@ -100,12 +108,7 @@ function MetaLine({
   return (
     <View style={styles.metaLine}>
       {iconName ? (
-        <Ionicons
-          name={iconName}
-          size={14}
-          color={toneColor(t, tone)}
-          style={styles.metaIcon}
-        />
+        <Ionicons name={iconName} size={14} color={toneColor(t, tone)} style={styles.metaIcon} />
       ) : null}
       <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{label}</Text>
     </View>
@@ -120,6 +123,9 @@ type DetailContentProps = {
   post: MeetingPost;
   comments: Comment[];
   currentUserId: string;
+
+  // ✅ [추가] MeetingDetailScreen에서 내려주는 상단 삽입 컴포넌트
+  headerComponent?: ReactNode;
 
   scrollViewRef: React.RefObject<ScrollView | null>;
   bottomPadding: number;
@@ -150,6 +156,8 @@ export function DetailContent({
   post,
   comments,
   currentUserId,
+
+  headerComponent, // ✅ [추가]
 
   scrollViewRef,
   bottomPadding,
@@ -191,15 +199,15 @@ export function DetailContent({
   const hostPillFg = t.colors.primary;
   const bubbleBg = withAlpha(t.colors.primary, isDark ? 0.18 : 0.12);
   const inputBg = isDark ? subtleBg2 : subtleBg;
-  
+
   // ✅ 승인 조건 박스 색상
   const conditionBg = withAlpha(t.colors.point ?? "#FF5722", 0.08);
   const conditionText = t.colors.point ?? "#FF5722";
 
   // ✅ 상태 토큰
   const { meta, right } = useMemo(() => getMeetingStatusTokens(post), [post]);
-  const metaToken = meta[0];   
-  const rightToken = right[0]; 
+  const metaToken = meta[0];
+  const rightToken = right[0];
 
   return (
     <ScrollView
@@ -211,6 +219,15 @@ export function DetailContent({
       onScroll={onScroll}
       scrollEventThrottle={16}
     >
+      {/* ✅ [추가] host 전용 상단 섹션 삽입 (예: ManageApplicants)
+          - 위치는 "지도 위"로 넣고 싶으면 이 블록을 mapContainer 위로 옮기면 됩니다.
+          - 현재는 UX 상 "지도 아래, 본문 시작 전에" 배치 */}
+      {headerComponent ? (
+        <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingTop: 12 }}>
+          {headerComponent}
+        </View>
+      ) : null}
+
       {/* 1. 지도 영역 */}
       <View style={[styles.mapContainer, { backgroundColor: subtleBg2 }]}>
         {hasLocation ? (
@@ -243,7 +260,6 @@ export function DetailContent({
       </View>
 
       <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingTop: 20 }}>
-        
         {/* 2. 호스트 프로필 */}
         <Pressable
           onPress={onPressHostProfile}
@@ -266,9 +282,7 @@ export function DetailContent({
 
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>
-                {post.host?.nickname}
-              </Text>
+              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>{post.host?.nickname}</Text>
               <View style={[styles.hostBadge, { backgroundColor: hostPillBg }]}>
                 <Text style={[styles.hostBadgeText, { color: hostPillFg }]}>HOST</Text>
               </View>
@@ -287,21 +301,11 @@ export function DetailContent({
             <Badge label={post.category} tone="neutral" />
 
             {metaToken && (
-              <MetaLine
-                t={t}
-                iconName={metaToken.iconName}
-                label={metaToken.label}
-                tone={metaToken.tone}
-              />
+              <MetaLine t={t} iconName={metaToken.iconName} label={metaToken.label} tone={metaToken.tone} />
             )}
 
             {rightToken && (
-              <MetaLine
-                t={t}
-                iconName={rightToken.iconName}
-                label={rightToken.label}
-                tone={rightToken.tone}
-              />
+              <MetaLine t={t} iconName={rightToken.iconName} label={rightToken.label} tone={rightToken.tone} />
             )}
           </View>
 
@@ -339,11 +343,16 @@ export function DetailContent({
           />
         </View>
 
-        {/* ✅ 5. 승인 조건 표시 (신규 추가) */}
+        {/* ✅ 5. 승인 조건 표시 */}
         {post.joinMode === "APPROVAL" && (
           <View style={[styles.conditionBox, { backgroundColor: conditionBg, borderColor: "transparent" }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-              <Ionicons name="checkmark-circle-outline" size={18} color={conditionText} style={{ marginRight: 6 }} />
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={18}
+                color={conditionText}
+                style={{ marginRight: 6 }}
+              />
               <Text style={[t.typography.labelLarge, { color: conditionText }]}>참여 승인 조건</Text>
             </View>
             <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
@@ -367,22 +376,18 @@ export function DetailContent({
 
         {/* 7. 댓글 섹션 */}
         <View style={styles.section}>
-          <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]}>
-            댓글 {comments.length}
-          </Text>
+          <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]}>댓글 {comments.length}</Text>
 
           {comments.length === 0 ? (
             <View style={[styles.emptyComments, { backgroundColor: subtleBg, marginTop: 12 }]}>
-              <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>
-                첫 댓글을 남겨보세요!
-              </Text>
+              <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>첫 댓글을 남겨보세요!</Text>
             </View>
           ) : (
             <FlatList
               style={{ marginTop: 12 }}
               data={comments}
               keyExtractor={(c) => c.id}
-              scrollEnabled={false} 
+              scrollEnabled={false}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               renderItem={({ item }) => {
                 const reply = parseReplyPrefix(item.content);
@@ -501,6 +506,7 @@ export function DetailContent({
               </Pressable>
             </View>
           </View>
+
           <View style={{ height: 8 }} />
         </View>
       </View>
@@ -555,7 +561,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 32, // 섹션 간 간격 확보
+    marginBottom: 32,
   },
 
   section: { marginBottom: 32 },

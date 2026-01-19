@@ -12,11 +12,12 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import NotiButton from "@/shared/ui/NotiButton";
 
 type LogoProps = {
   leftText: string;
   rightText: string;
-  rightColor?: string; // 필요하면 외부에서 override
+  rightColor?: string;
   iconName?: keyof typeof Ionicons.glyphMap;
 };
 
@@ -37,6 +38,11 @@ type Props = {
   showNotiDot?: boolean;
   onPressNoti?: () => void;
 
+  // ✅ 추가: 설정 버튼
+  showSettings?: boolean;
+  onPressSettings?: () => void;
+  settingsIconName?: keyof typeof Ionicons.glyphMap; // 기본: settings-outline
+
   showMenu?: boolean;
   onPressMenu?: () => void;
 
@@ -46,6 +52,8 @@ type Props = {
   rightActionDisabled?: boolean;
 
   renderRight?: () => React.ReactNode;
+
+  keepDefaultRight?: boolean;
 };
 
 export default function TopBar({
@@ -58,9 +66,14 @@ export default function TopBar({
   showBack = false,
   onPressBack,
 
-  showNoti = true,
+  showNoti = false,
   showNotiDot = false,
   onPressNoti,
+
+  // ✅ settings default
+  showSettings = false,
+  onPressSettings,
+  settingsIconName = "settings-outline",
 
   showMenu = false,
   onPressMenu,
@@ -71,11 +84,18 @@ export default function TopBar({
   rightActionDisabled = false,
 
   renderRight,
+  keepDefaultRight = false,
 }: Props) {
   const t = useAppTheme();
   const flat = RNStyleSheet.flatten(style) as ViewStyle | undefined;
 
   const backgroundColor = (flat?.backgroundColor as string) ?? t.colors.background;
+
+  const hideDefaultRight = !!renderRight && !keepDefaultRight;
+
+  const shouldShowNoti = showNoti && !hideDefaultRight;
+  const shouldShowSettings = showSettings && !hideDefaultRight;
+  const shouldShowMenu = showMenu && !hideDefaultRight;
 
   return (
     <View
@@ -117,23 +137,13 @@ export default function TopBar({
                 />
               ) : null}
 
-              <Text style={[styles.logoTextBase, { color: t.colors.textMain }]}>
-                {logo.leftText}
-              </Text>
-              <Text
-                style={[
-                  styles.logoTextBase,
-                  { color: logo.rightColor ?? t.colors.primary },
-                ]}
-              >
+              <Text style={[styles.logoTextBase, { color: t.colors.textMain }]}>{logo.leftText}</Text>
+              <Text style={[styles.logoTextBase, { color: logo.rightColor ?? t.colors.primary }]}>
                 {logo.rightText}
               </Text>
             </View>
           ) : title ? (
-            <Text
-              style={[t.typography.titleLarge, { color: t.colors.textMain }, titleStyle]}
-              numberOfLines={1}
-            >
+            <Text style={[t.typography.titleLarge, { color: t.colors.textMain }, titleStyle]} numberOfLines={1}>
               {title}
             </Text>
           ) : null}
@@ -145,9 +155,7 @@ export default function TopBar({
         {rightActionText ? (
           <Pressable
             disabled={rightActionDisabled}
-            onPress={
-              onPressRightAction ?? (() => Alert.alert("액션", "onPressRightAction 없음"))
-            }
+            onPress={onPressRightAction ?? (() => Alert.alert("액션", "onPressRightAction 없음"))}
             hitSlop={12}
             style={({ pressed }) => [
               styles.textActionBtn,
@@ -166,40 +174,40 @@ export default function TopBar({
           </Pressable>
         ) : null}
 
-        {renderRight ? renderRight() : null}
+        {renderRight ? <View style={{ marginLeft: 6 }}>{renderRight()}</View> : null}
 
-        {showNoti && (
+{/*   ✅ 알림 */}
+        {shouldShowNoti && (
+          <View style={[styles.iconWrap, { marginLeft: 6 }]}>
+            <NotiButton
+              color={t.colors.icon.default}
+              backgroundColor={backgroundColor}
+              onPress={onPressNoti ?? (() => Alert.alert("알림", "없음"))}
+              dot={showNotiDot}
+              size={24}
+            />
+          </View>
+        )}
+{/* ✅ 설정 */}
+        {shouldShowSettings && (
           <Pressable
-            onPress={onPressNoti ?? (() => Alert.alert("알림", "없음"))}
+            onPress={onPressSettings ?? (() => Alert.alert("설정", "onPressSettings 없음"))}
             hitSlop={12}
-            style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.85 : 1 }]}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { opacity: pressed ? 0.85 : 1, marginLeft: 6 },
+            ]}
           >
-            <View>
-              <Ionicons
-                name="notifications-outline"
-                size={24}
-                color={t.colors.icon.default}
-              />
-              {showNotiDot && (
-                <View
-                  style={[
-                    styles.notiDot,
-                    {
-                      backgroundColor: t.colors.error,
-                      borderColor: backgroundColor,
-                    },
-                  ]}
-                />
-              )}
-            </View>
+            <Ionicons name={settingsIconName} size={24} color={t.colors.icon.default} />
           </Pressable>
         )}
 
-        {showMenu && (
+        {/* ✅ 메뉴 */}
+        {shouldShowMenu && (
           <Pressable
             onPress={onPressMenu ?? (() => Alert.alert("메뉴", "오픈"))}
             hitSlop={12}
-            style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.85 : 1 }]}
+            style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.85 : 1, marginLeft: 6 }]}
           >
             <Ionicons name="menu-outline" size={26} color={t.colors.icon.default} />
           </Pressable>
@@ -213,6 +221,16 @@ const styles = StyleSheet.create({
   topBar: {
     height: 56,
     flexDirection: "row",
+    alignItems: "center",
+  },
+   iconBtn: {
+    padding: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  iconWrap: {
+    padding: 4, 
+    justifyContent: "center",
     alignItems: "center",
   },
 
@@ -232,12 +250,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 6,
-  },
-  iconBtn: {
-    padding: 4,
-    justifyContent: "center",
-    alignItems: "center",
   },
 
   textActionBtn: {
@@ -245,16 +257,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     justifyContent: "center",
     alignItems: "center",
-  },
-
-  notiDot: {
-    position: "absolute",
-    right: 2,
-    top: 2,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    borderWidth: 1.5,
   },
 
   logoRow: {

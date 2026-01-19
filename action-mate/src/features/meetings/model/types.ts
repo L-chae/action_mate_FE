@@ -3,7 +3,7 @@ export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 export type HomeSort = "LATEST" | "NEAR" | "SOON";
 export type JoinMode = "INSTANT" | "APPROVAL";
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
-export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED";
+export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED" | "REJECTED";
 
 // --- SUB TYPES ---
 export type HostSummary = {
@@ -100,4 +100,13 @@ export type Comment = {
   authorAvatarUrl?: string;
   content: string;
   createdAt: string;
+};
+
+// 참여자 정보 타입
+export type Participant = {
+  userId: string;
+  nickname: string;
+  avatarUrl?: string;
+  status: MembershipStatus; // PENDING, MEMBER, REJECTED
+  appliedAt: string;
 };

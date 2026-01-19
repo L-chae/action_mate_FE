@@ -14,6 +14,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useRouter } from "expo-router";
 
 import { useAuthStore } from "@/features/auth/model/authStore";
 
@@ -30,8 +31,13 @@ import ProfileEditModal from "./ui/ProfileEditModal";
 import { myApi } from "./api/myApi";
 import type { MyMeetingItem, MyProfile } from "./model/types";
 
+// ✅ 전역 알림 점 표시용(호스트 pending 체크)
+import { meetingApi } from "@/features/meetings/api/meetingApi";
+import type { MeetingPost, Participant } from "@/features/meetings/model/types";
+
 const PREVIEW_COUNT = 3;
 const WHITE = "#FFFFFF";
+const CURRENT_USER_ID = "me";
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -54,11 +60,28 @@ type GradientColors = readonly [string, string];
 
 export default function MyScreen() {
   const t = useAppTheme();
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
 
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<MyProfile>({ nickname: "액션메이트" });
   const [summary, setSummary] = useState<LocalSummary>({ praiseCount: 0, temperature: 36.5 });
+
+  const [hosted, setHosted] = useState<MyMeetingItem[]>([]);
+  const [joined, setJoined] = useState<MyMeetingItem[]>([]);
+
+  const [editOpen, setEditOpen] = useState(false);
+
+  const [editMeetingOpen, setEditMeetingOpen] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState<MyMeetingItem | null>(null);
+
+  const [hostedExpanded, setHostedExpanded] = useState(false);
+  const [joinedExpanded, setJoinedExpanded] = useState(false);
+
+  // ✅ 전역 알림 점 상태
+  const [hasNoti, setHasNoti] = useState(false);
+
+  const fillAnim = useRef(new Animated.Value(0)).current;
 
   // authStore(user) → profile(fallback)
   const genderRaw: any = (user as any)?.gender ?? (profile as any)?.gender;
@@ -91,19 +114,6 @@ export default function MyScreen() {
     return parts.join(" · ");
   }, [genderLabel, birthLabel]);
 
-  const [hosted, setHosted] = useState<MyMeetingItem[]>([]);
-  const [joined, setJoined] = useState<MyMeetingItem[]>([]);
-
-  const [editOpen, setEditOpen] = useState(false);
-
-  const [editMeetingOpen, setEditMeetingOpen] = useState(false);
-  const [editingMeeting, setEditingMeeting] = useState<MyMeetingItem | null>(null);
-
-  const [hostedExpanded, setHostedExpanded] = useState(false);
-  const [joinedExpanded, setJoinedExpanded] = useState(false);
-
-  const fillAnim = useRef(new Animated.Value(0)).current;
-
   const loadAll = useCallback(async () => {
     try {
       const [p, s, h, j] = await Promise.all([
@@ -130,24 +140,50 @@ export default function MyScreen() {
     }
   }, []);
 
+  // ✅ 전역 알림 점 체크(호스트 모임에 PENDING이 하나라도 있으면 true)
+  const checkHasNoti = useCallback(async () => {
+    try {
+      const all = await meetingApi.listMeetings(undefined);
+      const hostMeetings = all.filter((m: MeetingPost) => m.host?.id === CURRENT_USER_ID);
+
+      const flags = await Promise.all(
+        hostMeetings.map(async (m) => {
+          try {
+            const parts: Participant[] = await meetingApi.getParticipants(String(m.id));
+            return parts.some((p) => p.status === "PENDING");
+          } catch {
+            return false;
+          }
+        })
+      );
+
+      setHasNoti(flags.some(Boolean));
+    } catch (e) {
+      console.error("checkHasNoti error:", e);
+      setHasNoti(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadAll();
-  }, [loadAll]);
+    checkHasNoti();
+  }, [loadAll, checkHasNoti]);
 
   useFocusEffect(
     useCallback(() => {
       loadAll();
-    }, [loadAll])
+      checkHasNoti();
+    }, [loadAll, checkHasNoti])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await loadAll();
+      await Promise.all([loadAll(), checkHasNoti()]);
     } finally {
       setRefreshing(false);
     }
-  }, [loadAll]);
+  }, [loadAll, checkHasNoti]);
 
   // UI 계산
   const temp = clamp(summary.temperature, 32, 42);
@@ -158,7 +194,6 @@ export default function MyScreen() {
   }, [temp]);
 
   const pillTone: PillTone = useMemo(() => {
-    // 의미상 bg는 info/warning/primary/error의 soft 버전이므로 withAlpha 유지 (brand 색 기준)
     const soft = (hex: string, a: number) => withAlpha(hex, a);
 
     if (temp <= 35.5) return { text: t.colors.info, bg: soft(t.colors.info, 0.12) };
@@ -219,40 +254,43 @@ export default function MyScreen() {
   const s = useMemo(() => {
     return {
       scrollContent: {
-        paddingBottom: t.spacing.space[7], // 28
+        paddingBottom: t.spacing.space[7],
         paddingHorizontal: t.spacing.pagePaddingH,
         paddingTop: t.spacing.pagePaddingV,
       },
       cardPadding: {
-        paddingVertical: t.spacing.space[3], // 12(기존 14 근사치)
-        paddingHorizontal: t.spacing.space[3], // 12(기존 14 근사치)
+        paddingVertical: t.spacing.space[3],
+        paddingHorizontal: t.spacing.space[3],
       },
-      subLine: { marginTop: t.spacing.space[1] }, // 4
+      subLine: { marginTop: t.spacing.space[1] },
       mannerWrap: {
-        marginTop: t.spacing.space[3], // 12
-        paddingTop: t.spacing.space[3], // 12
+        marginTop: t.spacing.space[3],
+        paddingTop: t.spacing.space[3],
         borderTopWidth: t.spacing.borderWidth,
         borderTopColor: t.colors.divider,
       },
-      barTrack: { marginTop: t.spacing.space[2] }, // 8~10 근사치
-      scaleRow: { marginTop: t.spacing.space[2] }, // 8
+      barTrack: { marginTop: t.spacing.space[2] },
+      scaleRow: { marginTop: t.spacing.space[2] },
       sectionHeader: {
-        marginTop: t.spacing.space[3], // 12~14 근사치
-        marginBottom: t.spacing.space[2], // 8
+        marginTop: t.spacing.space[3],
+        marginBottom: t.spacing.space[2],
         paddingHorizontal: 2,
       },
-      inlineMoreBtn: { marginTop: 2, paddingVertical: t.spacing.space[2] }, // 8(기존 6 근사치)
+      inlineMoreBtn: { marginTop: 2, paddingVertical: t.spacing.space[2] },
     } as const;
   }, [t]);
 
   return (
     <AppLayout padded={false}>
-      <TopBar
-        title="마이페이지"
-        showBorder
-        showNoti={false}
-        renderRight={() => <MaterialIcons name="settings" size={22} color={iconDefault} />}
-      />
+ <TopBar
+  title="마이페이지"
+  showBorder
+  showNoti
+  showNotiDot={hasNoti}
+  onPressNoti={() => router.push("/notifications")}
+  showSettings
+  onPressSettings={() => router.push("/settings")}
+/>
 
       <ScrollView
         contentContainerStyle={[styles.scrollContentBase, s.scrollContent]}
@@ -324,9 +362,7 @@ export default function MyScreen() {
                   </View>
                 </View>
 
-                {metaLine ? (
-                  <Text style={[t.typography.bodySmall, s.subLine]}>{metaLine}</Text>
-                ) : null}
+                {metaLine ? <Text style={[t.typography.bodySmall, s.subLine]}>{metaLine}</Text> : null}
               </View>
             </View>
 
@@ -496,9 +532,7 @@ export default function MyScreen() {
 }
 
 const styles = StyleSheet.create({
-  scrollContentBase: {
-    // theme 기반 padding은 s.scrollContent에서 붙임
-  },
+  scrollContentBase: {},
 
   topRow: {
     flexDirection: "row",

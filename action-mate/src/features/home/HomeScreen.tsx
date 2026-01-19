@@ -71,13 +71,14 @@ export default function HomeScreen() {
 
   return (
     <AppLayout padded={false}>
-      <TopBar
-        logo={{ leftText: "Action", rightText: "Mate", iconName: "flash" }}
-        showNoti
-        showNotiDot
-        showMenu
-        showBorder
-      />
+<TopBar
+  logo={{ leftText: "Action", rightText: "Mate", iconName: "flash" }}
+  showNoti
+  showNotiDot
+  onPressNoti={() => router.push("/notifications" as any)}
+  showMenu
+  showBorder
+/>
 
       <ScrollView
         stickyHeaderIndices={[2]}
