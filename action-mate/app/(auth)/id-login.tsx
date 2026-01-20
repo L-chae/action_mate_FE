@@ -1,13 +1,13 @@
 // app/(auth)/email-login.tsx
 import React from "react";
 import { Stack } from "expo-router";
-import EmailLoginScreen from "@/features/auth/EmailLoginScreen";
+import IdLoginScreen from "@/features/auth/IdLoginScreen";
 
-export default function EmailLoginRoute() {
+export default function IdLoginRoute() {
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <EmailLoginScreen />
+      <IdLoginScreen />
     </>
   );
 }

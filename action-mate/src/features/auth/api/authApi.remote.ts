@@ -1,44 +1,51 @@
-import type { User, Gender, ResetRequestResult } from "@/features/auth/model/types";
+import type {
+  User,
+  Gender,
+  SignupInput,
+  LoginInput,
+  AuthApi,
+  ResetRequestResult,
+} from "@/features/auth/model/types";
 import { client } from "@/shared/api/apiClient";
 import { endpoints } from "@/shared/api/endpoints";
 import {
   setAccessToken,
   setRefreshToken,
   clearAuthTokens,
-  setCurrentUserId,
+  setCurrentUserId, // 내부적으로 AsyncStorage key 관리
   getCurrentUserId,
   clearCurrentUserId,
 } from "@/shared/api/authToken";
 
-/**
- * 서버 공통 에러 스키마
- */
+// ----------------------------------------------------------------------
+// 서버 명세 타입 (Server DTO)
+// ----------------------------------------------------------------------
+
 type ErrorResponse = {
   code: string;
   message: string;
 };
 
-/**
- * 명세 상 토큰 응답
- */
 type TokenResponse = {
   accessToken: string;
   refreshToken: string;
 };
 
-/**
- * 명세 상 프로필 응답(UserProfile)
- */
-type UserProfile = {
-  id: string;
-  birth?: string; // date
+// 서버에서는 id, birth, gender(한글) 등을 사용한다고 가정
+type ServerProfile = {
+  id: string; // loginId와 매핑
+  birth?: string; // "YYYY-MM-DD"
   gender?: "남" | "여";
-  avgRate: number;
-  orgTime: number;
+  nickname?: string; // 명세에 없다면 아래 매퍼에서 처리 필요
+  avgRate?: number;
+  orgTime?: number;
 };
 
+// ----------------------------------------------------------------------
+// Helpers & Mappers
+// ----------------------------------------------------------------------
+
 function toErrorMessage(e: unknown): string {
-  // axios 에러일 가능성이 높지만, 여기서는 의존을 최소화해 방어적으로 처리
   try {
     const anyE = e as any;
     const data = anyE?.response?.data as Partial<ErrorResponse> | undefined;
@@ -49,140 +56,159 @@ function toErrorMessage(e: unknown): string {
   return "요청 처리 중 오류가 발생했습니다.";
 }
 
-/**
- * 프로젝트 기존 타입(User)이 어떤 형태인지 알 수 없으므로,
- * 최소한의 필드를 가진 객체를 만들고 필요 시 캐스팅합니다.
- * (실제 User 타입에 맞춰 점진적으로 정리하면 됨)
- */
-function asUserMinimal(userId: string): User {
-  return ({ email: userId, nickname: userId, id: userId } as unknown) as User;
+// Gender 변환: Client(male/female) <-> Server(남/여)
+function toServerGender(g: Gender): "남" | "여" {
+  return g === "male" ? "남" : "여";
 }
 
-/**
- * email 파라미터를 기존 코드 호환을 위해 유지하지만,
- * 서버 명세는 loginId(id)를 사용하므로 email === loginId 로 간주합니다.
- */
-export async function getUserByEmail(email: string): Promise<User | null> {
-  const userId = email;
-
-  try {
-    const res = await client.get<UserProfile>(endpoints.users.profile(userId));
-    // 프로필을 User로 변환(프로젝트 User 타입에 맞게 추후 정교화 가능)
-    const profile = res.data;
-    return ({
-      ...asUserMinimal(profile.id),
-      birthDate: profile.birth,
-      gender: profile.gender,
-      avgRate: profile.avgRate,
-      orgTime: profile.orgTime,
-    } as unknown) as User;
-  } catch (e: any) {
-    const status = e?.response?.status;
-    if (status === 404) return null;
-    throw new Error(toErrorMessage(e));
-  }
+function toClientGender(g?: string): Gender {
+  if (g === "남") return "male";
+  if (g === "여") return "female";
+  return "male"; // 기본값 (혹은 에러 처리)
 }
 
-export async function createUser(input: {
-  email: string; // 기존 호환: loginId로 매핑
-  nickname: string; // 서버 명세에 없음(무시)
-  password: string;
-  gender: Gender;
-  birthDate: string;
-}): Promise<User> {
-  const body = {
-    id: input.email,
-    password: input.password,
-    // 명세: birth optional (date), gender optional ("남"|"여")
-    birth: input.birthDate || undefined,
-    gender: (input.gender as unknown) as "남" | "여" | undefined,
+// Server Profile -> Client User 변환
+function mapProfileToUser(profile: ServerProfile): User {
+  return {
+    id: profile.id, // DB PK가 따로 없다면 loginId 사용
+    loginId: profile.id,
+    // 서버에 닉네임 필드가 없다면 loginId로 대체하거나, 있다면 사용
+    nickname: profile.nickname || profile.id,
+    gender: toClientGender(profile.gender),
+    birthDate: profile.birth || "1900-01-01",
   };
-
-  try {
-    // 명세: 201 (바디 스키마 명시 없음) → 성공만 확인
-    await client.post(endpoints.users.signup, body);
-
-    // 회원가입 후 바로 User 객체 반환(필요 시 프로필 조회로 대체 가능)
-    return asUserMinimal(input.email);
-  } catch (e: any) {
-    throw new Error(toErrorMessage(e));
-  }
 }
 
-export async function verifyLogin(email: string, password: string): Promise<User> {
-  const loginId = email;
+// ----------------------------------------------------------------------
+// ✅ AuthApi Implementation
+// ----------------------------------------------------------------------
 
-  try {
-    const res = await client.post<TokenResponse>(endpoints.auth.login, {
-      id: loginId,
-      password,
-    });
-
-    const tokens = res.data;
-    if (!tokens?.accessToken || !tokens?.refreshToken) {
-      throw new Error("토큰 응답이 올바르지 않습니다.");
+const remoteApi: AuthApi = {
+  /**
+   * ✅ 아이디로 유저 조회
+   */
+  async getUserByLoginId(loginId: string): Promise<User | null> {
+    try {
+      const res = await client.get<ServerProfile>(
+        endpoints.users.profile(loginId)
+      );
+      return mapProfileToUser(res.data);
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status === 404) return null;
+      throw new Error(toErrorMessage(e));
     }
+  },
 
-    // ✅ 로그인 성공 시 토큰 저장 + 현재 사용자 저장
-    await setAccessToken(tokens.accessToken);
-    await setRefreshToken(tokens.refreshToken);
+  /**
+   * ✅ 회원가입
+   */
+  async signup(input: SignupInput): Promise<User> {
+    const body = {
+      id: input.loginId,
+      password: input.password,
+      // 서버 명세가 nickname을 지원하지 않는다면 전송해도 무시될 수 있음.
+      // 일단 보낸다고 가정 (혹은 제외)
+      nickname: input.nickname,
+      birth: input.birthDate,
+      gender: toServerGender(input.gender),
+    };
+
+    try {
+      // 명세: 201 Created
+      await client.post(endpoints.users.signup, body);
+
+      // 회원가입 성공 후 바로 객체 반환
+      // (서버가 생성된 객체를 주지 않는다면 입력값 기반으로 구성)
+      return {
+        id: input.loginId,
+        loginId: input.loginId,
+        nickname: input.nickname,
+        gender: input.gender,
+        birthDate: input.birthDate,
+      };
+    } catch (e: any) {
+      throw new Error(toErrorMessage(e));
+    }
+  },
+
+  /**
+   * ✅ 로그인
+   */
+  async login(input: LoginInput): Promise<User> {
+    try {
+      const res = await client.post<TokenResponse>(endpoints.auth.login, {
+        id: input.loginId,
+        password: input.password,
+      });
+
+      const tokens = res.data;
+      if (!tokens?.accessToken || !tokens?.refreshToken) {
+        throw new Error("토큰 응답이 올바르지 않습니다.");
+      }
+
+      // 1. 토큰 저장
+      await setAccessToken(tokens.accessToken);
+      await setRefreshToken(tokens.refreshToken);
+      
+      // 2. 현재 사용자 ID(세션) 저장
+      await remoteApi.setCurrentLoginId(input.loginId);
+
+      // 3. 사용자 정보 조회 (로그인 응답에 프로필이 없다면 별도 조회)
+      // 성능 최적화를 위해 여기서는 최소 정보만 리턴하고, 
+      // 필요 시 메인 화면에서 fetchUser를 다시 하기도 함.
+      // 여기서는 편의상 입력된 ID 기반으로 최소 객체 리턴 혹은 fetch
+      const user = await remoteApi.getUserByLoginId(input.loginId);
+      if (!user) throw new Error("회원 정보를 불러올 수 없습니다.");
+      
+      return user;
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status === 401) {
+        throw new Error("아이디 또는 비밀번호가 일치하지 않습니다.");
+      }
+      throw new Error(toErrorMessage(e));
+    }
+  },
+
+  /**
+   * (미지원) 비밀번호 변경
+   */
+  async updatePassword(_loginId: string, _newPassword: string): Promise<void> {
+    throw new Error("서버 명세에 비밀번호 변경 API가 없습니다.");
+  },
+
+  /**
+   * (미지원) 비밀번호 리셋
+   */
+  async requestPasswordReset(_loginId: string): Promise<ResetRequestResult> {
+    throw new Error("서버 명세에 비밀번호 재설정 API가 없습니다.");
+  },
+
+  async verifyPasswordResetCode(_loginId: string, _code: string): Promise<void> {
+    throw new Error("서버 명세에 비밀번호 재설정 API가 없습니다.");
+  },
+
+  async consumePasswordResetCode(_loginId: string): Promise<void> {
+    throw new Error("서버 명세에 비밀번호 재설정 API가 없습니다.");
+  },
+
+  // ----------------------------------------------------------------------
+  // Session (현재 로그인 아이디)
+  // ----------------------------------------------------------------------
+
+  async getCurrentLoginId(): Promise<string | null> {
+    return getCurrentUserId(); // 기존 authToken 내 함수 재사용
+  },
+
+  async setCurrentLoginId(loginId: string): Promise<void> {
     await setCurrentUserId(loginId);
+  },
 
-    return asUserMinimal(loginId);
-  } catch (e: any) {
-    // 401: 로그인 실패
-    const status = e?.response?.status;
-    if (status === 401) {
-      throw new Error("로그인에 실패했습니다.");
-    }
-    throw new Error(toErrorMessage(e));
-  }
-}
-
-export async function updatePassword(_email: string, _newPassword: string): Promise<void> {
-  // 서버 명세에 비밀번호 변경/재설정 API가 없음
-  throw new Error("서버 명세에 비밀번호 변경 API가 없습니다.");
-}
-
-export async function requestPasswordReset(_email: string): Promise<ResetRequestResult> {
-  // 서버 명세에 없음
-  throw new Error("서버 명세에 비밀번호 재설정 API가 없습니다.");
-}
-
-export async function verifyPasswordResetCode(_email: string, _code: string): Promise<void> {
-  // 서버 명세에 없음
-  throw new Error("서버 명세에 비밀번호 재설정 API가 없습니다.");
-}
-
-export async function consumePasswordResetCode(_email: string): Promise<void> {
-  // 서버 명세에 없음
-  throw new Error("서버 명세에 비밀번호 재설정 API가 없습니다.");
-}
-
-export async function getCurrentUserEmail(): Promise<string | null> {
-  // 기존 호환: email이라는 명칭이지만 실제로는 loginId 저장값을 반환
-  return getCurrentUserId();
-}
-
-export async function setCurrentUserEmail(email: string): Promise<void> {
-  // 기존 호환: email -> loginId
-  await setCurrentUserId(email);
-}
-
-export async function clearCurrentUserEmail(): Promise<void> {
-  await clearCurrentUserId();
-  await clearAuthTokens();
-}
-
-/**
- * (옵션) 로그아웃이 필요한 경우 사용할 수 있는 헬퍼
- * - 명세: GET /auth/logout 성공 200
- */
-export async function logout(): Promise<void> {
-  try {
-    await client.get(endpoints.auth.logout);
-  } finally {
+  async clearCurrentLoginId(): Promise<void> {
     await clearCurrentUserId();
     await clearAuthTokens();
-  }
-}
+  },
+};
+
+export default remoteApi;

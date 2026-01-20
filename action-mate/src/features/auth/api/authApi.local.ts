@@ -1,19 +1,20 @@
 // src/features/auth/api/authApi.local.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { User, Gender, ResetRequestResult } from "@/features/auth/model/types";
+import type { User, SignupInput, LoginInput, AuthApi, ResetRequestResult } from "@/features/auth/model/types";
 import { setAccessToken, clearAuthTokens } from "@/shared/api/authToken";
 
-// ⚠️ 데모/목업용: 비밀번호 평문 저장 (실서비스 금지)
-
+// ⚠️ 로컬 목업용: 비밀번호 평문 저장 (실서비스 금지)
 type StoredUser = User & { password: string };
 
 const KEY_USERS = "localAuth:users";
-const KEY_CURRENT_EMAIL = "localAuth:currentEmail";
-const KEY_RESET_CODES = "localAuth:resetCodes"; // { [email]: { code, expiresAt } }
+const KEY_CURRENT_LOGIN_ID = "localAuth:currentLoginId";
 
-function normEmail(email: string) {
-  return email.trim().toLowerCase();
-}
+// ✅ 안전한 정규화 함수 (undefined가 들어와도 죽지 않음)
+const normId = (id?: string) => (id || "").trim().toLowerCase();
+
+// ----------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------
 
 async function readJSON<T>(key: string, fallback: T): Promise<T> {
   const raw = await AsyncStorage.getItem(key);
@@ -25,165 +26,169 @@ async function readJSON<T>(key: string, fallback: T): Promise<T> {
   }
 }
 
-async function writeJSON(key: string, value: any) {
+async function writeJSON(key: string, value: unknown) {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
 
-// ---------------------
-// ✅ Session (authStore가 쓰는 핵심 2개)
-// ---------------------
-export async function persistSession(user: User): Promise<void> {
-  // 목업 토큰 저장
-  await setAccessToken(`mock.${Date.now()}`);
-  // 마지막 로그인 이메일 저장 (hydrate용)
-  await setCurrentUserEmail(user.email);
-}
+// ----------------------------------------------------------------------
+// ✅ 1. 시드 데이터 (개발용 계정) + 데이터 마이그레이션
+// ----------------------------------------------------------------------
 
-export async function clearSession(): Promise<void> {
-  await clearAuthTokens();
-  await clearCurrentUserEmail();
-}
-
-// ---------------------
-// ✅ (선택) 목업 계정 시드: 개발 중 "로그인 테스트" 편하게
-// ---------------------
 export async function seedMockUsers(): Promise<void> {
-  const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-  if (users.length > 0) return; // 이미 있으면 건드리지 않음
+  let users = await readJSON<StoredUser[]>(KEY_USERS, []);
 
-  const demo: StoredUser[] = [
-    {
-      id: "user",
-      email: "test@test.com",
-      nickname: "테스트유저",
-      gender: "none",
-      birthDate: "2000-01-01",
-      password: "11112222",
-    },
-  ];
+  // 🚨 데이터 정합성 체크: 저장된 유저 중에 loginId가 없는 구버전 데이터가 있다면?
+  // -> 싹 지우고 새로 만듭니다. (개발 편의성 위함)
+  const isCorrupted = users.some((u) => !u.loginId); 
 
-  await writeJSON(KEY_USERS, demo);
-}
+  if (users.length === 0 || isCorrupted) {
+    if (isCorrupted) {
+      console.log("⚠️ 구버전 데이터가 감지되어 초기화합니다.");
+    }
 
-// ---------------------
-// Users
-// ---------------------
-export async function getUserByEmail(email: string): Promise<User | null> {
-  const e = normEmail(email);
-  const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-  const found = users.find((u) => normEmail(u.email) === e);
-  if (!found) return null;
-  const { password: _pw, ...user } = found;
-  return user;
-}
+    const demo: StoredUser[] = [
+      {
+        id: "u_seed_01",
+        loginId: "user01", // 아이디
+        nickname: "테니스왕",
+        password: "1234",
+        gender: "male",
+        birthDate: "1995-06-15",
+      },
+      {
+        id: "u_seed_02",
+        loginId: "rabbit99",
+        nickname: "당근조아",
+        password: "1234",
+        gender: "female",
+        birthDate: "1999-12-25",
+      },
+    ];
 
-export async function createUser(input: {
-  email: string;
-  nickname: string;
-  password: string;
-  gender: Gender;
-  birthDate: string;
-}): Promise<User> {
-  const email = normEmail(input.email);
-  const nickname = input.nickname.trim();
-
-  if (!email) throw new Error("이메일을 입력해 주세요.");
-  if (!nickname) throw new Error("닉네임을 입력해 주세요.");
-  if (input.password.length < 8) throw new Error("비밀번호는 8자 이상으로 입력해 주세요.");
-
-  const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-  const exists = users.some((u) => normEmail(u.email) === email);
-  if (exists) throw new Error("이미 가입된 이메일이에요.");
-
-  const user: User = {
-    id: `u_${Date.now()}`,
-    email,
-    nickname,
-    gender: input.gender ?? "none",
-    birthDate: input.birthDate ?? "",
-  };
-
-  const stored: StoredUser = { ...user, password: input.password };
-  await writeJSON(KEY_USERS, [...users, stored]);
-
-  return user;
-}
-
-export async function verifyLogin(email: string, password: string): Promise<User> {
-  const e = normEmail(email);
-  const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-  const found = users.find((u) => normEmail(u.email) === e);
-  if (!found) throw new Error("가입되지 않은 이메일이에요.");
-  if (found.password !== password) throw new Error("비밀번호가 올바르지 않아요.");
-
-  const { password: _pw, ...user } = found;
-  return user;
-}
-
-export async function updatePassword(email: string, newPassword: string): Promise<void> {
-  const e = normEmail(email);
-  if (newPassword.length < 8) throw new Error("비밀번호는 8자 이상으로 입력해 주세요.");
-
-  const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-  const idx = users.findIndex((u) => normEmail(u.email) === e);
-  if (idx < 0) throw new Error("가입되지 않은 이메일이에요.");
-
-  const next = [...users];
-  next[idx] = { ...next[idx], password: newPassword };
-  await writeJSON(KEY_USERS, next);
-}
-
-// ---------------------
-// current user email
-// ---------------------
-export async function getCurrentUserEmail(): Promise<string | null> {
-  const v = await AsyncStorage.getItem(KEY_CURRENT_EMAIL);
-  return v ? v : null;
-}
-
-export async function setCurrentUserEmail(email: string): Promise<void> {
-  await AsyncStorage.setItem(KEY_CURRENT_EMAIL, normEmail(email));
-}
-
-export async function clearCurrentUserEmail(): Promise<void> {
-  await AsyncStorage.removeItem(KEY_CURRENT_EMAIL);
-}
-
-// ---------------------
-// password reset codes
-// ---------------------
-type ResetMap = Record<string, { code: string; expiresAt: number }>;
-
-export async function requestPasswordReset(email: string): Promise<ResetRequestResult> {
-  const e = normEmail(email);
-
-  const user = await getUserByEmail(e);
-  if (!user) throw new Error("가입되지 않은 이메일이에요.");
-
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  const expiresAt = Date.now() + 10 * 60 * 1000; // 10분
-
-  const map = await readJSON<ResetMap>(KEY_RESET_CODES, {});
-  map[e] = { code, expiresAt };
-  await writeJSON(KEY_RESET_CODES, map);
-
-  return { code };
-}
-
-export async function verifyPasswordResetCode(email: string, code: string): Promise<void> {
-  const e = normEmail(email);
-  const map = await readJSON<ResetMap>(KEY_RESET_CODES, {});
-  const item = map[e];
-  if (!item) throw new Error("인증코드를 다시 요청해 주세요.");
-  if (Date.now() > item.expiresAt) throw new Error("인증코드가 만료됐어요. 다시 요청해 주세요.");
-  if (item.code !== code.trim()) throw new Error("인증코드가 올바르지 않아요.");
-}
-
-export async function consumePasswordResetCode(email: string): Promise<void> {
-  const e = normEmail(email);
-  const map = await readJSON<ResetMap>(KEY_RESET_CODES, {});
-  if (map[e]) {
-    delete map[e];
-    await writeJSON(KEY_RESET_CODES, map);
+    await writeJSON(KEY_USERS, demo);
   }
 }
+
+// ----------------------------------------------------------------------
+// ✅ 2. AuthApi 구현
+// ----------------------------------------------------------------------
+
+const authApi: AuthApi = {
+  /**
+   * ✅ 아이디로 유저 조회
+   */
+  async getUserByLoginId(loginId: string): Promise<User | null> {
+    const targetId = normId(loginId);
+    const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+    
+    // loginId가 있는 데이터만 안전하게 필터링해서 비교
+    const found = users.find((u) => u.loginId && normId(u.loginId) === targetId);
+
+    if (!found) return null;
+    const { password: _pw, ...user } = found;
+    return user;
+  },
+
+  /**
+   * ✅ 회원가입
+   */
+  async signup(input: SignupInput): Promise<User> {
+    const loginId = normId(input.loginId);
+    const nickname = input.nickname.trim();
+
+    if (!loginId) throw new Error("아이디를 입력해주세요.");
+    if (!nickname || nickname.length < 2) throw new Error("닉네임은 2글자 이상 입력해주세요.");
+    if (input.password.length < 4) throw new Error("비밀번호는 4자 이상으로 입력해주세요.");
+    if (!input.gender) throw new Error("성별을 선택해주세요.");
+    if (!input.birthDate) throw new Error("생년월일을 입력해주세요.");
+
+    const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+    
+    // 중복 검사 (안전하게)
+    if (users.some((u) => u.loginId && normId(u.loginId) === loginId)) {
+      throw new Error("이미 사용 중인 아이디예요.");
+    }
+
+    const newUser: User = {
+      id: `u_${Date.now()}`,
+      loginId,
+      nickname,
+      gender: input.gender,
+      birthDate: input.birthDate,
+    };
+
+    await writeJSON(KEY_USERS, [...users, { ...newUser, password: input.password }]);
+    return newUser;
+  },
+
+  /**
+   * ✅ 로그인
+   */
+  async login(input: LoginInput): Promise<User> {
+    // 1. 입력값 정규화
+    const targetId = normId(input.loginId); 
+    
+    // 2. 저장된 유저 불러오기
+    const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+
+    // 3. 찾기 (u.loginId가 없을 수 있는 상황 대비)
+    const found = users.find((u) => u.loginId && normId(u.loginId) === targetId);
+
+    if (!found) throw new Error("존재하지 않는 아이디예요.");
+    if (found.password !== input.password) {
+      throw new Error("비밀번호가 일치하지 않아요.");
+    }
+
+    const { password: _pw, ...user } = found;
+
+    // 4. 세션 설정
+    await setAccessToken(`mock_token_${Date.now()}`);
+    await authApi.setCurrentLoginId(user.loginId);
+
+    return user;
+  },
+
+  async updatePassword(loginId: string, newPassword: string): Promise<void> {
+    const targetId = normId(loginId);
+    const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+    
+    const index = users.findIndex((u) => u.loginId && normId(u.loginId) === targetId);
+    if (index === -1) throw new Error("사용자를 찾을 수 없습니다.");
+
+    users[index].password = newPassword;
+    await writeJSON(KEY_USERS, users);
+  },
+
+  async requestPasswordReset(loginId: string): Promise<ResetRequestResult> {
+    const user = await authApi.getUserByLoginId(loginId);
+    if (!user) throw new Error("가입되지 않은 아이디입니다.");
+    return { code: "123456" };
+  },
+
+  async verifyPasswordResetCode(loginId: string, code: string): Promise<void> {
+    if (code !== "123456") throw new Error("인증 코드가 올바르지 않습니다.");
+  },
+
+  async consumePasswordResetCode(loginId: string): Promise<void> {
+    return;
+  },
+
+  // ----------------------------------------------------------------------
+  // Session
+  // ----------------------------------------------------------------------
+
+  async getCurrentLoginId(): Promise<string | null> {
+    return await AsyncStorage.getItem(KEY_CURRENT_LOGIN_ID);
+  },
+
+  async setCurrentLoginId(loginId: string): Promise<void> {
+    await AsyncStorage.setItem(KEY_CURRENT_LOGIN_ID, normId(loginId));
+  },
+
+  async clearCurrentLoginId(): Promise<void> {
+    await AsyncStorage.removeItem(KEY_CURRENT_LOGIN_ID);
+    await clearAuthTokens();
+  },
+};
+
+export default authApi;

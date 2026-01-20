@@ -1,112 +1,100 @@
-// src/features/auth/SignupScreen.tsx
 import React, { useMemo, useRef, useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
+  Alert,
   KeyboardAvoidingView,
   Platform,
-  Animated,
-  Pressable,
-  Modal,
   ScrollView,
-  Alert,
+  Text,
+  TextInput,
+  View,
+  Pressable,
+  StyleSheet,
+  type TextStyle,
+  type ViewStyle,
 } from "react-native";
-import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
 
 import AppLayout from "@/shared/ui/AppLayout";
-import { Card } from "@/shared/ui/Card";
+import TopBar from "@/shared/ui/TopBar";
 import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-
-import { type Gender } from "@/features/auth/model/authStore";
+import { useAuthStore } from "@/features/auth/model/authStore";
 import { authApi } from "@/features/auth/api/authApi";
+import type { Gender } from "@/features/auth/model/types";
 
-type Form = {
-  email: string;
-  nickname: string;
-  password: string;
-  passwordConfirm: string;
-  gender: Gender; // "male" | "female" | "none"
-  birthDate: Date | null;
+/**
+ * ✅ 이번 TS 에러 원인/해결
+ * - RN Text의 style은 StyleProp<TextStyle>인데,
+ *   `[t.typography.titleLarge, {...}] as const` 처럼 "readonly tuple"로 굳으면
+ *   TS가 StyleProp로 못 받는 경우가 있습니다(특히 strict/tsconfig 조합에서).
+ *
+ * ✅ 해결
+ * - `as const` 제거
+ * - 스타일 배열은 `const x: TextStyle = {...}` (단일 객체)로 만들거나
+ *   `<Text style={[...]} />`에서 배열을 "readonly"로 만들지 않게 유지
+ */
+
+// --- Helpers: 생년월일 자동 포맷팅 (YYYYMMDD -> YYYY-MM-DD) ---
+const formatBirthDate = (text: string) => {
+  const nums = text.replace(/[^0-9]/g, "");
+  if (nums.length <= 4) return nums;
+  if (nums.length <= 6) return `${nums.slice(0, 4)}-${nums.slice(4)}`;
+  return `${nums.slice(0, 4)}-${nums.slice(4, 6)}-${nums.slice(6, 8)}`;
 };
 
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+const isValidBirth = (v: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+};
+
+type FieldKey = "loginId" | "password" | "nickname" | "birthDate" | "gender";
+
+function FieldError({ text }: { text?: string | null }) {
+  const t = useAppTheme();
+  if (!text) return null;
+  return <Text style={[t.typography.bodySmall, { color: t.colors.error, marginTop: 6 }]}>{text}</Text>;
 }
 
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-function formatYMD(d: Date) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function validate(form: Form) {
-  const email = form.email.trim();
-  const nickname = form.nickname.trim();
-
-  if (!email) return "이메일을 입력해 주세요.";
-  if (!isValidEmail(email)) return "이메일 형식에 맞게 입력해 주세요. (예: abc@naver.com)";
-  if (!nickname) return "닉네임을 입력해 주세요.";
-  if (nickname.length < 2) return "닉네임은 2자 이상으로 입력해 주세요.";
-  if (!form.birthDate) return "생년월일을 선택해 주세요.";
-  if (!form.password) return "비밀번호를 입력해 주세요.";
-  if (form.password.length < 8) return "비밀번호는 8자 이상으로 입력해 주세요.";
-  if (form.password !== form.passwordConfirm) return "비밀번호가 일치하지 않습니다. 다시 확인해 주세요.";
-  return null;
-}
-
-function withAlpha(color: string, alpha: number) {
-  const c = color?.trim?.() ?? "";
-  if (/^#([0-9a-f]{3})$/i.test(c)) {
-    const r = c[1],
-      g = c[2],
-      b = c[3];
-    const rr = parseInt(r + r, 16);
-    const gg = parseInt(g + g, 16);
-    const bb = parseInt(b + b, 16);
-    return `rgba(${rr},${gg},${bb},${alpha})`;
-  }
-  if (/^#([0-9a-f]{6})$/i.test(c)) {
-    const rr = parseInt(c.slice(1, 3), 16);
-    const gg = parseInt(c.slice(3, 5), 16);
-    const bb = parseInt(c.slice(5, 7), 16);
-    return `rgba(${rr},${gg},${bb},${alpha})`;
-  }
-  return c;
-}
-
-function GenderChip({
+function GenderButton({
   label,
-  active,
+  selected,
   onPress,
 }: {
   label: string;
-  active: boolean;
+  selected: boolean;
   onPress: () => void;
 }) {
   const t = useAppTheme();
-  const c = t.colors as any;
-
-  const chipBg = c.surface ?? c.card ?? t.colors.surface ?? t.colors.background;
-  const chipActiveBg = c.surfaceAlt ?? c.surface2 ?? c.background ?? chipBg;
 
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
       style={({ pressed }) => [
-        styles.chip,
         {
-          borderColor: active ? t.colors.primary : t.colors.border,
-          backgroundColor: active ? chipActiveBg : chipBg,
+          flex: 1,
+          height: 56,
+          borderRadius: t.spacing.radiusMd,
+          borderWidth: t.spacing.borderWidth,
+          borderColor: selected ? t.colors.primary : t.colors.border,
+          backgroundColor: selected ? t.colors.primaryLight : t.colors.card,
+          justifyContent: "center",
+          alignItems: "center",
+          opacity: pressed ? 0.9 : 1,
         },
-        pressed && { opacity: 0.85 },
       ]}
     >
-      <Text style={[t.typography.labelMedium, { color: active ? t.colors.textMain : t.colors.textSub }]}>
+      <Text
+        style={[
+          t.typography.labelLarge,
+          {
+            color: selected ? t.colors.primary : t.colors.textSub,
+            fontWeight: selected ? "700" : "600",
+          },
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -115,411 +103,379 @@ function GenderChip({
 
 export default function SignupScreen() {
   const t = useAppTheme();
-  const c = t.colors as any;
+  const loginToStore = useAuthStore((s) => s.login);
 
-  const danger = c.error ?? c.danger ?? c.negative ?? c.red ?? t.colors.primary;
+  const scrollRef = useRef<ScrollView>(null);
 
-  const scrimToken = c.scrim ?? c.backdrop ?? c.overlay ?? c.dim ?? c.modalDim ?? t.colors.textMain;
-  const scrim = withAlpha(scrimToken, 0.35);
+  const passwordRef = useRef<TextInput>(null);
+  const nicknameRef = useRef<TextInput>(null);
+  const birthRef = useRef<TextInput>(null);
 
-  const activeBg = c.surfaceAlt ?? c.surface2 ?? c.card ?? t.colors.surface ?? t.colors.background;
+  const [loginId, setLoginId] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [nickname, setNickname] = useState("");
+  const [gender, setGender] = useState<Gender | null>(null);
+  const [birthDate, setBirthDate] = useState("");
 
-  const [form, setForm] = useState<Form>({
-    email: "",
-    nickname: "",
-    password: "",
-    passwordConfirm: "",
-    gender: "none",
-    birthDate: null,
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [focused, setFocused] = useState<FieldKey | null>(null);
+
+  const [touched, setTouched] = useState<Record<FieldKey, boolean>>({
+    loginId: false,
+    password: false,
+    nickname: false,
+    birthDate: false,
+    gender: false,
   });
 
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [touched, setTouched] = useState({ email: false, passwordConfirm: false });
+  // --- Validation (최소) ---
+  const idOk = useMemo(() => loginId.trim().length > 0, [loginId]);
+  const pwOk = useMemo(() => password.length >= 4, [password]);
+  const nickOk = useMemo(() => nickname.trim().length >= 2, [nickname]);
+  const birthOk = useMemo(() => isValidBirth(birthDate), [birthDate]);
+  const genderOk = useMemo(() => gender === "male" || gender === "female", [gender]);
 
-  const [focused, setFocused] = useState<keyof Form | "birthDate" | null>(null);
-  const isFocused = (key: keyof Form | "birthDate") => focused === key;
+  const canSubmit = useMemo(
+    () => idOk && pwOk && nickOk && birthOk && genderOk && !busy,
+    [idOk, pwOk, nickOk, birthOk, genderOk, busy]
+  );
 
-  const shake = useRef(new Animated.Value(0)).current;
+  // --- Errors (touched 기반 노출) ---
+  const idErr = touched.loginId && !idOk ? "아이디를 입력해주세요." : null;
+  const pwErr = touched.password && !pwOk ? "비밀번호는 4자 이상 입력해주세요." : null;
+  const nickErr = touched.nickname && !nickOk ? "닉네임은 2글자 이상 입력해주세요." : null;
+  const birthErr = touched.birthDate && !birthOk ? "올바른 날짜를 입력해주세요. (예: 1995-06-15)" : null;
+  const genderErr = touched.gender && !genderOk ? "성별을 선택해주세요." : null;
 
-  const emailError =
-    touched.email && form.email.trim().length > 0 && !isValidEmail(form.email)
-      ? "이메일 형식에 맞게 입력해 주세요. (예: abc@naver.com)"
-      : null;
-
-  const pwMismatchError =
-    touched.passwordConfirm &&
-    form.passwordConfirm.length > 0 &&
-    form.password.length > 0 &&
-    form.password !== form.passwordConfirm
-      ? "비밀번호가 일치하지 않습니다. 다시 확인해 주세요."
-      : null;
-
-  const canSubmit = useMemo(() => !validate(form) && !busy, [form, busy]);
-
-  const onChange = (key: keyof Form) => (v: string) => {
-    setForm((prev) => ({ ...prev, [key]: v as any }));
-    if (error) setError(null);
+  // --- Styles (✅ readonly tuple 방지 위해 'as const' / readonly 제거) ---
+  const headerTitleStyle: TextStyle = {
+    ...(t.typography.titleLarge as TextStyle),
+    color: t.colors.textMain,
+  };
+  const headerDescStyle: TextStyle = {
+    ...(t.typography.bodyMedium as TextStyle),
+    color: t.colors.textSub,
+    marginTop: 4,
   };
 
-  const setGender = (g: Gender) => {
-    setForm((prev) => ({ ...prev, gender: g }));
-    if (error) setError(null);
+  const cardStyle: ViewStyle = {
+    backgroundColor: t.colors.surface,
+    borderWidth: t.spacing.borderWidth,
+    borderColor: t.colors.border,
+    borderRadius: t.spacing.radiusLg,
+    padding: t.spacing.space[5],
   };
 
-  const defaultBirth = useMemo(() => new Date(2000, 0, 1), []);
-  const [showAndroidPicker, setShowAndroidPicker] = useState(false);
-  const [showIosPicker, setShowIosPicker] = useState(false);
-  const [tempBirth, setTempBirth] = useState<Date>(defaultBirth);
-
-  const openBirthPicker = () => {
-    if (busy) return;
-    setFocused("birthDate");
-    const base = form.birthDate ?? defaultBirth;
-    setTempBirth(base);
-    if (Platform.OS === "ios") setShowIosPicker(true);
-    else setShowAndroidPicker(true);
+  const labelStyle: TextStyle = {
+    ...(t.typography.labelMedium as TextStyle),
+    color: t.colors.textMain,
+    marginBottom: 8,
+    fontWeight: "700",
   };
 
-  const onAndroidBirthChange = (event: DateTimePickerEvent, selected?: Date) => {
-    setShowAndroidPicker(false);
-    if (event.type === "dismissed") {
-      setFocused(null);
-      return;
+  const inputBoxBase: ViewStyle = {
+    height: 56,
+    borderRadius: t.spacing.radiusMd,
+    borderWidth: t.spacing.borderWidth,
+    borderColor: t.colors.border,
+    backgroundColor: t.colors.card,
+    paddingHorizontal: t.spacing.space[4],
+    justifyContent: "center",
+  };
+
+  const inputTextBase: TextStyle = {
+    fontSize: 16,
+    color: t.colors.textMain,
+    padding: 0,
+  };
+
+  const getBoxStyle = (key: FieldKey, hasError: boolean): ViewStyle => {
+    const isFocused = focused === key;
+    if (hasError) {
+      return {
+        ...inputBoxBase,
+        borderColor: t.colors.error,
+        backgroundColor: t.colors.surface,
+      };
     }
-    if (selected) setForm((p) => ({ ...p, birthDate: selected }));
-    setFocused(null);
+    if (isFocused) {
+      return {
+        ...inputBoxBase,
+        borderColor: t.colors.primary,
+        borderWidth: 1.5,
+      };
+    }
+    return inputBoxBase;
   };
 
-  const birthText = form.birthDate ? formatYMD(form.birthDate) : "생년월일을 선택해 주세요.";
-  const birthBorderError = !!error && error.includes("생년월일");
-  const birthActive = isFocused("birthDate") || showIosPicker || showAndroidPicker;
+  const markTouched = (key: FieldKey) => setTouched((p) => ({ ...p, [key]: true }));
 
-  const runShake = () => {
-    shake.setValue(0);
-    Animated.sequence([
-      Animated.timing(shake, { toValue: 1, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: -1, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: 1, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: 0, duration: 60, useNativeDriver: true }),
-    ]).start();
+  const scrollToBottomSoon = () => {
+    requestAnimationFrame(() => {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
+    });
   };
 
-  const shakeX = shake.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] });
-
-  const goToEmailLogin = () => router.replace("/(auth)/email-login");
-
-  const onSubmit = async () => {
+  const onSignup = async () => {
     if (busy) return;
 
-    setTouched({ email: true, passwordConfirm: true });
+    setTouched({
+      loginId: true,
+      password: true,
+      nickname: true,
+      birthDate: true,
+      gender: true,
+    });
 
-    const msg = validate(form);
-    if (msg) {
-      setError(msg);
-      runShake();
+    if (!canSubmit) {
+      Alert.alert("알림", "필수 항목을 확인해주세요.");
       return;
     }
 
     setBusy(true);
+    setErrorMsg(null);
+
     try {
-      await authApi.createUser({
-        email: form.email.trim(),
-        nickname: form.nickname.trim(),
-        password: form.password,
-        gender: form.gender,
-        birthDate: form.birthDate ? formatYMD(form.birthDate) : "",
+      const newUser = await authApi.signup({
+        loginId: loginId.trim(),
+        password,
+        nickname: nickname.trim(),
+        gender: gender as Gender,
+        birthDate,
       });
 
-      Alert.alert("회원가입 완료", "이메일 로그인으로 이동할게요.");
-      goToEmailLogin();
+      await loginToStore(newUser);
+
+      Alert.alert("환영합니다!", `${newUser.nickname}님 가입이 완료되었습니다.`, [
+        { text: "시작하기", onPress: () => router.replace("/(tabs)") },
+      ]);
     } catch (e: any) {
-      setError(e?.message ?? "회원가입에 실패했어요.");
-      runShake();
+      setErrorMsg(e?.message ?? "오류가 발생했습니다.");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
+    <AppLayout padded={false} style={{ backgroundColor: t.colors.background }}>
+      <TopBar title="회원가입" showBack onPressBack={() => router.back()} showBorder />
+
       <KeyboardAvoidingView
-        behavior={Platform.select({ ios: "padding", android: undefined })}
         style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 20}
       >
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <View style={styles.header}>
-            <Text style={[t.typography.titleLarge, styles.headerTitle, { color: t.colors.textMain }]}>
-              회원가입
-            </Text>
-            <Text style={[t.typography.bodySmall, styles.headerSubtitle, { color: t.colors.textSub }]}>
-              정보를 입력해서 계정을 만들어 주세요.
-            </Text>
-          </View>
+        <ScrollView
+          ref={scrollRef}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{
+            paddingHorizontal: t.spacing.pagePaddingH,
+            paddingVertical: t.spacing.space[6],
+            paddingBottom: t.spacing.space[10],
+          }}
+        >
+          <View style={cardStyle}>
+            <View style={{ marginBottom: t.spacing.space[6] }}>
+              <Text style={headerTitleStyle}>계정 만들기</Text>
+              <Text style={headerDescStyle}>필수 정보를 입력하고 시작해보세요.</Text>
+            </View>
 
-          <Animated.View style={{ transform: [{ translateX: shakeX }] }}>
-            <Card>
-              <Text style={[t.typography.labelMedium, styles.label, { color: t.colors.textSub }]}>이메일</Text>
-              <TextInput
-                value={form.email}
-                onChangeText={onChange("email")}
-                onFocus={() => setFocused("email")}
-                onBlur={() => {
-                  setFocused(null);
-                  setTouched((p) => ({ ...p, email: true }));
-                }}
-                placeholder="example@email.com"
-                autoCapitalize="none"
-                keyboardType="email-address"
-                style={[
-                  styles.input,
-                  isFocused("email") && styles.inputFocused,
-                  {
-                    borderColor: emailError ? danger : isFocused("email") ? t.colors.primary : t.colors.border,
-                    color: t.colors.textMain,
-                    backgroundColor: isFocused("email") ? activeBg : t.colors.surface,
-                  },
-                ]}
-                placeholderTextColor={t.colors.textSub}
-                editable={!busy}
-              />
-              {emailError ? (
-                <Text style={[t.typography.bodySmall, { color: danger, marginTop: 6 }]}>{emailError}</Text>
-              ) : null}
-
-              <Text style={[t.typography.labelMedium, styles.label, { marginTop: 12, color: t.colors.textSub }]}>
-                닉네임
-              </Text>
-              <TextInput
-                value={form.nickname}
-                onChangeText={onChange("nickname")}
-                onFocus={() => setFocused("nickname")}
-                onBlur={() => setFocused(null)}
-                placeholder="닉네임"
-                autoCapitalize="none"
-                style={[
-                  styles.input,
-                  isFocused("nickname") && styles.inputFocused,
-                  {
-                    borderColor: isFocused("nickname") ? t.colors.primary : t.colors.border,
-                    color: t.colors.textMain,
-                    backgroundColor: isFocused("nickname") ? activeBg : t.colors.surface,
-                  },
-                ]}
-                placeholderTextColor={t.colors.textSub}
-                editable={!busy}
-              />
-
-              <Text style={[t.typography.labelMedium, styles.label, { marginTop: 12, color: t.colors.textSub }]}>
-                성별
-              </Text>
-              <View style={styles.chipRow}>
-                <GenderChip label="남성" active={form.gender === "male"} onPress={() => setGender("male")} />
-                <GenderChip label="여성" active={form.gender === "female"} onPress={() => setGender("female")} />
-                <GenderChip label="선택 안 함" active={form.gender === "none"} onPress={() => setGender("none")} />
-              </View>
-
-              <Text style={[t.typography.labelMedium, styles.label, { marginTop: 12, color: t.colors.textSub }]}>
-                생년월일
-              </Text>
-              <Pressable
-                onPress={openBirthPicker}
-                disabled={busy}
-                style={[
-                  styles.input,
-                  styles.birthBox,
-                  birthActive && styles.inputFocused,
-                  {
-                    borderColor: birthBorderError ? danger : birthActive ? t.colors.primary : t.colors.border,
-                    backgroundColor: birthActive ? activeBg : t.colors.surface,
-                    opacity: busy ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <Text style={[t.typography.bodySmall, { color: form.birthDate ? t.colors.textMain : t.colors.textSub }]}>
-                  {birthText}
-                </Text>
-              </Pressable>
-
-              {showAndroidPicker && Platform.OS !== "ios" && (
-                <DateTimePicker
-                  value={tempBirth}
-                  mode="date"
-                  display="default"
-                  locale="ko-KR"
-                  onChange={onAndroidBirthChange}
-                />
-              )}
-
-              {Platform.OS === "ios" && (
-                <Modal
-                  transparent
-                  animationType="fade"
-                  visible={showIosPicker}
-                  onRequestClose={() => {
-                    setShowIosPicker(false);
-                    setFocused(null);
+            {/* 1) 아이디 */}
+            <View style={{ marginBottom: t.spacing.space[5] }}>
+              <Text style={labelStyle}>아이디</Text>
+              <View style={getBoxStyle("loginId", !!idErr)}>
+                <TextInput
+                  value={loginId}
+                  onChangeText={(v) => {
+                    setLoginId(v);
+                    setErrorMsg(null);
                   }}
-                >
-                  <View style={[styles.modalDim, { backgroundColor: scrim }]}>
-                    <View style={[styles.modalCard, { backgroundColor: t.colors.surface }]}>
-                      <Text style={[t.typography.labelMedium, styles.modalTitle, { color: t.colors.textMain }]}>
-                        생년월일 선택
-                      </Text>
-
-                      <DateTimePicker
-                        value={tempBirth}
-                        mode="date"
-                        display="spinner"
-                        locale="ko-KR"
-                        onChange={(_, selected) => selected && setTempBirth(selected)}
-                      />
-
-                      <View style={styles.modalRow}>
-                        <Button
-                          title="취소"
-                          variant="ghost"
-                          onPress={() => {
-                            setShowIosPicker(false);
-                            setFocused(null);
-                          }}
-                        />
-                        <Button
-                          title="완료"
-                          onPress={() => {
-                            setForm((p) => ({ ...p, birthDate: tempBirth }));
-                            setShowIosPicker(false);
-                            setFocused(null);
-                          }}
-                        />
-                      </View>
-                    </View>
-                  </View>
-                </Modal>
-              )}
-
-              <Text style={[t.typography.labelMedium, styles.label, { marginTop: 12, color: t.colors.textSub }]}>
-                비밀번호
-              </Text>
-              <TextInput
-                value={form.password}
-                onChangeText={onChange("password")}
-                onFocus={() => setFocused("password")}
-                onBlur={() => setFocused(null)}
-                placeholder="8자 이상"
-                secureTextEntry
-                style={[
-                  styles.input,
-                  isFocused("password") && styles.inputFocused,
-                  {
-                    borderColor: isFocused("password") ? t.colors.primary : t.colors.border,
-                    color: t.colors.textMain,
-                    backgroundColor: isFocused("password") ? activeBg : t.colors.surface,
-                  },
-                ]}
-                placeholderTextColor={t.colors.textSub}
-                editable={!busy}
-              />
-
-              <Text style={[t.typography.labelMedium, styles.label, { marginTop: 12, color: t.colors.textSub }]}>
-                비밀번호 확인
-              </Text>
-              <TextInput
-                value={form.passwordConfirm}
-                onChangeText={onChange("passwordConfirm")}
-                onFocus={() => setFocused("passwordConfirm")}
-                onBlur={() => {
-                  setFocused(null);
-                  setTouched((p) => ({ ...p, passwordConfirm: true }));
-                }}
-                placeholder="비밀번호를 다시 입력해 주세요"
-                secureTextEntry
-                style={[
-                  styles.input,
-                  isFocused("passwordConfirm") && styles.inputFocused,
-                  {
-                    borderColor: pwMismatchError ? danger : isFocused("passwordConfirm") ? t.colors.primary : t.colors.border,
-                    color: t.colors.textMain,
-                    backgroundColor: isFocused("passwordConfirm") ? activeBg : t.colors.surface,
-                  },
-                ]}
-                placeholderTextColor={t.colors.textSub}
-                editable={!busy}
-              />
-              {pwMismatchError ? (
-                <Text style={[t.typography.bodySmall, { color: danger, marginTop: 6 }]}>{pwMismatchError}</Text>
-              ) : null}
-
-              {error ? (
-                <Text style={[t.typography.bodySmall, { color: danger, marginTop: 10 }]}>{error}</Text>
-              ) : null}
-
-              <View style={{ marginTop: 14 }}>
-                <Button
-                  title={busy ? "처리 중..." : "회원가입"}
-                  onPress={() => void onSubmit()}
-                  disabled={!canSubmit}
+                  onFocus={() => setFocused("loginId")}
+                  onBlur={() => {
+                    setFocused(null);
+                    markTouched("loginId");
+                  }}
+                  placeholder="아이디 입력"
+                  placeholderTextColor={t.colors.placeholder}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  editable={!busy}
+                  style={inputTextBase}
                 />
               </View>
+              <FieldError text={idErr} />
+            </View>
 
-              <View style={styles.bottomRow}>
-                <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>이미 계정이 있으신가요?</Text>
-                <Button
-                  title="로그인"
-                  variant="ghost"
-                  onPress={goToEmailLogin}
+            {/* 2) 비밀번호 */}
+            <View style={{ marginBottom: t.spacing.space[5] }}>
+              <Text style={labelStyle}>비밀번호</Text>
+              <View style={[getBoxStyle("password", !!pwErr), { flexDirection: "row", alignItems: "center", gap: 8 }]}>
+                <TextInput
+                  ref={passwordRef}
+                  value={password}
+                  onChangeText={(v) => {
+                    setPassword(v);
+                    setErrorMsg(null);
+                  }}
+                  onFocus={() => setFocused("password")}
+                  onBlur={() => {
+                    setFocused(null);
+                    markTouched("password");
+                  }}
+                  placeholder="4자 이상 입력"
+                  placeholderTextColor={t.colors.placeholder}
+                  secureTextEntry={!showPw}
+                  returnKeyType="next"
+                  onSubmitEditing={() => nicknameRef.current?.focus()}
+                  editable={!busy}
+                  style={[inputTextBase, { flex: 1 }]}
+                />
+
+                <Pressable
+                  onPress={() => setShowPw((p) => !p)}
+                  hitSlop={10}
                   disabled={busy}
+                  style={({ pressed }) => [{ opacity: busy ? 0.6 : pressed ? 0.85 : 1, padding: 4 }]}
+                >
+                  <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontWeight: "700" }]}>
+                    {showPw ? "숨기기" : "보기"}
+                  </Text>
+                </Pressable>
+              </View>
+              <FieldError text={pwErr} />
+            </View>
+
+            {/* 3) 닉네임 */}
+            <View style={{ marginBottom: t.spacing.space[5] }}>
+              <Text style={labelStyle}>닉네임</Text>
+              <View style={getBoxStyle("nickname", !!nickErr)}>
+                <TextInput
+                  ref={nicknameRef}
+                  value={nickname}
+                  onChangeText={(v) => {
+                    setNickname(v);
+                    setErrorMsg(null);
+                  }}
+                  onFocus={() => setFocused("nickname")}
+                  onBlur={() => {
+                    setFocused(null);
+                    markTouched("nickname");
+                  }}
+                  placeholder="예: 테니스왕"
+                  placeholderTextColor={t.colors.placeholder}
+                  returnKeyType="next"
+                  onSubmitEditing={() => birthRef.current?.focus()}
+                  editable={!busy}
+                  style={inputTextBase}
                 />
               </View>
-            </Card>
-          </Animated.View>
+              <FieldError text={nickErr} />
+            </View>
+
+            {/* 4) 생년월일 */}
+            <View style={{ marginBottom: t.spacing.space[5] }}>
+              <Text style={labelStyle}>생년월일</Text>
+              <View style={getBoxStyle("birthDate", !!birthErr)}>
+                <TextInput
+                  ref={birthRef}
+                  value={birthDate}
+                  onChangeText={(text) => {
+                    const formatted = formatBirthDate(text);
+                    setBirthDate(formatted);
+                    setErrorMsg(null);
+                    if (formatted.length === 10) markTouched("birthDate");
+                  }}
+                  onFocus={() => {
+                    setFocused("birthDate");
+                    scrollToBottomSoon();
+                  }}
+                  onBlur={() => {
+                    setFocused(null);
+                    markTouched("birthDate");
+                  }}
+                  placeholder="예: 19950615 (숫자만 입력)"
+                  placeholderTextColor={t.colors.placeholder}
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  editable={!busy}
+                  style={inputTextBase}
+                />
+              </View>
+              <FieldError text={birthErr} />
+            </View>
+
+            {/* 5) 성별 */}
+            <View style={{ marginBottom: t.spacing.space[2] }}>
+              <Text style={labelStyle}>성별</Text>
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <GenderButton
+                  label="남성"
+                  selected={gender === "male"}
+                  onPress={() => {
+                    setGender("male");
+                    setErrorMsg(null);
+                    markTouched("gender");
+                  }}
+                />
+                <GenderButton
+                  label="여성"
+                  selected={gender === "female"}
+                  onPress={() => {
+                    setGender("female");
+                    setErrorMsg(null);
+                    markTouched("gender");
+                  }}
+                />
+              </View>
+              <FieldError text={genderErr} />
+            </View>
+
+            {/* 서버 에러 */}
+            {errorMsg ? (
+              <View
+                style={{
+                  marginTop: t.spacing.space[4],
+                  padding: t.spacing.space[4],
+                  borderRadius: t.spacing.radiusMd,
+                  backgroundColor: t.colors.overlay[6],
+                  borderWidth: t.spacing.borderWidth,
+                  borderColor: t.colors.border,
+                }}
+              >
+                <Text style={[t.typography.bodySmall, { color: t.colors.error, textAlign: "center" }]}>{errorMsg}</Text>
+              </View>
+            ) : null}
+
+            <View style={{ height: t.spacing.space[6] }} />
+
+            <Button
+              title={busy ? "가입 처리 중..." : "가입 완료"}
+              onPress={onSignup}
+              loading={busy}
+              disabled={!canSubmit}
+              variant="primary"
+              size="lg"
+            />
+
+            <View style={{ height: t.spacing.space[4] }} />
+
+            <Button
+              title="이미 계정이 있어요 · 로그인"
+              onPress={() => router.back()}
+              disabled={busy}
+              variant="ghost"
+              size="md"
+            />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </AppLayout>
   );
 }
 
-const styles = StyleSheet.create({
-  page: { flex: 1 },
-  container: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 28 },
-
-  header: { alignItems: "center", marginBottom: 14 },
-  headerTitle: { textAlign: "center", letterSpacing: -0.2 },
-  headerSubtitle: { textAlign: "center", marginTop: 6, lineHeight: 18 },
-
-  label: { marginBottom: 6 },
-
-  input: {
-    height: 46,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    justifyContent: "center",
-  },
-  inputFocused: { borderWidth: 2 },
-
-  chipRow: { flexDirection: "row", gap: 8 },
-  chip: {
-    flex: 1,
-    height: 40,
-    borderRadius: 999,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  birthBox: { alignItems: "flex-start" },
-
-  bottomRow: {
-    marginTop: 14,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-  },
-
-  modalDim: { flex: 1, justifyContent: "center", padding: 18 },
-  modalCard: { borderRadius: 16, padding: 14 },
-  modalTitle: { textAlign: "center", marginBottom: 8 },
-  modalRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginTop: 10 },
-});
+// ✅ 정적 스타일만 유지 (theme 사용 금지)
+const styles = StyleSheet.create({});

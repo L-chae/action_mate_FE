@@ -1,35 +1,54 @@
 // src/features/auth/model/types.ts
-export type Gender = "male" | "female" | "none";
+
+/**
+ * ✅ 정책 정리
+ * - "email" 용어/필드 제거 → 전부 "loginId(아이디)"로 통일
+ * - 회원가입 필수: loginId, password, nickname, gender, birthDate (5가지)
+ * - 로그인 필수: loginId, password
+ */
+
+export type Gender = "male" | "female";
 
 export type User = {
   id: string;
-  email: string;
-  nickname: string;
-  gender: Gender;
-  birthDate: string; // ISO date "YYYY-MM-DD", 없으면 ""
+  loginId: string;   // ✅ 아이디
+  nickname: string; //닉네임
+  gender: Gender;    // ✅ 필수
+  birthDate: string; // ✅ "YYYY-MM-DD"
 };
 
 export type ResetRequestResult = { code?: string };
 
-export type CreateUserInput = {
-  email: string;
-  nickname: string;
+export type SignupInput = {
+  loginId: string;
   password: string;
+  nickname: string;
   gender: Gender;
-  birthDate: string; // "YYYY-MM-DD" | ""
+  birthDate: string; // "YYYY-MM-DD"
+};
+
+export type LoginInput = {
+  loginId: string;
+  password: string;
 };
 
 export type AuthApi = {
-  getUserByEmail(email: string): Promise<User | null>;
-  createUser(input: CreateUserInput): Promise<User>;
-  verifyLogin(email: string, password: string): Promise<User>;
-  updatePassword(email: string, newPassword: string): Promise<void>;
+  getUserByLoginId(loginId: string): Promise<User | null>;
 
-  requestPasswordReset(email: string): Promise<ResetRequestResult>;
-  verifyPasswordResetCode(email: string, code: string): Promise<void>;
-  consumePasswordResetCode(email: string): Promise<void>;
+  // ✅ 회원가입
+  signup(input: SignupInput): Promise<User>;
 
-  getCurrentUserEmail(): Promise<string | null>;
-  setCurrentUserEmail(email: string): Promise<void>;
-  clearCurrentUserEmail(): Promise<void>;
+  // ✅ 로그인
+  login(input: LoginInput): Promise<User>;
+
+  // (선택) 비밀번호 변경/리셋
+  updatePassword(loginId: string, newPassword: string): Promise<void>;
+  requestPasswordReset(loginId: string): Promise<ResetRequestResult>;
+  verifyPasswordResetCode(loginId: string, code: string): Promise<void>;
+  consumePasswordResetCode(loginId: string): Promise<void>;
+
+  // ✅ 세션(현재 로그인 아이디)
+  getCurrentLoginId(): Promise<string | null>;
+  setCurrentLoginId(loginId: string): Promise<void>;
+  clearCurrentLoginId(): Promise<void>;
 };

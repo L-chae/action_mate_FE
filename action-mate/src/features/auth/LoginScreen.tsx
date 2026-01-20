@@ -162,7 +162,7 @@ export default function LoginScreen() {
           <View style={{ height: GAP_SM }} />
 
           <Pressable
-            onPress={() => router.push("/(auth)/email-login")}
+            onPress={() => router.push("/(auth)/id-login")}
             disabled={busy}
             style={({ pressed }) => [
               styles.socialBtn,

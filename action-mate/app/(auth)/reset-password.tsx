@@ -1,32 +1,16 @@
 // app/(auth)/reset-password.tsx
 import React from "react";
-import { Pressable } from "react-native";
-import { Stack, router } from "expo-router";
-import { MaterialIcons } from "@expo/vector-icons";
-import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import ResetPasswordScreen from "@/features/auth/ResetPasswordScreen";
+
+/**
+ * ✅ 개선 포인트
+ * - ResetPasswordScreen 내부에 TopBar가 이미 있으므로 Stack header는 숨김 처리
+ * - 다른 auth 라우트들도 같은 패턴(스크린이 TopBar 렌더링)으로 맞추면 중복 제거/일관성↑
+ */
 export default function ResetPasswordRoute() {
-  const t = useAppTheme();
-  const c = t.colors as any;
-
-  const headerBg = c.background ?? c.bg ?? c.surface ?? c.card ?? t.colors.background;
-  const iconColor = c.fg ?? c.onBackground ?? c.onSurface ?? t.colors.primary;
-
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: "",
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: headerBg },
-          headerLeft: () => (
-            <Pressable onPress={() => router.back()} hitSlop={12} style={{ padding: 8 }}>
-              <MaterialIcons name="arrow-back-ios-new" size={22} color={iconColor} />
-            </Pressable>
-          ),
-        }}
-      />
+      {/* Screen 내부 TopBar 사용 */}
       <ResetPasswordScreen />
     </>
   );

@@ -40,7 +40,7 @@ function SettingRow({ icon, title, description, rightText, danger, onPress }: Ro
         <View
           style={[
             styles.iconWrap,
-            { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.16 : 0.10) },
+            { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.16 : 0.1) },
           ]}
         >
           <Ionicons name={icon} size={18} color={danger ? t.colors.error : t.colors.icon.default} />
@@ -79,8 +79,10 @@ export default function SettingsScreen() {
   const t = useAppTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const logout = useAuthStore((s) => s.logout);
 
+  const logout = useAuthStore((s) => s.logout);
+  // 의도: 스토어에 탈퇴 액션이 아직 없더라도 UI 플로우는 유지 (데모/포트폴리오 목적)
+  const withdraw = useAuthStore((s) => (s as any).withdrawAccount?.bind?.(s) ?? (s as any).withdrawAccount);
 
   const onLogout = useCallback(() => {
     Alert.alert("로그아웃", "정말 로그아웃할까요?", [
@@ -91,7 +93,6 @@ export default function SettingsScreen() {
         onPress: async () => {
           try {
             await logout();
-            // ✅ 로그인 라우트가 있으면 교체
             router.replace("/" as any);
           } catch (e) {
             console.error(e);
@@ -102,6 +103,31 @@ export default function SettingsScreen() {
     ]);
   }, [logout, router]);
 
+  const onWithdraw = useCallback(() => {
+    Alert.alert("회원 탈퇴", "탈퇴 시 계정 데이터가 삭제되며 복구할 수 없습니다.\n계속 진행할까요?", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "탈퇴",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            // 의도: 파괴적 액션은 2단 확인 + 실패 처리로 신뢰성을 확보
+            if (typeof withdraw === "function") {
+              await withdraw();
+            } else {
+              // fallback: 탈퇴 구현 전에는 로그아웃으로라도 흐름이 끊기지 않게
+              await logout();
+            }
+            router.replace("/" as any);
+          } catch (e) {
+            console.error(e);
+            Alert.alert("오류", "회원 탈퇴에 실패했습니다.");
+          }
+        },
+      },
+    ]);
+  }, [withdraw, logout, router]);
+
   return (
     <AppLayout padded={false}>
       <TopBar title="설정" showBorder showBack onPressBack={() => router.back()} />
@@ -111,63 +137,19 @@ export default function SettingsScreen() {
           paddingBottom: Math.max(24, insets.bottom + 16),
         }}
       >
-        {/* 계정 */}
         <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8 }]}>계정</Text>
         <View style={styles.group}>
           <SettingRow
             icon="person-outline"
-            title="프로필 관리"
-            description="닉네임, 프로필 이미지 등을 수정합니다."
-            onPress={() => Alert.alert("안내", "프로필 관리 화면 연결 필요")}
-          />
-          <SettingRow
-            icon="key-outline"
-            title="계정/보안"
-            description="계정 및 보안 설정"
-            onPress={() => Alert.alert("안내", "계정/보안 화면 연결 필요")}
+            title="프로필"
+            description="닉네임, 프로필 이미지 관리"
+            onPress={() => router.push("/settings/profile" as any)}
           />
         </View>
 
-        {/* 알림 */}
-        <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>알림</Text>
-        <View style={styles.group}>
-          <SettingRow
-            icon="notifications-outline"
-            title="알림 설정"
-            description="푸시 알림, 모임/채팅 알림 설정"
-            onPress={() => Alert.alert("안내", "알림 설정 화면 연결 필요")}
-          />
-        </View>
-
-        {/* 앱 */}
-        <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>앱</Text>
-        <View style={styles.group}>
-          <SettingRow
-            icon="help-circle-outline"
-            title="고객센터"
-            description="문의하기, FAQ"
-            onPress={() => Alert.alert("안내", "고객센터 화면 연결 필요")}
-          />
-          <SettingRow
-            icon="document-text-outline"
-            title="이용약관"
-            onPress={() => Alert.alert("안내", "약관 화면 연결 필요")}
-          />
-          <SettingRow
-            icon="shield-checkmark-outline"
-            title="개인정보 처리방침"
-            onPress={() => Alert.alert("안내", "개인정보 처리방침 화면 연결 필요")}
-          />
-          <SettingRow
-            icon="information-circle-outline"
-            title="앱 정보"
-            rightText="v1.0.0"
-            onPress={() => Alert.alert("안내", "앱 정보 화면 연결 필요")}
-          />
-        </View>
-
-        {/* 기타 */}
-        <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>기타</Text>
+        <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>
+          계정 작업
+        </Text>
         <View style={styles.group}>
           <SettingRow
             icon="log-out-outline"
@@ -175,6 +157,13 @@ export default function SettingsScreen() {
             description="현재 계정에서 로그아웃합니다."
             danger
             onPress={onLogout}
+          />
+          <SettingRow
+            icon="trash-outline"
+            title="회원 탈퇴"
+            description="계정과 데이터가 삭제되며 복구할 수 없습니다."
+            danger
+            onPress={onWithdraw}
           />
         </View>
       </ScrollView>
