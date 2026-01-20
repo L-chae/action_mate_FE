@@ -1,4 +1,5 @@
-// features/meetings/mocks/meetingMockData.ts
+// features/meetings/mocks/meetingMockData.ts (최종본)
+// ✅ "내가 참여했고(MEMBER) + 모임이 끝난(시간 지난) 모임" 1개 추가해서 평가 테스트 가능
 import type { HostSummary, MeetingPost } from "../model/types";
 
 /**
@@ -80,6 +81,32 @@ const mins = (m: number) => m;
 
 // ✅ 목업 모임 원본 (meetingTimeText 제거)
 export const MOCK_MEETINGS_SEED: MeetingPost[] = [
+  // ==================================================
+  // ✅ 평가 테스트용: "내가 참여(MEMBER)했고, 이미 끝난 모임"
+  // - meetingTime: 3시간 전 시작
+  // - durationMinutes: 60분 (이미 종료됨)
+  // - status: OPEN으로 두어도, local 자동 ENDED 로직이 있으면 ENDED로 내려감
+  //   (자동 ENDED 로직이 아직 없다면 status를 "ENDED"로 바꿔도 됨)
+  // ==================================================
+  {
+    id: "999",
+    category: "SPORTS",
+    title: "✅ [테스트] 종료된 모임 - 매너평가 테스트",
+    meetingTime: h(-3),
+    distanceText: "0.2km",
+    locationText: "강남역 근처 체육관(테스트)",
+    locationLat: 37.4986,
+    locationLng: 127.0279,
+    capacityJoined: 3,
+    capacityTotal: 6,
+    joinMode: "INSTANT",
+    status: "OPEN",
+    content: "이 모임은 종료 상태로 평가 모달이 떠야 합니다.",
+    myState: { membershipStatus: "MEMBER", canJoin: false },
+    durationMinutes: mins(60),
+    host: HOST_USERS.user1,
+  },
+
   {
     id: "101",
     category: "SPORTS",

@@ -1,3 +1,4 @@
+// MeetingDetailScreen.tsx (최종본)
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -17,28 +18,23 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";//“화면 포커스될 때마다 재조회”
+import { useFocusEffect } from "@react-navigation/native";
 
-
-// ✅ Shared UI & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { useKeyboardAwareScroll } from "./hooks/useKeyboardAwareScroll";
 
-// ✅ API & Types
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, Comment, Participant } from "@/features/meetings/model/types";
 
-// ✅ UI Components
 import { ProfileModal } from "@/features/meetings/ui/ProfileModal";
 import { DetailContent } from "./ui/DetailContent";
 import { BottomBar } from "./ui/BottomBar";
 import NotiButton from "@/shared/ui/NotiButton";
 
-// =====================
-// Constants / Mock
-// =====================
+import MannerEvaluationModal from "@/features/meetings/ui/MannerEvaluationModal";
+
 const MOCK_COMMENTS: Comment[] = [
   {
     id: "c1",
@@ -68,16 +64,17 @@ export default function MeetingDetailScreen() {
   const params = useLocalSearchParams();
   const meetingId = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  // --- 1. State ---
   const [post, setPost] = useState<MeetingPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileVisible, setProfileVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
 
-  // Host Management (pendingCount 뱃지 표시용으로만 유지)
   const [participants, setParticipants] = useState<Participant[]>([]);
 
-  // UI / Layout
+  // ✅ Manner Evaluation
+  const [evalVisible, setEvalVisible] = useState(false);
+  const [evalParticipants, setEvalParticipants] = useState<Participant[]>([]);
+
   const [bottomBarHeight, setBottomBarHeight] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -85,7 +82,6 @@ export default function MeetingDetailScreen() {
   const [replyTarget, setReplyTarget] = useState<Comment | null>(null);
   const [editingComment, setEditingComment] = useState<Comment | null>(null);
 
-  // --- 2. Refs & Hooks ---
   const inputRef = useRef<TextInput | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const contentHeightRef = useRef(0);
@@ -97,7 +93,6 @@ export default function MeetingDetailScreen() {
     scrollToBottomSoon(true);
   });
 
-  // Keyboard height tracking (Android padding 계산에 사용)
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) =>
       setKeyboardHeight(e.endCoordinates.height)
@@ -109,27 +104,30 @@ export default function MeetingDetailScreen() {
     };
   }, []);
 
-  // --- 3. Calculations ---
-  const isAuthor = post?.host?.id === CURRENT_USER_ID;
   const membership = post?.myState?.membershipStatus ?? "NONE";
+  const isAuthor = post?.host?.id === CURRENT_USER_ID;
   const canJoin = post?.myState?.canJoin ?? post?.status === "OPEN";
 
-  // pendingCount: HOST일 때만 participants가 채워짐
   const pendingCount = participants.filter((p) => p.status === "PENDING").length;
 
   const effectiveBottomBarHeight = isKeyboardVisible ? 0 : bottomBarHeight;
   const contentBottomPadding =
-    effectiveBottomBarHeight + 20 + (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
+    effectiveBottomBarHeight +
+    20 +
+    (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
 
-  const keyboardVerticalOffset = Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : TOPBAR_HEIGHT;
+  const keyboardVerticalOffset =
+    Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : TOPBAR_HEIGHT;
 
-  // --- 4. Scroll Logic ---
   const scrollToBottomWithoutGap = (animated = true) => {
-    const y = Math.max(0, contentHeightRef.current - scrollViewHeightRef.current - contentBottomPadding);
+    const y = Math.max(
+      0,
+      contentHeightRef.current - scrollViewHeightRef.current - contentBottomPadding
+    );
     scrollViewRef.current?.scrollTo({ y, animated });
   };
-
-  const scrollToBottomSoon = (animated = true) => setTimeout(() => scrollToBottomWithoutGap(animated), 60);
+  const scrollToBottomSoon = (animated = true) =>
+    setTimeout(() => scrollToBottomWithoutGap(animated), 60);
 
   const handleScroll = (e: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
@@ -142,13 +140,16 @@ export default function MeetingDetailScreen() {
     const node = findNodeHandle(inputRef.current);
     const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
     if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
-      responder.scrollResponderScrollNativeHandleToKeyboard(node, Platform.OS === "android" ? 28 : 12, true);
+      responder.scrollResponderScrollNativeHandleToKeyboard(
+        node,
+        Platform.OS === "android" ? 28 : 12,
+        true
+      );
     } else {
       scrollToBottomSoon(true);
     }
   };
 
-  // --- 5. Data Loading ---
   const loadInitialData = useCallback(async () => {
     if (!meetingId) return;
     try {
@@ -156,7 +157,6 @@ export default function MeetingDetailScreen() {
       setPost(m);
       setComments(MOCK_COMMENTS.filter((c) => c.postId === String(m.id)));
 
-      // HOST일 때만 pendingCount 계산을 위해 participants 로드
       if (m.myState?.membershipStatus === "HOST" || m.host?.id === CURRENT_USER_ID) {
         const parts = await meetingApi.getParticipants(m.id);
         setParticipants(parts);
@@ -170,14 +170,38 @@ export default function MeetingDetailScreen() {
     }
   }, [meetingId]);
 
-useFocusEffect(
-  useCallback(() => {
-    // 포커스될 때마다 최신 데이터로 동기화
-    loadInitialData();
-  }, [loadInitialData])
-);
+  useFocusEffect(
+    useCallback(() => {
+      loadInitialData();
+    }, [loadInitialData])
+  );
 
-  // --- 6. Handlers ---
+  // ✅ 모임 종료 후 평가 모달 트리거
+  useEffect(() => {
+    if (!post) return;
+
+    const isEnded = post.status === "ENDED";
+    const isJoined = membership === "MEMBER" || membership === "HOST";
+    const hasEvaluated = Boolean((post as any).hasEvaluated);
+
+    if (!isEnded || !isJoined || hasEvaluated || evalVisible) return;
+
+    (async () => {
+      try {
+        const parts = await meetingApi.getParticipants(post.id);
+
+        const filtered = parts
+          .filter((p) => p.userId !== CURRENT_USER_ID) // ✅ 나는 제외
+          .filter((p) => p.status !== "REJECTED");
+
+        setEvalParticipants(filtered);
+        setEvalVisible(true);
+      } catch (e) {
+        console.log("getParticipants for evaluation failed:", e);
+      }
+    })();
+  }, [post, membership, evalVisible]);
+
   const handleCancelInputMode = () => {
     setReplyTarget(null);
     setEditingComment(null);
@@ -222,9 +246,7 @@ useFocusEffect(
     if (!commentText.trim()) return;
 
     if (editingComment) {
-      setComments((prev) =>
-        prev.map((c) => (c.id === editingComment.id ? { ...c, content: commentText } : c))
-      );
+      setComments((prev) => prev.map((c) => (c.id === editingComment.id ? { ...c, content: commentText } : c)));
       setEditingComment(null);
     } else {
       const newComment: Comment = {
@@ -244,7 +266,6 @@ useFocusEffect(
     scrollToBottomSoon(true);
   };
 
-  // --- 7. Render ---
   if (loading || !post) {
     return (
       <AppLayout>
@@ -258,9 +279,32 @@ useFocusEffect(
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
+
       {post.host && (
-        <ProfileModal visible={profileVisible} user={post.host} onClose={() => setProfileVisible(false)} />
+        <ProfileModal
+          visible={profileVisible}
+          user={post.host}
+          onClose={() => setProfileVisible(false)}
+        />
       )}
+
+      {/* ✅ 종료 모임 평가 모달 */}
+      <MannerEvaluationModal
+        visible={evalVisible}
+        hostId={post.host?.id}   // ✅ 이거 없어서 호스트 표시가 안 뜸
+        participants={evalParticipants.map((p) => ({
+          id: p.userId,
+          nickname: p.nickname,
+          photoUrl: p.avatarUrl,
+        }))}
+        onSubmit={async (evaluations) => {
+          await meetingApi.submitMannerEvaluation(post.id, evaluations);
+          setPost((prev) => (prev ? ({ ...prev, hasEvaluated: true } as any) : prev));
+          setEvalVisible(false);
+        }}
+        onClose={() => setEvalVisible(false)}
+        disableClose={true}
+      />
 
       {/* 관리 메뉴 모달 */}
       <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
@@ -319,7 +363,7 @@ useFocusEffect(
                   <View style={{ marginRight: 10 }}>
                     <NotiButton
                       color={t.colors.icon.default}
-                      backgroundColor={t.colors.background} 
+                      backgroundColor={t.colors.background}
                       count={pendingCount}
                       size={24}
                       onPress={() => router.push(`/meetings/manage/${post.id}` as any)}
@@ -398,9 +442,14 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   modalContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 10 },
-  dragHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#E5E5E5", alignSelf: "center", marginVertical: 10 },
-
-  // ✅ RN 안전: gap 대신 margin 사용 (아이콘+텍스트 간격)
+  dragHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#E5E5E5",
+    alignSelf: "center",
+    marginVertical: 10,
+  },
   menuItem: { flexDirection: "row", alignItems: "center", paddingVertical: 16 },
   menuDivider: { height: 1, width: "100%" },
 });
