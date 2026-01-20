@@ -1,38 +1,101 @@
 // src/features/settings/ProfileSettingsScreen.tsx
-import React, { useCallback, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  Image, // ✅ Image 컴포넌트 추가
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as ImagePicker from "expo-image-picker"; // ✅ 패키지 임포트
 
 import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
+import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
 
 import { useAuthStore } from "@/features/auth/model/authStore";
+import type { Gender } from "@/features/auth/model/types";
 
+// ... (기존 타입 정의 및 유효성 검사 함수들은 동일하므로 생략하지 않고 그대로 둡니다) ...
+type FieldKey = "nickname" | "birthDate";
 type FieldRowProps = {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
   placeholder?: string;
   helperText?: string;
+  errorText?: string;
   maxLength?: number;
+  editable?: boolean;
+  keyboardType?: "default" | "number-pad" | "email-address";
   onChangeText: (v: string) => void;
+  onBlur?: () => void;
 };
 
+function normalizeNickname(input: string) {
+  return input.replace(/\s+/g, " ").trim();
+}
+
+function validateNickname(nickname: string) {
+  const v = normalizeNickname(nickname);
+  if (!v) return { ok: false as const, message: "닉네임을 입력해 주세요." };
+  if (v.length < 2) return { ok: false as const, message: "닉네임은 2자 이상이어야 합니다." };
+  if (v.length > 20) return { ok: false as const, message: "닉네임은 20자 이하로 입력해 주세요." };
+  if (!/^[\p{L}\p{N}_\-\s]+$/u.test(v)) return { ok: false as const, message: "닉네임에 사용할 수 없는 문자가 포함되어 있어요." };
+  return { ok: true as const, value: v };
+}
+
+const formatBirthDate = (text: string) => {
+  const nums = text.replace(/[^0-9]/g, "");
+  if (nums.length <= 4) return nums;
+  if (nums.length <= 6) return `${nums.slice(0, 4)}-${nums.slice(4)}`;
+  return `${nums.slice(0, 4)}-${nums.slice(4, 6)}-${nums.slice(6, 8)}`;
+};
+
+const isValidBirth = (v: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [y, m, d] = v.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+};
+
+function normalizeBirthForSave(v: string) {
+  const s = v.trim();
+  if (/^\d{8}$/.test(s)) return formatBirthDate(s);
+  return s;
+}
+
+function genderLabel(g: Gender | "none" | null | undefined) {
+  if (g === "male") return "남성";
+  if (g === "female") return "여성";
+  return "선택 안 함";
+}
+
+// FieldRow 컴포넌트 (변경 없음)
 function FieldRow({
   icon,
   label,
   value,
   placeholder,
   helperText,
+  errorText,
   maxLength = 20,
+  editable = true,
+  keyboardType = "default",
   onChangeText,
+  onBlur,
 }: FieldRowProps) {
   const t = useAppTheme();
-
   return (
     <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
       <View style={styles.cardHeader}>
@@ -43,74 +106,73 @@ function FieldRow({
           {label}
         </Text>
       </View>
-
       <TextInput
         value={value}
         placeholder={placeholder}
         placeholderTextColor={t.colors.textSub}
         onChangeText={onChangeText}
+        onBlur={onBlur}
         autoCapitalize="none"
         autoCorrect={false}
         maxLength={maxLength}
+        editable={editable}
+        keyboardType={keyboardType}
         style={[
           styles.input,
           t.typography.bodyLarge,
           {
             color: t.colors.textMain,
-            borderColor: t.colors.border,
+            borderColor: errorText ? t.colors.error : t.colors.border,
             backgroundColor: t.colors.background,
+            opacity: editable ? 1 : 0.7,
           },
         ]}
       />
-
       <View style={styles.metaRow}>
-        {helperText ? <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>{helperText}</Text> : <View />}
-        <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-          {value.length}/{maxLength}
-        </Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {errorText ? (
+            <Text style={[t.typography.bodySmall, { color: t.colors.error }]} numberOfLines={2}>{errorText}</Text>
+          ) : helperText ? (
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={2}>{helperText}</Text>
+          ) : null}
+        </View>
+        <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{value.length}/{maxLength}</Text>
       </View>
     </View>
   );
 }
 
-type PrimaryButtonProps = {
-  title: string;
-  disabled?: boolean;
-  onPress: () => void;
-};
-
-function PrimaryButton({ title, disabled, onPress }: PrimaryButtonProps) {
+// SegmentedGender 컴포넌트 (변경 없음)
+function SegmentedGender({ value, onChange, disabled }: { value: Gender | "none"; onChange: (v: Gender | "none") => void; disabled?: boolean; }) {
   const t = useAppTheme();
+  const btnBase = { flex: 1, height: 48, borderRadius: 12, borderWidth: 1, alignItems: "center" as const, justifyContent: "center" as const };
+  const mkStyle = (active: boolean) => ({ ...btnBase, borderColor: active ? t.colors.primary : t.colors.border, backgroundColor: active ? withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12) : t.colors.background });
+  const mkText = (active: boolean) => ({ color: active ? t.colors.primary : t.colors.textSub, fontWeight: active ? ("800" as const) : ("500" as const) });
+
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => [
-        styles.primaryBtn,
-        {
-          backgroundColor: disabled ? withAlpha(t.colors.primary, 0.4) : t.colors.primary,
-          opacity: pressed ? 0.9 : 1,
-        },
-      ]}
-    >
-      <Text style={[t.typography.bodyLarge, { color: t.colors.primary, fontWeight: "800" }]}>{title}</Text>
-    </Pressable>
+    <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+      <View style={styles.cardHeader}>
+        <View style={[styles.iconWrap, { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.16 : 0.1) }]}>
+          <Ionicons name="male-female-outline" size={18} color={t.colors.icon.default} />
+        </View>
+        <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]} numberOfLines={1}>성별</Text>
+      </View>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Pressable disabled={disabled} onPress={() => onChange("male")} style={({ pressed }) => [mkStyle(value === "male"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}>
+          <Text style={[t.typography.bodyMedium, mkText(value === "male")]}>남성</Text>
+        </Pressable>
+        <Pressable disabled={disabled} onPress={() => onChange("female")} style={({ pressed }) => [mkStyle(value === "female"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}>
+          <Text style={[t.typography.bodyMedium, mkText(value === "female")]}>여성</Text>
+        </Pressable>
+        <Pressable disabled={disabled} onPress={() => onChange("none")} style={({ pressed }) => [mkStyle(value === "none"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}>
+          <Text style={[t.typography.bodyMedium, mkText(value === "none")]}>선택 안 함</Text>
+        </Pressable>
+      </View>
+      <View style={styles.metaRow}>
+        <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>현재: {genderLabel(value)}</Text>
+      </View>
+    </View>
   );
-}
-
-function normalizeNickname(input: string) {
-  // 의도: 서버/DB/검색 인덱싱에서 흔히 문제가 되는 공백/연속 공백을 미리 정리해 일관성을 유지
-  return input.replace(/\s+/g, " ").trim();
-}
-
-function validateNickname(nickname: string) {
-  const v = normalizeNickname(nickname);
-  if (!v) return { ok: false, message: "닉네임을 입력해 주세요." };
-  if (v.length < 2) return { ok: false, message: "닉네임은 2자 이상이어야 합니다." };
-  if (v.length > 20) return { ok: false, message: "닉네임은 20자 이하로 입력해 주세요." };
-  // 한글/영문/숫자/공백/언더스코어/하이픈 정도만 허용 (실무에서 흔한 정책)
-  if (!/^[\p{L}\p{N}_\-\s]+$/u.test(v)) return { ok: false, message: "닉네임에 사용할 수 없는 문자가 포함되어 있어요." };
-  return { ok: true as const, value: v };
 }
 
 export default function ProfileSettingsScreen() {
@@ -118,60 +180,133 @@ export default function ProfileSettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // 프로젝트에 user shape이 다를 수 있어서 안전하게 접근
   const me = useAuthStore((s) => (s as any).user ?? (s as any).me);
   const updateProfile = useAuthStore((s) => (s as any).updateProfile);
+  const patchUser = useAuthStore((s) => (s as any).patchUser);
+  const setUser = useAuthStore((s) => (s as any).setUser);
 
-  const initialNickname = useMemo(() => {
-    const fromStore = (me?.nickname ?? me?.name ?? "") as string;
-    return typeof fromStore === "string" ? fromStore : "";
+  const initial = useMemo(() => {
+    const nn = typeof me?.nickname === "string" ? me.nickname : typeof me?.name === "string" ? me.name : "";
+    const bd = typeof (me as any)?.birthDate === "string" ? (me as any).birthDate : "";
+    const gd = ((me as any)?.gender as Gender | "none" | undefined) ?? "none";
+    // ✅ 아바타/프로필 이미지 초기값 로드
+    const av = typeof (me as any)?.avatar === "string" ? (me as any).avatar : null;
+    return {
+      nickname: nn,
+      birthDate: bd,
+      gender: gd === "male" || gd === "female" ? gd : "none",
+      avatar: av,
+    } as const;
   }, [me]);
 
-  const [nickname, setNickname] = useState<string>(initialNickname);
+  const [nickname, setNickname] = useState<string>(initial.nickname);
+  const [birthDate, setBirthDate] = useState<string>(initial.birthDate);
+  const [gender, setGender] = useState<Gender | "none">(initial.gender);
+  // ✅ 아바타 상태 추가
+  const [avatar, setAvatar] = useState<string | null>(initial.avatar);
+  
   const [saving, setSaving] = useState(false);
+  const [touched, setTouched] = useState<Record<FieldKey, boolean>>({ nickname: false, birthDate: false });
 
-  const normalized = useMemo(() => normalizeNickname(nickname), [nickname]);
-  const isDirty = useMemo(() => normalizeNickname(initialNickname) !== normalized, [initialNickname, normalized]);
-  const validation = useMemo(() => validateNickname(nickname), [nickname]);
+  const normalizedNick = useMemo(() => normalizeNickname(nickname), [nickname]);
+  const normalizedBirth = useMemo(() => normalizeBirthForSave(birthDate), [birthDate]);
 
-  const onPickAvatar = useCallback(() => {
-    // 의도: 포트폴리오에선 "아바타 변경 진입점"만 명확히 보여주고,
-    // 실제 구현은 expo-image-picker / 업로드 API로 확장 가능하도록 분리
-    Alert.alert("안내", "프로필 이미지 선택 기능 연결 필요 (ImagePicker/업로드)");
+  const nickValidation = useMemo(() => validateNickname(nickname), [nickname]);
+  const birthOk = useMemo(() => {
+    const v = normalizeBirthForSave(birthDate);
+    if (!v.trim()) return false;
+    return isValidBirth(v);
+  }, [birthDate]);
+
+  const isDirty = useMemo(() => {
+    const aNick = normalizeNickname(initial.nickname);
+    const aBirth = normalizeBirthForSave(initial.birthDate);
+    // ✅ 아바타 변경 여부도 isDirty에 포함
+    const avatarChanged = initial.avatar !== avatar;
+    return aNick !== normalizedNick || aBirth !== normalizedBirth || initial.gender !== gender || avatarChanged;
+  }, [initial, normalizedNick, normalizedBirth, gender, avatar]);
+
+  const canSave = useMemo(() => {
+    const nickOk = nickValidation.ok;
+    const birthValid = birthOk;
+    return !saving && isDirty && nickOk && birthValid;
+  }, [saving, isDirty, nickValidation.ok, birthOk]);
+
+  // ✅ ImagePicker 구현
+  const onPickAvatar = useCallback(async () => {
+    // 권한 요청 (필수는 아니지만 권장)
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (permissionResult.granted === false) {
+      Alert.alert("권한 필요", "사진을 선택하려면 갤러리 접근 권한이 필요합니다.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true, // 편집(크롭) 허용
+      aspect: [1, 1], // 정사각형 비율
+      quality: 0.5, // 용량 최적화 (0 ~ 1)
+    });
+
+    if (!result.canceled) {
+      // 선택된 이미지의 로컬 URI를 상태에 저장
+      setAvatar(result.assets[0].uri);
+    }
   }, []);
 
   const onSave = useCallback(async () => {
     if (saving) return;
+
+    setTouched({ nickname: true, birthDate: true });
 
     const v = validateNickname(nickname);
     if (!v.ok) {
       Alert.alert("확인", v.message);
       return;
     }
+    const bd = normalizeBirthForSave(birthDate);
+    if (!isValidBirth(bd)) {
+      Alert.alert("확인", "생년월일을 올바르게 입력해 주세요.");
+      return;
+    }
+
     if (!isDirty) {
       router.back();
       return;
     }
 
+    const payload = {
+      nickname: v.value,
+      birthDate: bd,
+      gender: gender === "none" ? undefined : gender,
+      avatar: avatar, // ✅ 저장 시 아바타 정보 포함
+    };
+
     try {
       setSaving(true);
-
-      // 의도: 스토어 액션이 없더라도 화면 흐름은 유지되게(포트폴리오에서 데모 가능)
+      
+      // 목업 환경: 실제 서버 업로드 대신 Store만 업데이트
+      // (실무에서는 여기서 FormData를 만들어 파일 업로드 API 호출)
+      
       if (typeof updateProfile === "function") {
-        await updateProfile({ nickname: v.value });
+        await updateProfile(payload);
+      } else if (typeof patchUser === "function") {
+        await patchUser(payload);
+      } else if (typeof setUser === "function") {
+        await setUser({ ...(me ?? {}), ...payload });
       } else {
-        // fallback: updateProfile이 아직 없다면 여기서 API/스토어 추가 필요
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 250));
       }
 
       Alert.alert("완료", "프로필이 저장되었습니다.", [{ text: "확인", onPress: () => router.back() }]);
     } catch (e) {
       console.error(e);
-      Alert.alert("오류", "저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      Alert.alert("오류", "저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }
-  }, [saving, nickname, isDirty, updateProfile, router]);
+  }, [saving, nickname, birthDate, gender, avatar, isDirty, updateProfile, patchUser, setUser, me, router]);
 
   const onPressBack = useCallback(() => {
     if (!isDirty) {
@@ -184,147 +319,138 @@ export default function ProfileSettingsScreen() {
     ]);
   }, [isDirty, router]);
 
+  const nickError = useMemo(() => {
+    if (!touched.nickname) return undefined;
+    return nickValidation.ok ? undefined : nickValidation.message;
+  }, [touched.nickname, nickValidation]);
+
+  const birthError = useMemo(() => {
+    if (!touched.birthDate) return undefined;
+    const bd = normalizeBirthForSave(birthDate);
+    if (!bd.trim()) return "생년월일을 입력해 주세요.";
+    return isValidBirth(bd) ? undefined : "올바른 날짜를 입력해 주세요.";
+  }, [touched.birthDate, birthDate]);
+
   return (
     <AppLayout padded={false}>
       <TopBar title="프로필" showBorder showBack onPressBack={onPressBack} />
 
-      <ScrollView
-        contentContainerStyle={{
-          padding: 16,
-          paddingBottom: Math.max(24, insets.bottom + 16),
-        }}
-      >
-        {/* 아바타 */}
-        <View style={[styles.avatarCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
-          <View style={styles.avatarLeft}>
-            <View
-              style={[
-                styles.avatarCircle,
-                { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12) },
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{
+            padding: 16,
+            paddingBottom: Math.max(24, insets.bottom + 16),
+          }}
+        >
+          {/* 아바타 */}
+          <View style={[styles.avatarCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+            <View style={styles.avatarLeft}>
+              <View
+                style={[
+                  styles.avatarCircle,
+                  { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12), overflow: 'hidden' }, // overflow hidden 추가
+                ]}
+              >
+                {/* ✅ 이미지가 있으면 Image 컴포넌트, 없으면 아이콘 표시 */}
+                {avatar ? (
+                  <Image source={{ uri: avatar }} style={{ width: '100%', height: '100%' }} />
+                ) : (
+                  <Ionicons name="person" size={26} color={t.colors.icon.default} />
+                )}
+              </View>
+
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "800" }]} numberOfLines={1}>
+                  프로필 이미지
+                </Text>
+                <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]} numberOfLines={2}>
+                   탭하여 이미지를 변경해 보세요.
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              onPress={onPickAvatar} // ✅ 연결됨
+              style={({ pressed }) => [
+                styles.ghostBtn,
+                {
+                  borderColor: t.colors.border,
+                  opacity: pressed ? 0.9 : 1,
+                  backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.12 : 0.08),
+                },
               ]}
             >
-              <Ionicons name="person" size={26} color={t.colors.icon.default} />
-            </View>
-
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "800" }]} numberOfLines={1}>
-                프로필 이미지
-              </Text>
-              <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]} numberOfLines={2}>
-                이미지 선택/업로드는 ImagePicker 및 업로드 API로 확장 가능합니다.
-              </Text>
-            </View>
+              <Text style={[t.typography.labelLarge, { color: t.colors.textMain, fontWeight: "700" }]}>변경</Text>
+            </Pressable>
           </View>
 
-          <Pressable
-            onPress={onPickAvatar}
-            style={({ pressed }) => [
-              styles.ghostBtn,
-              {
-                borderColor: t.colors.border,
-                opacity: pressed ? 0.9 : 1,
-                backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.12 : 0.08),
-              },
-            ]}
-          >
-            <Text style={[t.typography.labelLarge, { color: t.colors.textMain, fontWeight: "700" }]}>변경</Text>
-          </Pressable>
-        </View>
+          {/* ... (나머지 UI 코드는 동일) ... */}
+          <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>
+            기본 정보
+          </Text>
 
-        {/* 닉네임 */}
-        <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>
-          기본 정보
-        </Text>
+          <FieldRow
+            icon="at-outline"
+            label="닉네임"
+            value={nickname}
+            placeholder="닉네임을 입력해 주세요"
+            helperText="한글/영문/숫자/공백, _ - 사용 가능"
+            errorText={nickError}
+            maxLength={20}
+            editable={!saving}
+            onChangeText={(v) => setNickname(v)}
+            onBlur={() => setTouched((p) => ({ ...p, nickname: true }))}
+          />
 
-        <FieldRow
-          icon="at-outline"
-          label="닉네임"
-          value={nickname}
-          placeholder="닉네임을 입력해 주세요"
-          helperText={validation.ok ? "한글/영문/숫자/공백, _ - 사용 가능" : validation.message}
-          maxLength={20}
-          onChangeText={setNickname}
-        />
+          <View style={{ height: 12 }} />
 
-        <PrimaryButton
-          title={saving ? "저장 중..." : "저장"}
-          disabled={saving || !validation.ok || !isDirty}
-          onPress={onSave}
-        />
+          <FieldRow
+            icon="calendar-outline"
+            label="생년월일"
+            value={birthDate}
+            placeholder="예: 19950615 (숫자만 입력)"
+            helperText="숫자만 입력하면 자동으로 1995-06-15 형태로 변환됩니다."
+            errorText={birthError}
+            maxLength={10}
+            editable={!saving}
+            keyboardType="number-pad"
+            onChangeText={(v) => setBirthDate(formatBirthDate(v))}
+            onBlur={() => setTouched((p) => ({ ...p, birthDate: true }))}
+          />
 
-        <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 12 }]}>
-          변경사항이 있을 때만 저장 버튼이 활성화됩니다.
-        </Text>
-      </ScrollView>
+          <View style={{ height: 12 }} />
+
+          <SegmentedGender value={gender} onChange={setGender} disabled={saving} />
+
+          <View style={{ height: 18 }} />
+
+          <Button
+            title={saving ? "저장 중..." : "저장"}
+            onPress={onSave}
+            disabled={!canSave}
+            loading={saving}
+            variant="primary"
+            size="lg"
+          />
+
+          <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 12 }]}>
+            변경사항이 있을 때만 저장 버튼이 활성화됩니다.
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </AppLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 10,
-  },
-  iconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  metaRow: {
-    marginTop: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  primaryBtn: {
-    marginTop: 14,
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarCard: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  avatarLeft: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    minWidth: 0,
-  },
-  avatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ghostBtn: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
+  card: { borderWidth: 1, borderRadius: 16, padding: 14 },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  iconWrap: { width: 34, height: 34, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
+  metaRow: { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  avatarCard: { borderWidth: 1, borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  avatarLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 },
+  avatarCircle: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  ghostBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
 });

@@ -23,13 +23,20 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import CategoryChips from "@/shared/ui/CategoryChips";
 import { MeetingCard } from "@/features/meetings/ui/MeetingCard";
 
-// ✅ [수정 1] 개별 함수 대신 API 객체 import
+// ✅ meeting API
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { CategoryKey, MeetingPost, HotMeetingItem } from "@/features/meetings/model/types";
+
+// ✅ 닉네임 가져오기
+import { useAuthStore } from "@/features/auth/model/authStore";
 
 export default function HomeScreen() {
   const t = useAppTheme();
   const router = useRouter();
+
+  // ✅ 로그인 유저 닉네임
+  const nickname = useAuthStore((s) => s.user?.nickname);
+  const displayName = (nickname && nickname.trim().length > 0 ? nickname.trim() : "회원") + "님";
 
   const [cat, setCat] = useState<CategoryKey | "ALL">("ALL");
   const [items, setItems] = useState<MeetingPost[]>([]);
@@ -37,23 +44,25 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchData = useCallback(async (isRefresh = false) => {
-    if (!isRefresh) setLoading(true);
-    try {
-      // ✅ [수정 2] meetingApi 객체의 메서드 호출
-      const [data, hot] = await Promise.all([
-        meetingApi.listMeetings(cat === "ALL" ? undefined : { category: cat }),
-        meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 }),
-      ]);
-      setItems(data);
-      setHotItems(hot);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [cat]);
+  const fetchData = useCallback(
+    async (isRefresh = false) => {
+      if (!isRefresh) setLoading(true);
+      try {
+        const [data, hot] = await Promise.all([
+          meetingApi.listMeetings(cat === "ALL" ? undefined : { category: cat }),
+          meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 }),
+        ]);
+        setItems(data);
+        setHotItems(hot);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [cat]
+  );
 
   useEffect(() => {
     fetchData();
@@ -71,14 +80,14 @@ export default function HomeScreen() {
 
   return (
     <AppLayout padded={false}>
-<TopBar
-  logo={{ leftText: "Action", rightText: "Mate", iconName: "flash" }}
-  showNoti
-  showNotiDot
-  onPressNoti={() => router.push("/notifications" as any)}
-  showMenu
-  showBorder
-/>
+      <TopBar
+        logo={{ leftText: "Action", rightText: "Mate", iconName: "flash" }}
+        showNoti
+        showNotiDot
+        onPressNoti={() => router.push("/notifications" as any)}
+        showMenu
+        showBorder
+      />
 
       <ScrollView
         stickyHeaderIndices={[2]}
@@ -97,7 +106,7 @@ export default function HomeScreen() {
         {/* 1) 헤드라인 */}
         <View style={{ paddingHorizontal: t.spacing.pagePaddingH, marginBottom: 16, marginTop: 4 }}>
           <Text style={[t.typography.headlineSmall, { color: t.colors.textMain }]}>
-            민수님, 지금 참여 가능한{"\n"}
+            {displayName}, 지금 참여 가능한{"\n"}
             <Text style={{ color: t.colors.primary }}>마감 임박 모임</Text>이에요!
           </Text>
         </View>
@@ -121,11 +130,7 @@ export default function HomeScreen() {
             renderItem={({ item }) => {
               const progress = item.capacityJoined / item.capacityTotal;
               return (
-                <Card
-                  onPress={() => router.push(`/meetings/${item.meetingId}`)}
-                  style={styles.hotCard}
-                  padded
-                >
+                <Card onPress={() => router.push(`/meetings/${item.meetingId}`)} style={styles.hotCard} padded>
                   <Badge label={item.badge} tone="error" size="sm" style={{ marginBottom: 12 }} />
                   <View style={{ gap: 4, marginBottom: 16 }}>
                     <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
@@ -147,7 +152,12 @@ export default function HomeScreen() {
                       </Text>
                     </View>
                     <View style={[styles.track, { backgroundColor: trackBg }]}>
-                      <View style={[styles.fill, { width: `${Math.round(progress * 100)}%`, backgroundColor: t.colors.primary }]} />
+                      <View
+                        style={[
+                          styles.fill,
+                          { width: `${Math.round(progress * 100)}%`, backgroundColor: t.colors.primary },
+                        ]}
+                      />
                     </View>
                   </View>
                 </Card>
@@ -157,7 +167,18 @@ export default function HomeScreen() {
         )}
 
         {/* 3) Sticky Header */}
-        <View style={[styles.stickyHeader, { backgroundColor: stickyBg, borderBottomColor: dividerColor, ...(Platform.OS === "ios" ? { shadowColor: isDark ? "transparent" : "#000", shadowOpacity: isDark ? 0 : 0.03 } : {}) }]}>
+        <View
+          style={[
+            styles.stickyHeader,
+            {
+              backgroundColor: stickyBg,
+              borderBottomColor: dividerColor,
+              ...(Platform.OS === "ios"
+                ? { shadowColor: isDark ? "transparent" : "#000", shadowOpacity: isDark ? 0 : 0.03 }
+                : {}),
+            },
+          ]}
+        >
           <CategoryChips value={cat} onChange={setCat} />
         </View>
 
@@ -175,10 +196,7 @@ export default function HomeScreen() {
             </View>
           ) : (
             <View style={{ marginTop: 60 }}>
-              <EmptyView
-                title="이런, 모임이 없네요"
-                description={"근처에 열린 모임이 없어요. 첫 번째 호스트가 되어보세요!"}
-              />
+              <EmptyView title="이런, 모임이 없네요" description={"근처에 열린 모임이 없어요. 첫 번째 호스트가 되어보세요!"} />
             </View>
           )}
         </View>
@@ -197,7 +215,10 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     borderBottomWidth: 1,
     // iOS
-    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 1,
     // Android
     elevation: 1,
   },

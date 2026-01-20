@@ -13,6 +13,8 @@ import {
   StyleSheet,
   Text,
   View,
+  type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { useRouter } from "expo-router";
 
@@ -26,18 +28,15 @@ import TopBar from "@/shared/ui/TopBar";
 
 import HostedMeetingEditModal from "./ui/HostedMeetingEditModal";
 import MeetingList from "./ui/MeetingList";
-import ProfileEditModal from "./ui/ProfileEditModal";
 
 import { myApi } from "./api/myApi";
 import type { MyMeetingItem, MyProfile } from "./model/types";
 
-// ✅ 전역 알림 점 표시용(호스트 pending 체크)
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, Participant } from "@/features/meetings/model/types";
 
 const PREVIEW_COUNT = 3;
 const WHITE = "#FFFFFF";
-const CURRENT_USER_ID = "me";
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -63,27 +62,46 @@ export default function MyScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
 
+  const currentUserId = user?.id ? String(user.id) : "me";
+
   const [refreshing, setRefreshing] = useState(false);
+
   const [profile, setProfile] = useState<MyProfile>({ nickname: "액션메이트" });
   const [summary, setSummary] = useState<LocalSummary>({ praiseCount: 0, temperature: 36.5 });
 
   const [hosted, setHosted] = useState<MyMeetingItem[]>([]);
   const [joined, setJoined] = useState<MyMeetingItem[]>([]);
 
-  const [editOpen, setEditOpen] = useState(false);
-
+  // const [editOpen, setEditOpen] = useState(false); // 더 이상 사용 안 함
   const [editMeetingOpen, setEditMeetingOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<MyMeetingItem | null>(null);
 
   const [hostedExpanded, setHostedExpanded] = useState(false);
   const [joinedExpanded, setJoinedExpanded] = useState(false);
 
-  // ✅ 전역 알림 점 상태
   const [hasNoti, setHasNoti] = useState(false);
 
   const fillAnim = useRef(new Animated.Value(0)).current;
 
-  // authStore(user) → profile(fallback)
+  // ----------------------------------------------------------------------
+  // 표시용 데이터 계산 (AuthStore 우선 적용)
+  // ----------------------------------------------------------------------
+  
+  // 1. 닉네임 우선순위: Store -> API -> 기본값
+  const displayNickname = useMemo(() => {
+    const n = user?.nickname?.trim();
+    if (n) return n;
+    return profile.nickname?.trim() || "액션메이트";
+  }, [user?.nickname, profile.nickname]);
+
+  // ✅ 2. [추가됨] 아바타 우선순위: Store(방금 변경한 값) -> API(기존 값)
+  const displayAvatar = useMemo(() => {
+    // 목업 환경에서는 타입 안전성을 위해 any 캐스팅 사용
+    const storeAvatar = (user as any)?.avatar; 
+    if (storeAvatar) return storeAvatar;
+    return profile.photoUrl;
+  }, [user, profile.photoUrl]);
+
   const genderRaw: any = (user as any)?.gender ?? (profile as any)?.gender;
   const birthRaw: string =
     (user as any)?.birthDate ??
@@ -114,6 +132,9 @@ export default function MyScreen() {
     return parts.join(" · ");
   }, [genderLabel, birthLabel]);
 
+  // ----------------------------------------------------------------------
+  // Data Load
+  // ----------------------------------------------------------------------
   const loadAll = useCallback(async () => {
     try {
       const [p, s, h, j] = await Promise.all([
@@ -140,11 +161,19 @@ export default function MyScreen() {
     }
   }, []);
 
-  // ✅ 전역 알림 점 체크(호스트 모임에 PENDING이 하나라도 있으면 true)
   const checkHasNoti = useCallback(async () => {
     try {
       const all = await meetingApi.listMeetings(undefined);
-      const hostMeetings = all.filter((m: MeetingPost) => m.host?.id === CURRENT_USER_ID);
+
+      const hostMeetings = all.filter((m: MeetingPost) => {
+        const hostId = (m as any)?.host?.id;
+        return String(hostId ?? "") === String(currentUserId);
+      });
+
+      if (hostMeetings.length === 0) {
+        setHasNoti(false);
+        return;
+      }
 
       const flags = await Promise.all(
         hostMeetings.map(async (m) => {
@@ -162,7 +191,7 @@ export default function MyScreen() {
       console.error("checkHasNoti error:", e);
       setHasNoti(false);
     }
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
     loadAll();
@@ -185,7 +214,9 @@ export default function MyScreen() {
     }
   }, [loadAll, checkHasNoti]);
 
-  // UI 계산
+  // ----------------------------------------------------------------------
+  // UI calc
+  // ----------------------------------------------------------------------
   const temp = clamp(summary.temperature, 32, 42);
 
   const rating = useMemo(() => {
@@ -195,7 +226,6 @@ export default function MyScreen() {
 
   const pillTone: PillTone = useMemo(() => {
     const soft = (hex: string, a: number) => withAlpha(hex, a);
-
     if (temp <= 35.5) return { text: t.colors.info, bg: soft(t.colors.info, 0.12) };
     if (temp <= 36.5) return { text: t.colors.warning, bg: soft(t.colors.warning, 0.16) };
     if (temp <= 38.0) return { text: t.colors.primary, bg: soft(t.colors.primary, 0.14) };
@@ -204,7 +234,6 @@ export default function MyScreen() {
 
   const grad: GradientColors = useMemo(() => {
     const start = (hex: string) => withAlpha(hex, 0.55);
-
     if (temp <= 35.5) return [start(t.colors.info), t.colors.info] as const;
     if (temp <= 36.5) return [start(t.colors.warning), t.colors.warning] as const;
     if (temp <= 38.0) return [start(t.colors.primary), t.colors.primary] as const;
@@ -243,54 +272,55 @@ export default function MyScreen() {
   const hostedHasMore = hosted.length > PREVIEW_COUNT;
   const joinedHasMore = joined.length > PREVIEW_COUNT;
 
-  // ✅ theme semantic token 사용
+  // ----------------------------------------------------------------------
+  // Style & Rendering
+  // ----------------------------------------------------------------------
   const iconDefault = t.colors.icon.default;
   const iconMuted = t.colors.icon.muted;
   const soft06 = t.colors.overlay[6];
   const soft45 = t.colors.overlay[45];
   const soft55 = t.colors.overlay[55];
 
-  // theme 기반 스타일(간격/폰트 일부를 테마로)
   const s = useMemo(() => {
     return {
       scrollContent: {
         paddingBottom: t.spacing.space[7],
         paddingHorizontal: t.spacing.pagePaddingH,
         paddingTop: t.spacing.pagePaddingV,
-      },
+      } as ViewStyle,
       cardPadding: {
         paddingVertical: t.spacing.space[3],
         paddingHorizontal: t.spacing.space[3],
-      },
-      subLine: { marginTop: t.spacing.space[1] },
+      } as ViewStyle,
+      subLine: { marginTop: t.spacing.space[1] } as TextStyle,
       mannerWrap: {
         marginTop: t.spacing.space[3],
         paddingTop: t.spacing.space[3],
         borderTopWidth: t.spacing.borderWidth,
         borderTopColor: t.colors.divider,
-      },
-      barTrack: { marginTop: t.spacing.space[2] },
-      scaleRow: { marginTop: t.spacing.space[2] },
+      } as ViewStyle,
+      barTrack: { marginTop: t.spacing.space[2] } as ViewStyle,
+      scaleRow: { marginTop: t.spacing.space[2] } as ViewStyle,
       sectionHeader: {
         marginTop: t.spacing.space[3],
         marginBottom: t.spacing.space[2],
         paddingHorizontal: 2,
-      },
-      inlineMoreBtn: { marginTop: 2, paddingVertical: t.spacing.space[2] },
+      } as ViewStyle,
+      inlineMoreBtn: { marginTop: 2, paddingVertical: t.spacing.space[2] } as ViewStyle,
     } as const;
   }, [t]);
 
   return (
     <AppLayout padded={false}>
- <TopBar
-  title="마이페이지"
-  showBorder
-  showNoti
-  showNotiDot={hasNoti}
-  onPressNoti={() => router.push("/notifications")}
-  showSettings
-  onPressSettings={() => router.push("/settings")}
-/>
+      <TopBar
+        title="마이페이지"
+        showBorder
+        showNoti
+        showNotiDot={hasNoti}
+        onPressNoti={() => router.push("/notifications")}
+        showSettings
+        onPressSettings={() => router.push("/settings" as any)}
+      />
 
       <ScrollView
         contentContainerStyle={[styles.scrollContentBase, s.scrollContent]}
@@ -300,59 +330,65 @@ export default function MyScreen() {
         <Card style={s.cardPadding}>
           <View style={styles.topRow}>
             <View style={styles.profileLeft}>
-              <View style={styles.avatarWrap}>
-                {profile.photoUrl ? (
-                  <Image
-                    source={{ uri: profile.photoUrl }}
-                    style={[
-                      styles.avatar,
-                      { borderColor: t.colors.background, backgroundColor: t.colors.border },
-                    ]}
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.avatar,
-                      styles.avatarFallback,
-                      { borderColor: t.colors.background, backgroundColor: t.colors.primary },
+              <Pressable
+                onPress={() => router.push("/settings/profile" as any)}
+                hitSlop={10}
+                style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
+              >
+                <View style={styles.avatarWrap}>
+                  {displayAvatar ? (
+                    <Image
+                      source={{ uri: displayAvatar }}
+                      style={[
+                        styles.avatar,
+                        { borderColor: t.colors.background, backgroundColor: t.colors.border },
+                      ]}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.avatar,
+                        styles.avatarFallback,
+                        { borderColor: t.colors.background, backgroundColor: t.colors.primary },
+                      ]}
+                    >
+                      <Text style={[t.typography.titleMedium, { color: WHITE }]}>
+                        {displayNickname?.slice(0, 1) || "A"}
+                      </Text>
+                    </View>
+                  )}
+
+                  <Pressable
+                    onPress={() => router.push("/settings/profile" as any)}
+                    hitSlop={10}
+                    style={({ pressed }) => [
+                      styles.avatarEditBtnBase,
+                      Platform.select({
+                        ios: {
+                          shadowColor: "#000",
+                          shadowOpacity: 0.12,
+                          shadowRadius: 8,
+                          shadowOffset: { width: 0, height: 3 },
+                        },
+                        android: { elevation: t.shadow.elevationSm },
+                        default: {},
+                      }),
+                      {
+                        backgroundColor: t.colors.surface,
+                        borderColor: t.colors.border,
+                        opacity: pressed ? 0.85 : 1,
+                      },
                     ]}
                   >
-                    <Text style={[t.typography.titleMedium, { color: WHITE }]}>
-                      {profile.nickname?.slice(0, 1) || "A"}
-                    </Text>
-                  </View>
-                )}
-
-                <Pressable
-                  onPress={() => setEditOpen(true)}
-                  hitSlop={10}
-                  style={({ pressed }) => [
-                    styles.avatarEditBtnBase,
-                    Platform.select({
-                      ios: {
-                        shadowColor: "#000",
-                        shadowOpacity: 0.12,
-                        shadowRadius: 8,
-                        shadowOffset: { width: 0, height: 3 },
-                      },
-                      android: { elevation: t.shadow.elevationSm },
-                      default: {},
-                    }),
-                    {
-                      backgroundColor: t.colors.surface,
-                      borderColor: t.colors.border,
-                      opacity: pressed ? 0.85 : 1,
-                    },
-                  ]}
-                >
-                  <MaterialIcons name="edit" size={16} color={iconDefault} />
-                </Pressable>
-              </View>
+                    <MaterialIcons name="edit" size={16} color={iconDefault} />
+                  </Pressable>
+                </View>
+              </Pressable>
 
               <View style={{ marginLeft: t.spacing.space[3], flex: 1, minWidth: 0 }}>
                 <View style={styles.nameLine}>
                   <Text style={t.typography.titleMedium} numberOfLines={1}>
-                    {profile.nickname}
+                    {displayNickname}
                   </Text>
 
                   <View style={[styles.tempPill, { backgroundColor: pillTone.bg }]}>
@@ -366,7 +402,7 @@ export default function MyScreen() {
               </View>
             </View>
 
-            {/* 별점(온도 환산) */}
+            {/* 별점 */}
             <View style={styles.ratingRight}>
               <Text style={[styles.star, { color: t.colors.ratingStar }]}>★</Text>
               <Text style={[t.typography.labelMedium, { color: t.colors.ratingStar }]}>
@@ -375,7 +411,7 @@ export default function MyScreen() {
             </View>
           </View>
 
-          {/* 매너온도 */}
+          {/* 매너온도 바 */}
           <View style={s.mannerWrap}>
             <View style={styles.mannerTop}>
               <View style={{ flex: 1 }}>
@@ -414,7 +450,6 @@ export default function MyScreen() {
           >
             <View style={styles.sectionLeft}>
               <Text style={t.typography.titleMedium}>내가 만든 모임</Text>
-
               <View style={[styles.countPill, { backgroundColor: soft06 }]}>
                 <Text style={[t.typography.labelMedium, { color: soft55 }]}>{hosted.length}</Text>
               </View>
@@ -462,7 +497,6 @@ export default function MyScreen() {
           >
             <View style={styles.sectionLeft}>
               <Text style={t.typography.titleMedium}>참여한 모임</Text>
-
               <View style={[styles.countPill, { backgroundColor: soft06 }]}>
                 <Text style={[t.typography.labelMedium, { color: soft55 }]}>{joined.length}</Text>
               </View>
@@ -503,24 +537,9 @@ export default function MyScreen() {
             if (!editingMeeting) return;
             setRefreshing(true);
             try {
-              const updated = await myApi.updateHostedMeeting(editingMeeting.id, patch);
-              setHosted((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+              const updated = await myApi.updateHostedMeeting(String(editingMeeting.id), patch);
+              setHosted((prev) => prev.map((x) => (String(x.id) === String(updated.id) ? updated : x)));
               setEditingMeeting(updated);
-            } finally {
-              setRefreshing(false);
-            }
-          }}
-        />
-
-        <ProfileEditModal
-          visible={editOpen}
-          profile={profile}
-          onClose={() => setEditOpen(false)}
-          onSave={async (next) => {
-            setRefreshing(true);
-            try {
-              const saved = await myApi.updateProfile(next);
-              setProfile(saved);
             } finally {
               setRefreshing(false);
             }
