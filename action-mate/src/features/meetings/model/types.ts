@@ -1,3 +1,5 @@
+// src/features/meetings/model/types.ts
+
 // --- ENUMS & KEYS ---
 export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 export type HomeSort = "LATEST" | "NEAR" | "SOON";
@@ -9,7 +11,8 @@ export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELE
 export type HostSummary = {
   id: string;
   nickname: string;
-  avatarUrl?: string;
+  // ✅ [수정] avatarUrl -> avatar 로 통일
+  avatar?: string | null;
   mannerTemp: number;
   kudosCount: number;
   intro?: string;
@@ -97,7 +100,8 @@ export type Comment = {
   postId: string;
   authorId: string;
   authorNickname: string;
-  authorAvatarUrl?: string;
+  // ✅ [수정] authorAvatarUrl -> authorAvatar 로 통일
+  authorAvatar?: string | null;
   content: string;
   createdAt: string;
 };
@@ -106,7 +110,31 @@ export type Comment = {
 export type Participant = {
   userId: string;
   nickname: string;
-  avatarUrl?: string;
+  // ✅ [수정] avatarUrl -> avatar 로 통일
+  avatar?: string | null;
   status: MembershipStatus; // PENDING, MEMBER, REJECTED
   appliedAt: string;
 };
+
+// --- API Interface ---
+export interface MeetingApi {
+  listHotMeetings(opts?: { limit?: number; withinMinutes?: number }): Promise<HotMeetingItem[]>;
+  listMeetings(opts?: { category?: CategoryKey | "ALL"; sort?: HomeSort }): Promise<MeetingPost[]>;
+  listMeetingsAround(
+    lat: number,
+    lng: number,
+    opts?: AroundMeetingsOptions
+  ): Promise<MeetingPost[]>;
+  getMeeting(id: string): Promise<MeetingPost>;
+
+  createMeeting(data: MeetingParams): Promise<MeetingPost>;
+  updateMeeting(id: string, data: Partial<MeetingParams>): Promise<MeetingPost>;
+  joinMeeting(id: string): Promise<{ post: MeetingPost; membershipStatus: MembershipStatus }>;
+  cancelJoin(id: string): Promise<{ post: MeetingPost }>;
+  cancelMeeting(id: string): Promise<{ post: MeetingPost }>;
+
+  // 참여자 관리
+  getParticipants(meetingId: string): Promise<Participant[]>;
+  approveParticipant(meetingId: string, userId: string): Promise<Participant[]>;
+  rejectParticipant(meetingId: string, userId: string): Promise<Participant[]>;
+}

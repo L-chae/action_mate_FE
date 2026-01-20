@@ -1,28 +1,30 @@
+// src/features/meetings/ui/ProfileModal.tsx
 import React from "react";
 import { Modal, View, Text, StyleSheet, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { withAlpha } from "@/shared/theme/colors"; 
 import type { HostSummary } from "../model/types";
 
-// 🔥 매너 온도 바 (내부 컴포넌트)
+// 🔥 매너 온도 바 (시각적 바)
 function MannerTempBar({ temp }: { temp: number }) {
   const t = useAppTheme();
-  // 36.5도 기준: 높으면 Primary(Coral), 낮으면 Gray
+  // 36.5도 기준
   const isHigh = temp >= 36.5;
-  const color = isHigh ? t.colors.primary : t.colors.neutral[500];
-  const widthPercent = Math.min(100, Math.max(0, (temp / 100) * 100)); // 0~100도 기준
+  const color = isHigh ? t.colors.primary : t.colors.textSub;
+  
+  // 0~100도 범위 퍼센트
+  const widthPercent = Math.min(100, Math.max(0, (temp / 100) * 100)); 
+  const trackColor = t.colors.overlay?.[12] ?? t.colors.border;
 
   return (
     <View style={{ width: "100%", gap: 6 }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" }}>
-        <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>매너온도</Text>
-        <Text style={[t.typography.titleMedium, { color, fontWeight: "700" }]}>
-          {temp}°C {isHigh ? "😊" : "😐"}
-        </Text>
-      </View>
-      <View style={{ height: 8, backgroundColor: t.colors.neutral[200], borderRadius: 4, overflow: "hidden" }}>
+      <View style={{ height: 8, backgroundColor: trackColor, borderRadius: 4, overflow: "hidden" }}>
         <View style={{ width: `${widthPercent}%`, height: "100%", backgroundColor: color, borderRadius: 4 }} />
       </View>
+      <Text style={[t.typography.bodySmall, { color: t.colors.textSub, textAlign: 'right' }]}>
+        매너온도 상세
+      </Text>
     </View>
   );
 }
@@ -38,25 +40,47 @@ export function ProfileModal({
   onClose: () => void;
 }) {
   const t = useAppTheme();
+  const isDark = t.mode === "dark";
+
+  // 색상 토큰
+  const surfaceColor = t.colors.surface;
+  const iconColor = t.colors.textSub;
+  const dividerColor = t.colors.divider ?? t.colors.border;
+  const boxBg = t.colors.overlay?.[6] ?? "#fafafa"; 
+  const ratingColor = t.colors.ratingStar ?? "#FFB800"; // 별점 색상 (없으면 노란색)
+
+  // 배경 (이미지 없을 때)
+  const fallbackBg = user.avatar ? "transparent" : t.colors.primary; 
+  const fallbackText = "#FFFFFF";
+
+  // ✅ 별점 계산 (매너온도 기반)
+  // (온도 - 32) / 10 * 5 공식 (최소 0, 최대 5)
+  const rawRating = ((user.mannerTemp - 32) / 10) * 5;
+  const rating = Math.max(0, Math.min(5, Number(rawRating.toFixed(1))));
+
+  // ✅ 아이콘 배경색
+  const iconCircleStar = withAlpha(ratingColor, 0.15);
+  const iconCircleTemp = withAlpha(t.colors.primary, 0.15);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        {/* 뒷배경 누르면 닫기 */}
         <Pressable style={styles.backdrop} onPress={onClose} />
         
-        <View style={[styles.card, { backgroundColor: t.colors.surface }]}>
-          {/* 닫기 버튼 (우측 상단) */}
+        <View style={[styles.card, { backgroundColor: surfaceColor }]}>
+          {/* 닫기 버튼 */}
           <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={10}>
-            <Ionicons name="close" size={24} color={t.colors.textSub} />
+            <Ionicons name="close" size={24} color={iconColor} />
           </Pressable>
 
           {/* 1. 프로필 이미지 */}
-          <View style={[styles.avatarContainer, { backgroundColor: t.colors.neutral[100] }]}>
-            {user.avatarUrl ? (
-              <Image source={{ uri: user.avatarUrl }} style={styles.avatarImg} />
+          <View style={[styles.avatarContainer, { backgroundColor: fallbackBg, borderColor: t.colors.border }]}>
+            {user.avatar ? (
+              <Image source={{ uri: user.avatar }} style={styles.avatarImg} />
             ) : (
-              <Ionicons name="person" size={48} color={t.colors.neutral[400]} />
+              <Text style={[t.typography.headlineMedium, { color: fallbackText, fontWeight: "bold" }]}>
+                {user.nickname?.slice(0, 1) || "?"}
+              </Text>
             )}
           </View>
 
@@ -64,41 +88,41 @@ export function ProfileModal({
           <Text style={[t.typography.headlineSmall, { marginTop: 16, color: t.colors.textMain }]}>
             {user.nickname}
           </Text>
-          
-          {/* ✅ 소개글 (쌍따옴표 포함하여 출력) */}
-          <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, marginTop: 8, textAlign: 'center', lineHeight: 20 }]}>
-            {`"${user.intro || "자기소개가 없습니다."}"`}
+          <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, marginTop: 8, textAlign: 'center', lineHeight: 20, paddingHorizontal: 10 }]}>
+            {`"${user.intro || "안녕하세요! 같이 즐겁게 활동해요."}"`}
           </Text>
 
-          {/* 3. 스탯 정보 (칭찬 / 인증) */}
+          {/* 3. 스탯 정보 (별점 / 매너온도) */}
           <View style={styles.statsRow}>
-            {/* 받은 칭찬 */}
+            
+            {/* ⭐ 별점 */}
             <View style={styles.statItem}>
-              <View style={[styles.iconCircle, { backgroundColor: t.colors.primaryLight }]}>
-                <Ionicons name="heart" size={20} color={t.colors.primary} />
+              <View style={[styles.iconCircle, { backgroundColor: iconCircleStar }]}>
+                <Ionicons name="star" size={24} color={ratingColor} />
               </View>
-              <Text style={[t.typography.labelMedium, { marginTop: 6, color: t.colors.textSub }]}>받은 칭찬</Text>
-              <Text style={[t.typography.titleMedium, { color: t.colors.textMain, marginTop: 2 }]}>
-                {user.kudosCount}
+              <Text style={[t.typography.labelMedium, { marginTop: 8, color: t.colors.textSub }]}>별점</Text>
+              <Text style={[t.typography.titleMedium, { color: t.colors.textMain, marginTop: 2, fontWeight: "700" }]}>
+                {rating}
               </Text>
             </View>
             
-            <View style={[styles.divider, { backgroundColor: t.colors.neutral[200] }]} />
+            <View style={[styles.divider, { backgroundColor: dividerColor }]} />
 
-            {/* 본인 인증 */}
+            {/* 🔥 매너온도 */}
             <View style={styles.statItem}>
-              <View style={[styles.iconCircle, { backgroundColor: t.colors.neutral[100] }]}>
-                <Ionicons name="shield-checkmark" size={20} color={t.colors.success} />
+              <View style={[styles.iconCircle, { backgroundColor: iconCircleTemp }]}>
+                <Ionicons name="thermometer" size={24} color={t.colors.primary} />
               </View>
-              <Text style={[t.typography.labelMedium, { marginTop: 6, color: t.colors.textSub }]}>인증 완료</Text>
-              <Text style={[t.typography.titleMedium, { color: t.colors.textMain, marginTop: 2 }]}>
-                본인
+              <Text style={[t.typography.labelMedium, { marginTop: 8, color: t.colors.textSub }]}>매너온도</Text>
+              <Text style={[t.typography.titleMedium, { color: t.colors.textMain, marginTop: 2, fontWeight: "700" }]}>
+                {user.mannerTemp}°C
               </Text>
             </View>
+
           </View>
 
-          {/* 4. 매너 온도 바 */}
-          <View style={[styles.tempBox, { backgroundColor: t.colors.neutral[50] }]}>
+          {/* 4. 매너 온도 바 (시각적 표시) */}
+          <View style={[styles.tempBox, { backgroundColor: boxBg }]}>
             <MannerTempBar temp={user.mannerTemp} />
           </View>
 
@@ -126,6 +150,7 @@ const styles = StyleSheet.create({
     borderRadius: 24, 
     padding: 24, 
     alignItems: "center", 
+    // 그림자
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -136,7 +161,8 @@ const styles = StyleSheet.create({
     position: "absolute", 
     right: 16, 
     top: 16, 
-    padding: 4 
+    padding: 4,
+    zIndex: 1,
   },
   avatarContainer: { 
     width: 90, 
@@ -145,7 +171,8 @@ const styles = StyleSheet.create({
     justifyContent: "center", 
     alignItems: "center", 
     marginBottom: 4,
-    overflow: 'hidden'
+    overflow: 'hidden',
+    borderWidth: 1,
   },
   avatarImg: { 
     width: "100%", 
@@ -163,9 +190,9 @@ const styles = StyleSheet.create({
     width: 80 
   },
   iconCircle: { 
-    width: 44, 
-    height: 44, 
-    borderRadius: 22, 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
     justifyContent: "center", 
     alignItems: "center" 
   },
@@ -176,6 +203,7 @@ const styles = StyleSheet.create({
   tempBox: { 
     width: "100%", 
     padding: 20, 
+    paddingBottom: 16, // 텍스트 간격 조절
     borderRadius: 16 
   },
 });

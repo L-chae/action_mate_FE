@@ -1,3 +1,4 @@
+// src/features/meetings/ui/DetailContent.tsx
 import React, { useMemo } from "react";
 import type { ReactNode } from "react";
 import {
@@ -77,22 +78,21 @@ function getDurationLabel(mins?: number | null) {
   return `${m}분`;
 }
 
+// ✅ [수정] 댓글에서 아바타 URL 추출 로직 개선 (User 모델의 avatar 우선)
 function pickAvatarUrlFromComment(item: Comment, post: MeetingPost): string | undefined {
-  // 의도: 데이터 스키마가 유동적이라 후보 필드를 넓게 잡아 안전하게 표시
   const anyItem = item as any;
-  const direct =
-    anyItem?.authorAvatarUrl ??
-    anyItem?.authorPhotoUrl ??
-    anyItem?.authorImageUrl ??
-    anyItem?.avatarUrl ??
-    undefined;
 
-  if (typeof direct === "string" && direct.trim()) return direct;
+  // 1. Comment 객체 안에 author 객체가 있고 그 안에 avatar가 있는 경우 (Best)
+  if (anyItem.author?.avatar) return anyItem.author.avatar;
 
-  // 호스트가 댓글을 달았고 host.avatarUrl이 있으면 그걸 사용
+  // 2. Comment 객체에 평탄화(Flatten)된 필드로 있는 경우
+  if (anyItem.authorAvatar) return anyItem.authorAvatar;
+  if (anyItem.avatar) return anyItem.avatar;
+
+  // 3. (Fallback) 호스트가 쓴 댓글이면 게시글의 호스트 정보를 사용
   if (item.authorId && post?.host?.id && String(item.authorId) === String(post.host.id)) {
-    const hostAvatar = (post.host as any)?.avatarUrl ?? (post.host as any)?.photoUrl;
-    if (typeof hostAvatar === "string" && hostAvatar.trim()) return hostAvatar;
+    // post.host는 User 타입이므로 avatar 필드 사용
+    return post.host.avatar || undefined; 
   }
 
   return undefined;
@@ -162,7 +162,7 @@ type DetailContentProps = {
 
   onPressHostProfile: () => void;
 
-  // ✅ 추가: 댓글 작성자(프로필) 클릭
+  // 댓글 작성자(프로필) 클릭
   onPressCommentAuthor?: (payload: { id: string; nickname: string; avatarUrl?: string }) => void;
 
   onReply: (c: Comment) => void;
@@ -238,19 +238,22 @@ export function DetailContent({
   const metaToken = meta[0];
   const rightToken = right[0];
 
-  // ✅ 시간 라벨: meetingTime(ISO) 기준으로 생성
+  // ✅ 시간 라벨
   const timeLabel = useMemo(() => {
     const iso = post.meetingTime || (post as any).meetingTimeIso;
     return iso ? meetingTimeTextFromIso(iso) : "";
   }, [post.meetingTime]);
 
-  // ✅ 지도 좌표: 무조건 number로 안전 변환 (문자열/undefined/NaN 방어)
+  // ✅ 지도 좌표
   const map = useMemo(() => {
     const lat = Number((post as any).locationLat);
     const lng = Number((post as any).locationLng);
     const ok = Number.isFinite(lat) && Number.isFinite(lng);
     return { lat, lng, ok };
   }, [post]);
+
+  // ✅ [수정] 호스트 아바타 URL 추출 (User 모델의 avatar 사용)
+  const hostAvatarUrl = post.host?.avatar || null;
 
   return (
     <ScrollView
@@ -304,8 +307,9 @@ export function DetailContent({
           ]}
         >
           <View style={[styles.hostAvatar, { backgroundColor: subtleBg }]}>
-            {post.host?.avatarUrl ? (
-              <Image source={{ uri: post.host.avatarUrl }} style={styles.avatarImg} />
+            {/* ✅ [수정] hostAvatarUrl 사용 */}
+            {hostAvatarUrl ? (
+              <Image source={{ uri: hostAvatarUrl }} style={styles.avatarImg} />
             ) : (
               <Ionicons name="person" size={20} color={mutedIcon} />
             )}
@@ -319,7 +323,7 @@ export function DetailContent({
               </View>
             </View>
 
-            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>매너 {post.host?.mannerTemp}°C</Text>
+            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>매너 {post.host?.mannerTemp ?? 36.5}°C</Text>
           </View>
 
           <Ionicons name="chevron-forward" size={20} color={mutedIcon} />
@@ -417,6 +421,7 @@ export function DetailContent({
                 const reply = parseReplyPrefix(item.content);
                 const isReply = !!reply;
 
+                // ✅ [수정] 개선된 헬퍼 함수 사용
                 const avatarUrl = pickAvatarUrlFromComment(item, post);
 
                 const onPressAuthor = () => {
@@ -424,6 +429,7 @@ export function DetailContent({
                   const id = String((item as any)?.authorId ?? "");
                   const nickname = String((item as any)?.authorNickname ?? "");
                   if (!id || !nickname) return;
+                  // avatarUrl 전달
                   onPressCommentAuthor({ id, nickname, avatarUrl });
                 };
 
@@ -678,12 +684,7 @@ const styles = StyleSheet.create({
   },
 
   commentActions: { flexDirection: "row", marginTop: 8 },
-  // 액션 간격은 gap 대신 margin
-  // 각 Text Pressable이 붙지 않게 최소 간격만 줌
-  // (Pressable 자체에 marginRight를 주면 hit area도 자연스럽게 유지됨)
-  // eslint-disable-next-line react-native/no-inline-styles
-  // 실제 사용처에서 필요하면 각각에 marginRight 추가 가능
-
+  
   composerWrap: { marginTop: 14, borderWidth: 1, borderRadius: 14, overflow: "hidden" },
   composerStatus: {
     paddingHorizontal: 12,

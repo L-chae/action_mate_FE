@@ -1,10 +1,10 @@
-// features/meetings/mocks/meetingMockData.ts
+// src/features/meetings/mocks/meetingMockData.ts
 import type { HostSummary, MeetingPost } from "../model/types";
 
 /**
  * ✅ 목업 원본만 담당
  * ✅ durationMinutes(정식 필드)로 통일
- * - 기존 durationHours 제거/미사용
+ * ✅ avatarUrl -> avatar 필드명 변경 완료
  */
 
 // ✅ Mock Hosts
@@ -15,7 +15,8 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemp: 37.5,
     kudosCount: 12,
     intro: "운동 끝나고 맥주 한잔 좋아해요 🍺",
-    avatarUrl: "https://i.pravatar.cc/150?u=u1",
+    // ✅ [수정] avatarUrl -> avatar
+    avatar: "https://i.pravatar.cc/150?u=u1",
   },
   user2: {
     id: "u2",
@@ -23,7 +24,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemp: 42.0,
     kudosCount: 56,
     intro: "전략 게임 전문입니다. 초보 환영!",
-    avatarUrl: "https://i.pravatar.cc/150?u=u2",
+    avatar: "https://i.pravatar.cc/150?u=u2",
   },
   user3: {
     id: "u3",
@@ -31,6 +32,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemp: 36.5,
     kudosCount: 3,
     intro: "매일 아침 6시 뜁니다.",
+    // avatar 없음
   },
   user4: {
     id: "u4",
@@ -38,7 +40,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemp: 38.2,
     kudosCount: 20,
     intro: "맛없는 건 안 먹어요 🙅‍♂️",
-    avatarUrl: "https://i.pravatar.cc/150?u=u4",
+    avatar: "https://i.pravatar.cc/150?u=u4",
   },
   user5: {
     id: "u5",
@@ -46,7 +48,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemp: 39.1,
     kudosCount: 8,
     intro: "집중모드 환영. 말없이 각자 코딩해요.",
-    avatarUrl: "https://i.pravatar.cc/150?u=u5",
+    avatar: "https://i.pravatar.cc/150?u=u5",
   },
   user6: {
     id: "u6",
@@ -61,7 +63,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemp: 36.8,
     kudosCount: 0,
     intro: "내가 만든 모임이에요 🙂",
-    avatarUrl: "https://i.pravatar.cc/150?u=me",
+    avatar: "https://i.pravatar.cc/150?u=me",
   },
 };
 
@@ -78,7 +80,7 @@ const d = (daysFromNow: number, hour = 12, minute = 0) => {
 // ✅ durationMinutes 헬퍼 (타입 통일용)
 const mins = (m: number) => m;
 
-// ✅ 목업 모임 원본 (meetingTimeText 제거)
+// ✅ 목업 모임 원본
 export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "101",

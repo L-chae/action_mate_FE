@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,28 +17,24 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";//“화면 포커스될 때마다 재조회”
+import { useFocusEffect } from "@react-navigation/native"; 
 
-
-// ✅ Shared UI & Hooks
-import AppLayout from "@/shared/ui/AppLayout";
-import TopBar from "@/shared/ui/TopBar";
-import { useAppTheme } from "@/shared/hooks/useAppTheme";
-import { useKeyboardAwareScroll } from "./hooks/useKeyboardAwareScroll";
-
-// ✅ API & Types
+// ✅ Store & API
+import { useAuthStore } from "@/features/auth/model/authStore";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, Comment, Participant } from "@/features/meetings/model/types";
 
-// ✅ UI Components
+// ✅ UI & Hooks
+import AppLayout from "@/shared/ui/AppLayout";
+import TopBar from "@/shared/ui/TopBar";
+import NotiButton from "@/shared/ui/NotiButton";
+import { useAppTheme } from "@/shared/hooks/useAppTheme";
+import { useKeyboardAwareScroll } from "./hooks/useKeyboardAwareScroll";
 import { ProfileModal } from "@/features/meetings/ui/ProfileModal";
 import { DetailContent } from "./ui/DetailContent";
 import { BottomBar } from "./ui/BottomBar";
-import NotiButton from "@/shared/ui/NotiButton";
 
-// =====================
-// Constants / Mock
-// =====================
+// Mock Data
 const MOCK_COMMENTS: Comment[] = [
   {
     id: "c1",
@@ -58,7 +54,7 @@ const MOCK_COMMENTS: Comment[] = [
   },
 ];
 
-const CURRENT_USER_ID = "me";
+// ✅ 헤더 높이 상수 (AppLayout 헤더 높이와 일치해야 덜컹거리지 않음)
 const TOPBAR_HEIGHT = 56;
 
 export default function MeetingDetailScreen() {
@@ -68,36 +64,41 @@ export default function MeetingDetailScreen() {
   const params = useLocalSearchParams();
   const meetingId = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  // --- 1. State ---
+  // 내 정보
+  const me = useAuthStore((s) => s.user);
+  const currentUserId = me?.id ? String(me.id) : "guest";
+
+  // --- State ---
   const [post, setPost] = useState<MeetingPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileVisible, setProfileVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
-
-  // Host Management (pendingCount 뱃지 표시용으로만 유지)
   const [participants, setParticipants] = useState<Participant[]>([]);
-
-  // UI / Layout
+  
+  // UI State
   const [bottomBarHeight, setBottomBarHeight] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  
+  // Comments State
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [replyTarget, setReplyTarget] = useState<Comment | null>(null);
   const [editingComment, setEditingComment] = useState<Comment | null>(null);
 
-  // --- 2. Refs & Hooks ---
+  // --- Refs ---
   const inputRef = useRef<TextInput | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const contentHeightRef = useRef(0);
   const scrollViewHeightRef = useRef(0);
   const stickToBottomRef = useRef(true);
 
+  // --- Keyboard Logic ---
   const { isKeyboardVisible } = useKeyboardAwareScroll(() => {
+    // 키보드가 나타날 때 스크롤을 맨 아래로 부드럽게 이동
     stickToBottomRef.current = true;
     scrollToBottomSoon(true);
   });
 
-  // Keyboard height tracking (Android padding 계산에 사용)
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) =>
       setKeyboardHeight(e.endCoordinates.height)
@@ -109,55 +110,70 @@ export default function MeetingDetailScreen() {
     };
   }, []);
 
-  // --- 3. Calculations ---
-  const isAuthor = post?.host?.id === CURRENT_USER_ID;
+  // --- Computed Values ---
+  const isAuthor = post?.host?.id === currentUserId || post?.host?.id === "me";
   const membership = post?.myState?.membershipStatus ?? "NONE";
   const canJoin = post?.myState?.canJoin ?? post?.status === "OPEN";
-
-  // pendingCount: HOST일 때만 participants가 채워짐
   const pendingCount = participants.filter((p) => p.status === "PENDING").length;
 
-  const effectiveBottomBarHeight = isKeyboardVisible ? 0 : bottomBarHeight;
+  // ✅ 하단 패딩 계산 (자연스러운 스크롤을 위해 중요)
   const contentBottomPadding =
-    effectiveBottomBarHeight + 20 + (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
+    (isKeyboardVisible ? 0 : bottomBarHeight) + 20 + (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
+  
+  // ✅ 키보드 오프셋 계산 (헤더 높이 + 노치 영역 고려)
+  const keyboardVerticalOffset = Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : 0;
 
-  const keyboardVerticalOffset = Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : TOPBAR_HEIGHT;
+  // 호스트 정보 동기화
+  const displayHost = useMemo(() => {
+    if (!post?.host) return null;
+    if (isAuthor && me) {
+      return { ...post.host, nickname: me.nickname, avatar: me.avatar };
+    }
+    return post.host;
+  }, [post?.host, isAuthor, me]);
 
-  // --- 4. Scroll Logic ---
-  const scrollToBottomWithoutGap = (animated = true) => {
-    const y = Math.max(0, contentHeightRef.current - scrollViewHeightRef.current - contentBottomPadding);
-    scrollViewRef.current?.scrollTo({ y, animated });
+  // 본문 표시용 데이터
+  const displayPost = useMemo(() => {
+    if (!post) return null;
+    return { ...post, host: displayHost ?? post.host };
+  }, [post, displayHost]);
+
+  // --- Scroll Helpers ---
+  const scrollToBottomSoon = (animated = true) => {
+    setTimeout(() => {
+      if (scrollViewRef.current) {
+        scrollViewRef.current.scrollToEnd({ animated });
+      }
+    }, 100);
   };
-
-  const scrollToBottomSoon = (animated = true) => setTimeout(() => scrollToBottomWithoutGap(animated), 60);
 
   const handleScroll = (e: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-    const distanceFromBottom =
-      contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
+    // 사용자가 스크롤을 올렸는지 감지 (24px 여유)
     stickToBottomRef.current = distanceFromBottom < 24;
   };
 
   const scrollComposerToKeyboard = () => {
+    // 인풋창이 키보드에 가려지지 않게 스크롤 조정
     const node = findNodeHandle(inputRef.current);
     const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
     if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
-      responder.scrollResponderScrollNativeHandleToKeyboard(node, Platform.OS === "android" ? 28 : 12, true);
+      responder.scrollResponderScrollNativeHandleToKeyboard(node, Platform.OS === "android" ? 20 : 12, true);
     } else {
       scrollToBottomSoon(true);
     }
   };
 
-  // --- 5. Data Loading ---
+  // --- Data Loading ---
   const loadInitialData = useCallback(async () => {
     if (!meetingId) return;
     try {
-      const m = await meetingApi.getMeeting(meetingId);
+      const m = await meetingApi.getMeeting(meetingId as string);
       setPost(m);
       setComments(MOCK_COMMENTS.filter((c) => c.postId === String(m.id)));
 
-      // HOST일 때만 pendingCount 계산을 위해 participants 로드
-      if (m.myState?.membershipStatus === "HOST" || m.host?.id === CURRENT_USER_ID) {
+      if (m.myState?.membershipStatus === "HOST" || m.host?.id === currentUserId) {
         const parts = await meetingApi.getParticipants(m.id);
         setParticipants(parts);
       } else {
@@ -165,19 +181,19 @@ export default function MeetingDetailScreen() {
       }
     } catch (e) {
       console.error(e);
+      Alert.alert("오류", "모임 정보를 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
-  }, [meetingId]);
+  }, [meetingId, currentUserId]);
 
-useFocusEffect(
-  useCallback(() => {
-    // 포커스될 때마다 최신 데이터로 동기화
-    loadInitialData();
-  }, [loadInitialData])
-);
+  useFocusEffect(
+    useCallback(() => {
+      loadInitialData();
+    }, [loadInitialData])
+  );
 
-  // --- 6. Handlers ---
+  // --- Handlers ---
   const handleCancelInputMode = () => {
     setReplyTarget(null);
     setEditingComment(null);
@@ -200,11 +216,10 @@ useFocusEffect(
 
   const handleCancelJoin = () => {
     if (!post) return;
-    const isPending = membership === "PENDING";
-    Alert.alert(isPending ? "요청 취소" : "모임 나가기", "정말 처리하시겠습니까?", [
-      { text: "아니요", style: "cancel" },
+    Alert.alert(membership === "PENDING" ? "요청 취소" : "모임 나가기", "정말 처리하시겠습니까?", [
+      { text: "취소", style: "cancel" },
       {
-        text: "네",
+        text: "확인",
         style: "destructive",
         onPress: async () => {
           try {
@@ -222,29 +237,26 @@ useFocusEffect(
     if (!commentText.trim()) return;
 
     if (editingComment) {
-      setComments((prev) =>
-        prev.map((c) => (c.id === editingComment.id ? { ...c, content: commentText } : c))
-      );
+      setComments((prev) => prev.map((c) => (c.id === editingComment.id ? { ...c, content: commentText } : c)));
       setEditingComment(null);
     } else {
       const newComment: Comment = {
         id: `new_${Date.now()}`,
         postId: String(post?.id),
-        authorId: CURRENT_USER_ID,
-        authorNickname: "나",
+        authorId: currentUserId,
+        authorNickname: me?.nickname || "나",
+        authorAvatar: me?.avatar,
         content: replyTarget ? `@${replyTarget.authorNickname} ${commentText}` : commentText,
         createdAt: new Date().toISOString(),
       };
       setComments((prev) => [...prev, newComment]);
     }
-
     setCommentText("");
     setReplyTarget(null);
-    Keyboard.dismiss();
+    Keyboard.dismiss(); // 전송 후 키보드 내리기 (선택사항)
     scrollToBottomSoon(true);
   };
 
-  // --- 7. Render ---
   if (loading || !post) {
     return (
       <AppLayout>
@@ -258,21 +270,21 @@ useFocusEffect(
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      {post.host && (
-        <ProfileModal visible={profileVisible} user={post.host} onClose={() => setProfileVisible(false)} />
+      
+      {/* 프로필 모달 */}
+      {displayHost && (
+        <ProfileModal 
+          visible={profileVisible} 
+          user={displayHost} 
+          onClose={() => setProfileVisible(false)} 
+        />
       )}
 
-      {/* 관리 메뉴 모달 */}
+      {/* 메뉴 모달 */}
       <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
-          <View
-            style={[
-              styles.modalContent,
-              { paddingBottom: Math.max(20, insets.bottom), backgroundColor: t.colors.surface },
-            ]}
-          >
+          <View style={[styles.modalContent, { paddingBottom: Math.max(20, insets.bottom), backgroundColor: t.colors.surface }]}>
             <View style={styles.dragHandle} />
-
             <Pressable
               style={styles.menuItem}
               onPress={() => {
@@ -283,19 +295,26 @@ useFocusEffect(
               <Ionicons name="pencil-outline" size={20} color={t.colors.textMain} />
               <Text style={t.typography.bodyLarge}>게시글 수정</Text>
             </Pressable>
-
             <View style={[styles.menuDivider, { backgroundColor: t.colors.neutral[100] }]} />
-
             <Pressable
               style={styles.menuItem}
-              onPress={async () => {
+              onPress={() => {
                 setMenuVisible(false);
-                try {
-                  await meetingApi.cancelMeeting(post.id);
-                  router.back();
-                } catch {
-                  Alert.alert("오류", "삭제 실패");
-                }
+                Alert.alert("모임 삭제", "정말로 삭제하시겠습니까?", [
+                  { text: "취소", style: "cancel" },
+                  { 
+                    text: "삭제", 
+                    style: "destructive", 
+                    onPress: async () => {
+                      try {
+                        await meetingApi.cancelMeeting(post.id);
+                        router.back();
+                      } catch {
+                        Alert.alert("오류", "삭제 실패");
+                      }
+                    } 
+                  }
+                ]);
               }}
             >
               <Ionicons name="trash-outline" size={20} color={t.colors.error} />
@@ -312,29 +331,27 @@ useFocusEffect(
           showBack
           onPressBack={() => router.back()}
           showNoti={false}
-          renderRight={() =>
-            isAuthor ? (
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                {pendingCount > 0 && (
-                  <View style={{ marginRight: 10 }}>
-                    <NotiButton
-                      color={t.colors.icon.default}
-                      backgroundColor={t.colors.background} 
-                      count={pendingCount}
-                      size={24}
-                      onPress={() => router.push(`/meetings/manage/${post.id}` as any)}
-                    />
-                  </View>
-                )}
-
-                <Pressable onPress={() => setMenuVisible(true)} hitSlop={12} style={{ padding: 4 }}>
-                  <Ionicons name="ellipsis-vertical" size={24} color={t.colors.icon.default} />
-                </Pressable>
-              </View>
-            ) : null
-          }
+          renderRight={() => isAuthor ? (
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {pendingCount > 0 && (
+                <View style={{ marginRight: 10 }}>
+                  <NotiButton
+                    color={t.colors.icon.default}
+                    backgroundColor={t.colors.background} 
+                    count={pendingCount}
+                    size={24}
+                    onPress={() => router.push(`/meetings/manage/${post.id}` as any)}
+                  />
+                </View>
+              )}
+              <Pressable onPress={() => setMenuVisible(true)} hitSlop={12} style={{ padding: 4 }}>
+                <Ionicons name="ellipsis-vertical" size={24} color={t.colors.icon.default} />
+              </Pressable>
+            </View>
+          ) : null}
         />
 
+        {/* ✅ 키보드 회피 뷰 설정 (iOS/Android 분기) */}
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={keyboardVerticalOffset}
@@ -342,9 +359,9 @@ useFocusEffect(
         >
           <DetailContent
             t={t}
-            post={post}
+            post={displayPost || post}
             comments={comments}
-            currentUserId={CURRENT_USER_ID}
+            currentUserId={currentUserId}
             scrollViewRef={scrollViewRef}
             bottomPadding={contentBottomPadding}
             onPressHostProfile={() => setProfileVisible(true)}
@@ -399,8 +416,6 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   modalContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 10 },
   dragHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#E5E5E5", alignSelf: "center", marginVertical: 10 },
-
-  // ✅ RN 안전: gap 대신 margin 사용 (아이콘+텍스트 간격)
-  menuItem: { flexDirection: "row", alignItems: "center", paddingVertical: 16 },
+  menuItem: { flexDirection: "row", alignItems: "center", paddingVertical: 16, gap: 12 },
   menuDivider: { height: 1, width: "100%" },
 });
