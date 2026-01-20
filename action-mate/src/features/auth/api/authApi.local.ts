@@ -37,8 +37,7 @@ async function writeJSON(key: string, value: unknown) {
 export async function seedMockUsers(): Promise<void> {
   let users = await readJSON<StoredUser[]>(KEY_USERS, []);
 
-  // 🚨 데이터 정합성 체크: 저장된 유저 중에 loginId가 없는 구버전 데이터가 있다면?
-  // -> 싹 지우고 새로 만듭니다. (개발 편의성 위함)
+  // 🚨 데이터 정합성 체크
   const isCorrupted = users.some((u) => !u.loginId); 
 
   if (users.length === 0 || isCorrupted) {
@@ -148,6 +147,37 @@ const authApi: AuthApi = {
     return user;
   },
 
+  /**
+   * ✅ [NEW] 유저 정보 수정 (프로필 변경 등)
+   * 이 부분이 추가되어야 에러가 사라지고 프로필 저장이 작동합니다.
+   */
+  async updateUser(loginId: string, patch: Partial<User>): Promise<User> {
+    const targetId = normId(loginId);
+    const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+    
+    // 유저 인덱스 찾기
+    const idx = users.findIndex((u) => u.loginId && normId(u.loginId) === targetId);
+    
+    if (idx === -1) {
+      throw new Error("사용자를 찾을 수 없습니다.");
+    }
+
+    // 기존 유저 정보 + 수정된 정보 병합 (password는 기존 것 유지)
+    const existingUser = users[idx];
+    const updatedUser: StoredUser = {
+      ...existingUser,
+      ...patch, // 닉네임, 생일, 성별, 아바타 등이 덮어씌워짐
+    };
+
+    // 저장소에 업데이트된 리스트 저장
+    users[idx] = updatedUser;
+    await writeJSON(KEY_USERS, users);
+
+    // 반환 시에는 비밀번호 제외하고 반환
+    const { password: _pw, ...safeUser } = updatedUser;
+    return safeUser;
+  },
+
   async updatePassword(loginId: string, newPassword: string): Promise<void> {
     const targetId = normId(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
@@ -191,4 +221,6 @@ const authApi: AuthApi = {
   },
 };
 
+// named export와 default export 둘 다 지원하도록 설정
+export { authApi };
 export default authApi;

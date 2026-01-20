@@ -1,5 +1,4 @@
-// src/features/settings/ProfileSettingsScreen.tsx
-import React, { useCallback, useMemo, useState, useEffect } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,12 +9,12 @@ import {
   Text,
   TextInput,
   View,
-  Image, // ✅ Image 컴포넌트 추가
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as ImagePicker from "expo-image-picker"; // ✅ 패키지 임포트
+import * as ImagePicker from "expo-image-picker";
 
 import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
@@ -24,9 +23,9 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
 
 import { useAuthStore } from "@/features/auth/model/authStore";
-import type { Gender } from "@/features/auth/model/types";
+import type { Gender, User } from "@/features/auth/model/types";
 
-// ... (기존 타입 정의 및 유효성 검사 함수들은 동일하므로 생략하지 않고 그대로 둡니다) ...
+// --- 타입 및 유틸리티 (변경 없음) ---
 type FieldKey = "nickname" | "birthDate";
 type FieldRowProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -81,7 +80,7 @@ function genderLabel(g: Gender | "none" | null | undefined) {
   return "선택 안 함";
 }
 
-// FieldRow 컴포넌트 (변경 없음)
+// FieldRow 컴포넌트
 function FieldRow({
   icon,
   label,
@@ -142,7 +141,7 @@ function FieldRow({
   );
 }
 
-// SegmentedGender 컴포넌트 (변경 없음)
+// SegmentedGender 컴포넌트
 function SegmentedGender({ value, onChange, disabled }: { value: Gender | "none"; onChange: (v: Gender | "none") => void; disabled?: boolean; }) {
   const t = useAppTheme();
   const btnBase = { flex: 1, height: 48, borderRadius: 12, borderWidth: 1, alignItems: "center" as const, justifyContent: "center" as const };
@@ -175,39 +174,36 @@ function SegmentedGender({ value, onChange, disabled }: { value: Gender | "none"
   );
 }
 
+// === [메인 스크린] ===
 export default function ProfileSettingsScreen() {
   const t = useAppTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const me = useAuthStore((s) => (s as any).user ?? (s as any).me);
-  const updateProfile = useAuthStore((s) => (s as any).updateProfile);
-  const patchUser = useAuthStore((s) => (s as any).patchUser);
-  const setUser = useAuthStore((s) => (s as any).setUser);
+  // ✅ Store에서 타입 안전하게 가져오기 (as any 제거)
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
 
+  // 초기값 설정
   const initial = useMemo(() => {
-    const nn = typeof me?.nickname === "string" ? me.nickname : typeof me?.name === "string" ? me.name : "";
-    const bd = typeof (me as any)?.birthDate === "string" ? (me as any).birthDate : "";
-    const gd = ((me as any)?.gender as Gender | "none" | undefined) ?? "none";
-    // ✅ 아바타/프로필 이미지 초기값 로드
-    const av = typeof (me as any)?.avatar === "string" ? (me as any).avatar : null;
     return {
-      nickname: nn,
-      birthDate: bd,
-      gender: gd === "male" || gd === "female" ? gd : "none",
-      avatar: av,
+      nickname: user?.nickname ?? "",
+      birthDate: user?.birthDate ?? "",
+      gender: (user?.gender === "male" || user?.gender === "female") ? user.gender : "none",
+      avatar: user?.avatar ?? null,
     } as const;
-  }, [me]);
+  }, [user]);
 
   const [nickname, setNickname] = useState<string>(initial.nickname);
   const [birthDate, setBirthDate] = useState<string>(initial.birthDate);
   const [gender, setGender] = useState<Gender | "none">(initial.gender);
-  // ✅ 아바타 상태 추가
   const [avatar, setAvatar] = useState<string | null>(initial.avatar);
   
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState<Record<FieldKey, boolean>>({ nickname: false, birthDate: false });
 
+  // 유효성 검사 로직
   const normalizedNick = useMemo(() => normalizeNickname(nickname), [nickname]);
   const normalizedBirth = useMemo(() => normalizeBirthForSave(birthDate), [birthDate]);
 
@@ -218,25 +214,22 @@ export default function ProfileSettingsScreen() {
     return isValidBirth(v);
   }, [birthDate]);
 
+  // 변경 여부 확인
   const isDirty = useMemo(() => {
     const aNick = normalizeNickname(initial.nickname);
     const aBirth = normalizeBirthForSave(initial.birthDate);
-    // ✅ 아바타 변경 여부도 isDirty에 포함
     const avatarChanged = initial.avatar !== avatar;
+    
     return aNick !== normalizedNick || aBirth !== normalizedBirth || initial.gender !== gender || avatarChanged;
   }, [initial, normalizedNick, normalizedBirth, gender, avatar]);
 
   const canSave = useMemo(() => {
-    const nickOk = nickValidation.ok;
-    const birthValid = birthOk;
-    return !saving && isDirty && nickOk && birthValid;
+    return !saving && isDirty && nickValidation.ok && birthOk;
   }, [saving, isDirty, nickValidation.ok, birthOk]);
 
-  // ✅ ImagePicker 구현
+  // 이미지 선택 핸들러
   const onPickAvatar = useCallback(async () => {
-    // 권한 요청 (필수는 아니지만 권장)
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
     if (permissionResult.granted === false) {
       Alert.alert("권한 필요", "사진을 선택하려면 갤러리 접근 권한이 필요합니다.");
       return;
@@ -244,19 +237,19 @@ export default function ProfileSettingsScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true, // 편집(크롭) 허용
-      aspect: [1, 1], // 정사각형 비율
-      quality: 0.5, // 용량 최적화 (0 ~ 1)
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
     });
 
     if (!result.canceled) {
-      // 선택된 이미지의 로컬 URI를 상태에 저장
       setAvatar(result.assets[0].uri);
     }
   }, []);
 
+  // ✅ 저장 핸들러 (타입 안전성 확보)
   const onSave = useCallback(async () => {
-    if (saving) return;
+    if (saving || !user) return; // user가 없으면 진행 불가
 
     setTouched({ nickname: true, birthDate: true });
 
@@ -276,28 +269,31 @@ export default function ProfileSettingsScreen() {
       return;
     }
 
-    const payload = {
+    // ✅ [핵심] "none"을 undefined로 변환하여 User 타입과 일치시킴
+    const safeGender: Gender | undefined = gender === "none" ? undefined : gender;
+
+    // ✅ [핵심] Store에 보낼 Partial<User> 객체 생성
+    const patchData: Partial<User> = {
       nickname: v.value,
       birthDate: bd,
-      gender: gender === "none" ? undefined : gender,
-      avatar: avatar, // ✅ 저장 시 아바타 정보 포함
+      gender: safeGender,
+      avatar: avatar,
+    };
+
+    // ✅ [핵심] setUser용 전체 객체 (즉시 UI 반영을 위해 필요하다면)
+    const optimisticUser: User = {
+      ...user,
+      ...patchData,
     };
 
     try {
       setSaving(true);
       
-      // 목업 환경: 실제 서버 업로드 대신 Store만 업데이트
-      // (실무에서는 여기서 FormData를 만들어 파일 업로드 API 호출)
-      
-      if (typeof updateProfile === "function") {
-        await updateProfile(payload);
-      } else if (typeof patchUser === "function") {
-        await patchUser(payload);
-      } else if (typeof setUser === "function") {
-        await setUser({ ...(me ?? {}), ...payload });
-      } else {
-        await new Promise((r) => setTimeout(r, 250));
-      }
+      // 1. UI 즉시 반영 (선택 사항: updateProfile 내부에서도 수행하지만, 여기서 먼저 해주면 더 빠름)
+      await setUser(optimisticUser);
+
+      // 2. API 호출 (실제 저장)
+      await updateProfile(patchData);
 
       Alert.alert("완료", "프로필이 저장되었습니다.", [{ text: "확인", onPress: () => router.back() }]);
     } catch (e) {
@@ -306,8 +302,9 @@ export default function ProfileSettingsScreen() {
     } finally {
       setSaving(false);
     }
-  }, [saving, nickname, birthDate, gender, avatar, isDirty, updateProfile, patchUser, setUser, me, router]);
+  }, [saving, nickname, birthDate, gender, avatar, isDirty, user, setUser, updateProfile, router]);
 
+  // 뒤로가기 핸들러
   const onPressBack = useCallback(() => {
     if (!isDirty) {
       router.back();
@@ -319,6 +316,7 @@ export default function ProfileSettingsScreen() {
     ]);
   }, [isDirty, router]);
 
+  // 에러 메시지
   const nickError = useMemo(() => {
     if (!touched.nickname) return undefined;
     return nickValidation.ok ? undefined : nickValidation.message;
@@ -343,16 +341,15 @@ export default function ProfileSettingsScreen() {
             paddingBottom: Math.max(24, insets.bottom + 16),
           }}
         >
-          {/* 아바타 */}
+          {/* 아바타 카드 */}
           <View style={[styles.avatarCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
             <View style={styles.avatarLeft}>
               <View
                 style={[
                   styles.avatarCircle,
-                  { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12), overflow: 'hidden' }, // overflow hidden 추가
+                  { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12), overflow: 'hidden' },
                 ]}
               >
-                {/* ✅ 이미지가 있으면 Image 컴포넌트, 없으면 아이콘 표시 */}
                 {avatar ? (
                   <Image source={{ uri: avatar }} style={{ width: '100%', height: '100%' }} />
                 ) : (
@@ -365,13 +362,13 @@ export default function ProfileSettingsScreen() {
                   프로필 이미지
                 </Text>
                 <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]} numberOfLines={2}>
-                   탭하여 이미지를 변경해 보세요.
+                  탭하여 이미지를 변경해 보세요.
                 </Text>
               </View>
             </View>
 
             <Pressable
-              onPress={onPickAvatar} // ✅ 연결됨
+              onPress={onPickAvatar}
               style={({ pressed }) => [
                 styles.ghostBtn,
                 {
@@ -385,7 +382,6 @@ export default function ProfileSettingsScreen() {
             </Pressable>
           </View>
 
-          {/* ... (나머지 UI 코드는 동일) ... */}
           <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>
             기본 정보
           </Text>
@@ -409,7 +405,7 @@ export default function ProfileSettingsScreen() {
             icon="calendar-outline"
             label="생년월일"
             value={birthDate}
-            placeholder="예: 19950615 (숫자만 입력)"
+            placeholder="예: 19950615"
             helperText="숫자만 입력하면 자동으로 1995-06-15 형태로 변환됩니다."
             errorText={birthError}
             maxLength={10}

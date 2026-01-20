@@ -10,11 +10,14 @@
 export type Gender = "male" | "female";
 
 export type User = {
-  id: string;
+  id: string;        // ID는 string (UUID 등 대응)
   loginId: string;   // ✅ 아이디
-  nickname: string; //닉네임
+  nickname: string;  // 닉네임
   gender: Gender;    // ✅ 필수
   birthDate: string; // ✅ "YYYY-MM-DD"
+  
+  // ✅ [추가] 프로필 이미지 (없을 수 있음)
+  avatar?: string | null; 
 };
 
 export type ResetRequestResult = { code?: string };
@@ -32,22 +35,24 @@ export type LoginInput = {
   password: string;
 };
 
+// ✅ [수정됨] 중복 제거 및 updateUser 필수 포함
 export type AuthApi = {
+  // 1. 조회 및 인증
   getUserByLoginId(loginId: string): Promise<User | null>;
-
-  // ✅ 회원가입
   signup(input: SignupInput): Promise<User>;
-
-  // ✅ 로그인
   login(input: LoginInput): Promise<User>;
 
-  // (선택) 비밀번호 변경/리셋
+  // 2. 회원 정보 수정 (✅ 필수 추가)
+  // Store에서 호출하므로 반드시 구현되어야 합니다.
+  updateUser(loginId: string, patch: Partial<User>): Promise<User>;
+
+  // 3. 비밀번호 관리 (구현체에 따라 선택적일 수 있다면 ?를 붙이지만, LocalApi에 구현했으므로 필수 처리)
   updatePassword(loginId: string, newPassword: string): Promise<void>;
   requestPasswordReset(loginId: string): Promise<ResetRequestResult>;
   verifyPasswordResetCode(loginId: string, code: string): Promise<void>;
   consumePasswordResetCode(loginId: string): Promise<void>;
 
-  // ✅ 세션(현재 로그인 아이디)
+  // 4. 세션 관리
   getCurrentLoginId(): Promise<string | null>;
   setCurrentLoginId(loginId: string): Promise<void>;
   clearCurrentLoginId(): Promise<void>;

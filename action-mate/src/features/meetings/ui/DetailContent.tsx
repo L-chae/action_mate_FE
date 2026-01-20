@@ -77,6 +77,27 @@ function getDurationLabel(mins?: number | null) {
   return `${m}분`;
 }
 
+function pickAvatarUrlFromComment(item: Comment, post: MeetingPost): string | undefined {
+  // 의도: 데이터 스키마가 유동적이라 후보 필드를 넓게 잡아 안전하게 표시
+  const anyItem = item as any;
+  const direct =
+    anyItem?.authorAvatarUrl ??
+    anyItem?.authorPhotoUrl ??
+    anyItem?.authorImageUrl ??
+    anyItem?.avatarUrl ??
+    undefined;
+
+  if (typeof direct === "string" && direct.trim()) return direct;
+
+  // 호스트가 댓글을 달았고 host.avatarUrl이 있으면 그걸 사용
+  if (item.authorId && post?.host?.id && String(item.authorId) === String(post.host.id)) {
+    const hostAvatar = (post.host as any)?.avatarUrl ?? (post.host as any)?.photoUrl;
+    if (typeof hostAvatar === "string" && hostAvatar.trim()) return hostAvatar;
+  }
+
+  return undefined;
+}
+
 // -------------------------------------------------------------------------
 // Sub Components
 // -------------------------------------------------------------------------
@@ -140,6 +161,10 @@ type DetailContentProps = {
   bottomPadding: number;
 
   onPressHostProfile: () => void;
+
+  // ✅ 추가: 댓글 작성자(프로필) 클릭
+  onPressCommentAuthor?: (payload: { id: string; nickname: string; avatarUrl?: string }) => void;
+
   onReply: (c: Comment) => void;
   onEditComment: (c: Comment) => void;
   onDeleteComment: (id: string) => void;
@@ -169,6 +194,7 @@ export function DetailContent({
   scrollViewRef,
   bottomPadding,
   onPressHostProfile,
+  onPressCommentAuthor,
   onReply,
   onEditComment,
   onDeleteComment,
@@ -237,9 +263,7 @@ export function DetailContent({
       scrollEventThrottle={16}
     >
       {headerComponent ? (
-        <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingTop: 12 }}>
-          {headerComponent}
-        </View>
+        <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingTop: 12 }}>{headerComponent}</View>
       ) : null}
 
       {/* 1. 지도 영역 */}
@@ -265,9 +289,7 @@ export function DetailContent({
         ) : (
           <View style={styles.center}>
             <Ionicons name="map" size={48} color={mutedIcon} />
-            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 8 }]}>
-              위치 정보 없음
-            </Text>
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 8 }]}>위치 정보 없음</Text>
           </View>
         )}
       </View>
@@ -290,18 +312,14 @@ export function DetailContent({
           </View>
 
           <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>
-                {post.host?.nickname}
-              </Text>
-              <View style={[styles.hostBadge, { backgroundColor: hostPillBg }]}>
+            <View style={styles.rowCenter}>
+              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>{post.host?.nickname}</Text>
+              <View style={[styles.hostBadge, { backgroundColor: hostPillBg, marginLeft: 6 }]}>
                 <Text style={[styles.hostBadgeText, { color: hostPillFg }]}>HOST</Text>
               </View>
             </View>
 
-            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-              매너 {post.host?.mannerTemp}°C
-            </Text>
+            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>매너 {post.host?.mannerTemp}°C</Text>
           </View>
 
           <Ionicons name="chevron-forward" size={20} color={mutedIcon} />
@@ -311,13 +329,15 @@ export function DetailContent({
         <View style={styles.headerSection}>
           <View style={styles.headerMetaRow}>
             <Badge label={post.category} tone="neutral" />
-            {metaToken ? <MetaLine t={t} iconName={metaToken.iconName} label={metaToken.label} tone={metaToken.tone} /> : null}
-            {rightToken ? <MetaLine t={t} iconName={rightToken.iconName} label={rightToken.label} tone={rightToken.tone} /> : null}
+            {metaToken ? (
+              <MetaLine t={t} iconName={metaToken.iconName} label={metaToken.label} tone={metaToken.tone} />
+            ) : null}
+            {rightToken ? (
+              <MetaLine t={t} iconName={rightToken.iconName} label={rightToken.label} tone={rightToken.tone} />
+            ) : null}
           </View>
 
-          <Text style={[t.typography.headlineMedium, { marginTop: 12, color: t.colors.textMain }]}>
-            {post.title}
-          </Text>
+          <Text style={[t.typography.headlineMedium, { marginTop: 12, color: t.colors.textMain }]}>{post.title}</Text>
         </View>
 
         {/* 4. 정보 박스 (시간, 장소, 인원) */}
@@ -352,11 +372,16 @@ export function DetailContent({
         {/* 5. 승인 조건 표시 */}
         {post.joinMode === "APPROVAL" ? (
           <View style={[styles.conditionBox, { backgroundColor: conditionBg, borderColor: "transparent" }]}>
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-              <Ionicons name="checkmark-circle-outline" size={18} color={conditionText} style={{ marginRight: 6 }} />
+            <View style={styles.rowCenter}>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={18}
+                color={conditionText}
+                style={{ marginRight: 6 }}
+              />
               <Text style={[t.typography.labelLarge, { color: conditionText }]}>참여 승인 조건</Text>
             </View>
-            <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
+            <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22, marginTop: 6 }]}>
               {post.conditions || "호스트가 설정한 별도의 조건이 없습니다. 편하게 신청해주세요!"}
             </Text>
           </View>
@@ -364,9 +389,7 @@ export function DetailContent({
 
         {/* 6. 호스트의 한마디 */}
         <View style={styles.section}>
-          <Text style={[t.typography.titleMedium, { marginBottom: 12, color: t.colors.textMain }]}>
-            호스트의 한마디
-          </Text>
+          <Text style={[t.typography.titleMedium, { marginBottom: 12, color: t.colors.textMain }]}>호스트의 한마디</Text>
           <View style={[styles.bubble, { backgroundColor: bubbleBg, borderColor: border }]}>
             <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
               {post.content || "편하게 오세요!"}
@@ -394,6 +417,16 @@ export function DetailContent({
                 const reply = parseReplyPrefix(item.content);
                 const isReply = !!reply;
 
+                const avatarUrl = pickAvatarUrlFromComment(item, post);
+
+                const onPressAuthor = () => {
+                  if (!onPressCommentAuthor) return;
+                  const id = String((item as any)?.authorId ?? "");
+                  const nickname = String((item as any)?.authorNickname ?? "");
+                  if (!id || !nickname) return;
+                  onPressCommentAuthor({ id, nickname, avatarUrl });
+                };
+
                 return (
                   <View
                     style={[
@@ -403,35 +436,60 @@ export function DetailContent({
                       isReply && { borderLeftColor: t.colors.primary },
                     ]}
                   >
-                    <View style={{ flexDirection: "row", gap: 10 }}>
-                      <View style={[styles.commentAvatar, { backgroundColor: subtleBg }]}>
-                        <Ionicons name="person" size={14} color={mutedIcon} />
-                      </View>
-
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                          <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>
-                            {item.authorNickname}
-                          </Text>
-                          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                            · {timeAgo(item.createdAt)}
-                          </Text>
+                    <View style={styles.commentRow}>
+                      {/* ✅ 작성자 영역: 누르면 프로필 오픈 */}
+                      <Pressable
+                        onPress={onPressCommentAuthor ? onPressAuthor : undefined}
+                        disabled={!onPressCommentAuthor}
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                          styles.authorPressable,
+                          { opacity: pressed ? 0.9 : 1 },
+                        ]}
+                      >
+                        <View style={[styles.commentAvatar, { backgroundColor: subtleBg }]}>
+                          {avatarUrl ? (
+                            <Image source={{ uri: avatarUrl }} style={styles.commentAvatarImg} />
+                          ) : (
+                            <Ionicons name="person" size={14} color={mutedIcon} />
+                          )}
                         </View>
 
-                        {isReply ? (
-                          <View style={[styles.replyMeta, { backgroundColor: subtleBg }]}>
-                            <Ionicons name="return-down-forward" size={14} color={t.colors.textSub} />
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={styles.authorLine}>
+                            <Text
+                              style={[t.typography.labelLarge, { color: t.colors.textMain }]}
+                              numberOfLines={1}
+                            >
+                              {item.authorNickname}
+                            </Text>
                             <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                              {reply!.nickname}님에게 답글
+                              {" "}
+                              · {timeAgo(item.createdAt)}
                             </Text>
                           </View>
-                        ) : null}
 
+                          {isReply ? (
+                            <View style={[styles.replyMeta, { backgroundColor: subtleBg }]}>
+                              <Ionicons name="return-down-forward" size={14} color={t.colors.textSub} />
+                              <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginLeft: 6 }]}>
+                                {reply!.nickname}님에게 답글
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        {onPressCommentAuthor ? (
+                          <Ionicons name="chevron-forward" size={16} color={mutedIcon} style={{ marginLeft: 6 }} />
+                        ) : null}
+                      </Pressable>
+
+                      <View style={{ flex: 1 }}>
                         <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 6 }]}>
                           {isReply ? reply!.body : item.content}
                         </Text>
 
-                        <View style={{ flexDirection: "row", gap: 12, marginTop: 8 }}>
+                        <View style={styles.commentActions}>
                           <Pressable onPress={() => onReply(item)} hitSlop={8}>
                             <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>답글</Text>
                           </Pressable>
@@ -459,8 +517,13 @@ export function DetailContent({
           <View style={[styles.composerWrap, { borderColor: border, backgroundColor: surface }]}>
             {(replyTarget || editingComment) ? (
               <View style={[styles.composerStatus, { backgroundColor: subtleBg, borderColor: border }]}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Ionicons name={replyTarget ? "return-down-forward" : "pencil"} size={16} color={t.colors.textSub} />
+                <View style={styles.rowCenter}>
+                  <Ionicons
+                    name={replyTarget ? "return-down-forward" : "pencil"}
+                    size={16}
+                    color={t.colors.textSub}
+                    style={{ marginRight: 6 }}
+                  />
                   <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                     {replyTarget ? `${replyTarget.authorNickname}님에게 답글 작성 중` : "댓글 수정 중"}
                   </Text>
@@ -514,20 +577,20 @@ export function DetailContent({
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
 
-mapContainer: {
-  position: "relative",
-  height: 200,
-  width: "100%",
-  overflow: "hidden",
-}
-,
-centerPin: {
-  position: "absolute",
-  left: "50%",
-  top: "50%",
-  transform: [{ translateX: -16 }, { translateY: -32 }],
-},
+  mapContainer: {
+    position: "relative",
+    height: 200,
+    width: "100%",
+    overflow: "hidden",
+  },
+  centerPin: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    transform: [{ translateX: -16 }, { translateY: -32 }],
+  },
 
+  rowCenter: { flexDirection: "row", alignItems: "center" },
 
   hostRow: {
     flexDirection: "row",
@@ -544,19 +607,20 @@ centerPin: {
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
+    overflow: "hidden",
   },
   avatarImg: { width: 40, height: 40, borderRadius: 20 },
   hostBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   hostBadgeText: { fontSize: 10, fontWeight: "800" },
 
   headerSection: { marginBottom: 24 },
-  headerMetaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 },
-  metaLine: { flexDirection: "row", alignItems: "center" },
+  headerMetaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
+  metaLine: { flexDirection: "row", alignItems: "center", marginLeft: 10 },
   metaIcon: { marginRight: 6, marginTop: 1 },
 
   infoBox: { borderWidth: 1, borderRadius: 16, padding: 20, marginBottom: 32 },
   infoRow: { flexDirection: "row", alignItems: "center" },
-  infoTextCtx: { marginLeft: 14, gap: 2 },
+  infoTextCtx: { marginLeft: 14 },
   divider: { height: 1, marginVertical: 16, marginLeft: 34 },
 
   conditionBox: {
@@ -584,6 +648,11 @@ centerPin: {
   emptyComments: { padding: 20, alignItems: "center", borderRadius: 12 },
 
   commentCard: { borderWidth: 1, borderRadius: 12, padding: 12 },
+  replyCard: { marginLeft: 14, borderLeftWidth: 3, paddingLeft: 10 },
+
+  commentRow: { flexDirection: "row" },
+  authorPressable: { flexDirection: "row", alignItems: "center", marginRight: 10, flex: 1, minWidth: 0 },
+
   commentAvatar: {
     width: 28,
     height: 28,
@@ -591,18 +660,29 @@ centerPin: {
     justifyContent: "center",
     alignItems: "center",
     marginTop: 2,
+    overflow: "hidden",
+    marginRight: 10,
   },
-  replyCard: { marginLeft: 14, borderLeftWidth: 3, paddingLeft: 10 },
+  commentAvatarImg: { width: 28, height: 28, borderRadius: 14 },
+
+  authorLine: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
+
   replyMeta: {
     marginTop: 6,
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
   },
+
+  commentActions: { flexDirection: "row", marginTop: 8 },
+  // 액션 간격은 gap 대신 margin
+  // 각 Text Pressable이 붙지 않게 최소 간격만 줌
+  // (Pressable 자체에 marginRight를 주면 hit area도 자연스럽게 유지됨)
+  // eslint-disable-next-line react-native/no-inline-styles
+  // 실제 사용처에서 필요하면 각각에 marginRight 추가 가능
 
   composerWrap: { marginTop: 14, borderWidth: 1, borderRadius: 14, overflow: "hidden" },
   composerStatus: {
@@ -618,7 +698,6 @@ centerPin: {
     alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 10,
-    gap: 8,
   },
   composerInput: {
     flex: 1,
@@ -628,6 +707,7 @@ centerPin: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
+    marginRight: 8,
   },
   sendBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: "center", alignItems: "center" },
 });
