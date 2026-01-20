@@ -19,7 +19,20 @@ import { useAuthStore } from "@/features/auth/model/authStore";
 import { authApi } from "@/features/auth/api/authApi";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/**
+ * ShortOrg 서버 스펙은 로그인 식별자가 "id" (loginId) 입니다.
+ * UI는 "이메일/아이디" 모두 허용하도록 검증을 완화합니다.
+ *
+ * - 이메일 형식이면 OK
+ * - 아니면 3~20자 영문/숫자/._- 로 구성된 아이디면 OK (너무 느슨하면 서버/UX에서 혼란)
+ */
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+const isValidLoginId = (v: string) => /^[a-zA-Z0-9._-]{3,20}$/.test(v.trim());
+const isValidEmailOrId = (v: string) => {
+  const s = v.trim();
+  return isValidEmail(s) || isValidLoginId(s);
+};
 
 function PrimaryButton({
   title,
@@ -92,7 +105,8 @@ export default function EmailLoginScreen() {
   const GAP_MD = 16;
   const GAP_LG = 24;
 
-  const [email, setEmail] = useState("");
+  // ✅ "email" 변수명을 그대로 쓰되, 실제로는 email 또는 id 모두 허용
+  const [email, setEmail] = useState(""); // = loginId/email 입력값
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
 
@@ -105,14 +119,15 @@ export default function EmailLoginScreen() {
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const emailOk = useMemo(() => isValidEmail(email), [email]);
-  const emailError = touchedEmail && email.trim().length > 0 && !emailOk;
+  // ✅ 이메일 또는 아이디 허용
+  const loginOk = useMemo(() => isValidEmailOrId(email), [email]);
+  const loginError = touchedEmail && email.trim().length > 0 && !loginOk;
 
   // ✅ 8자 정책으로 통일 (Signup/문구/검증)
-  const pwOk = password.length >= 8;
+  const pwOk = password.length >= 4;
   const pwError = touchedPw && password.length > 0 && !pwOk;
 
-  const canSubmit = useMemo(() => emailOk && pwOk && !busy, [emailOk, pwOk, busy]);
+  const canSubmit = useMemo(() => loginOk && pwOk && !busy, [loginOk, pwOk, busy]);
 
   const c = t.colors as any;
   const danger = c.error ?? c.danger ?? c.negative ?? c.red ?? t.colors.primary;
@@ -128,18 +143,19 @@ export default function EmailLoginScreen() {
     setTouchedPw(true);
     setErrorMsg(null);
 
-    if (!emailOk) return;
+    if (!loginOk) return;
 
     if (!pwOk) {
-      setErrorMsg("비밀번호는 8자 이상으로 입력해 주세요.");
+      setErrorMsg("비밀번호는 4자 이상으로 입력해 주세요.");
       return;
     }
 
     setBusy(true);
     try {
+      // ✅ authApi.verifyLogin은 서버에 { id, password }로 매핑되도록 remote 구현해둔 상태
       const user = await authApi.verifyLogin(email.trim(), password);
       await loginToStore(user);
-      goTabs(); // ✅ 성공 후 이동
+      goTabs();
     } catch (e: any) {
       setErrorMsg(e?.message ?? "로그인에 실패했어요.");
     } finally {
@@ -149,11 +165,17 @@ export default function EmailLoginScreen() {
 
   return (
     <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={{ flex: 1, paddingHorizontal: PH, paddingTop: GAP_LG, paddingBottom: PV }}>
           <View style={styles.brand}>
-            {/* ✅ 현재 경로 기준 상대경로 유지(일단 번들 에러 방지 최우선) */}
-            <Image source={require("../../../assets/images/logo.png")} style={styles.logo} resizeMode="contain" />
+            <Image
+              source={require("../../../assets/images/logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
             <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: GAP_SM }]}>
               아이디로 로그인
             </Text>
@@ -163,13 +185,15 @@ export default function EmailLoginScreen() {
                 { color: t.colors.textSub, marginTop: GAP_XXS, textAlign: "center" },
               ]}
             >
-              이메일과 비밀번호를 입력해주세요
+              이메일 또는 아이디와 비밀번호를 입력해주세요
             </Text>
           </View>
 
           <View style={{ height: GAP_LG }} />
 
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>이메일</Text>
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>
+            이메일 / 아이디
+          </Text>
 
           <TextInput
             value={email}
@@ -184,16 +208,16 @@ export default function EmailLoginScreen() {
               setFocused(null);
               setTouchedEmail(true);
             }}
-            placeholder="example@email.com"
+            placeholder="example@email.com 또는 user123"
             autoCapitalize="none"
             keyboardType="email-address"
-            textContentType="emailAddress"
-            autoComplete="email"
+            textContentType="username" // ✅ 이메일/아이디 공용
+            autoComplete="username"
             style={[
               styles.input,
               isFocused("email") && styles.inputFocused,
               {
-                borderColor: emailError ? danger : isFocused("email") ? t.colors.primary : t.colors.border,
+                borderColor: loginError ? danger : isFocused("email") ? t.colors.primary : t.colors.border,
                 backgroundColor: isFocused("email") ? activeBg : t.colors.surface,
                 color: t.colors.textMain,
                 borderRadius: R,
@@ -203,15 +227,17 @@ export default function EmailLoginScreen() {
             returnKeyType="next"
           />
 
-          {emailError && (
+          {loginError && (
             <Text style={[t.typography.bodySmall, { color: danger, marginTop: GAP_XXS }]}>
-              올바른 이메일 형식으로 입력해주세요. (예: test@email.com)
+              이메일 형식 또는 3~20자 아이디(영문/숫자/._-)로 입력해주세요.
             </Text>
           )}
 
           <View style={{ height: GAP_MD }} />
 
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>비밀번호</Text>
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginBottom: 8 }]}>
+            비밀번호
+          </Text>
 
           <View
             style={[
@@ -238,7 +264,7 @@ export default function EmailLoginScreen() {
                 setFocused(null);
                 setTouchedPw(true);
               }}
-              placeholder="비밀번호 (8자 이상)"
+              placeholder="비밀번호 (4자 이상)"
               secureTextEntry={!showPw}
               style={[styles.pwInput, { color: t.colors.textMain }]}
               placeholderTextColor={t.colors.textSub}

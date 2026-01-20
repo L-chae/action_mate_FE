@@ -1,20 +1,32 @@
 export const endpoints = {
   auth: {
     login: "/auth/login",
-    signup: "/auth/signup",
-    me: "/users/me",
+    logout: "/auth/logout",
+    refresh: "/auth/refresh",
   },
-  meetings: {
-    list: "/meetings",
-    detail: (id: string) => `/meetings/${id}`,
-    join: (id: string) => `/meetings/${id}/join`,
-    cancel: (id: string) => `/meetings/${id}/cancel`,
+  users: {
+    signup: "/users",
+    exists: (loginId: string) =>
+      `/users/exists?loginId=${encodeURIComponent(loginId)}`,
+    profile: (userId: string) => `/users/${encodeURIComponent(userId)}/profile`,
   },
-  map: {
-    nearby: "/map/meetings",
+  posts: {
+    create: "/posts",
+    byId: (postId: number | string) => `/posts/id/${postId}`,
+    byCategory: (category: string) =>
+      `/posts/category/${encodeURIComponent(category)}`,
+    nearby: "/posts/nearby",
+    applicants: (postId: number | string) => `/posts/${postId}/applicants`,
+    decideApplicant: (postId: number | string, userId: string) =>
+      `/posts/${postId}/applicants/${encodeURIComponent(userId)}`,
+    ratings: (postId: number | string) => `/posts/${postId}/ratings`,
   },
-  dm: {
-    threads: "/dm/threads",
-    messages: (threadId: string) => `/dm/threads/${threadId}/messages`,
+  message: {
+    rooms: "/message/room",
+    room: (roomId: number | string) => `/message/room/${roomId}`,
+    send: "/message",
+  },
+  reports: {
+    create: "/reports",
   },
 } as const;
