@@ -36,7 +36,8 @@ export default function HomeScreen() {
 
   // ✅ 로그인 유저 닉네임
   const nickname = useAuthStore((s) => s.user?.nickname);
-  const displayName = (nickname && nickname.trim().length > 0 ? nickname.trim() : "회원") + "님";
+  // ✅ 수정 1: 닉네임 로직 간결화
+  const displayName = `${nickname?.trim() || "회원"}님`;
 
   const [cat, setCat] = useState<CategoryKey | "ALL">("ALL");
   const [items, setItems] = useState<MeetingPost[]>([]);
@@ -89,18 +90,12 @@ export default function HomeScreen() {
         showBorder
       />
 
-      <ScrollView
-        stickyHeaderIndices={[2]}
+       <ScrollView
+        stickyHeaderIndices={[2]} // ✅ 0:헤드라인, 1:HotList, 2:Category(Sticky)
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={t.colors.primary}
-            colors={[t.colors.primary]}
-            progressBackgroundColor={t.colors.background}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
         {/* 1) 헤드라인 */}
@@ -121,7 +116,8 @@ export default function HomeScreen() {
             data={hotItems}
             horizontal
             showsHorizontalScrollIndicator={false}
-            keyExtractor={(it) => it.id}
+           // ✅ 수정 2: id가 있으면 id, 없으면 meetingId 사용 (안전장치)
+            keyExtractor={(it) => String(it.id || it.meetingId)}
             nestedScrollEnabled
             contentContainerStyle={{
               paddingHorizontal: t.spacing.pagePaddingH,
@@ -129,8 +125,14 @@ export default function HomeScreen() {
             }}
             renderItem={({ item }) => {
               const progress = item.capacityJoined / item.capacityTotal;
+               // ✅ 수정 3: 상세 페이지 이동 시 id 사용 통일
+              const targetId = item.id || item.meetingId;
               return (
-                <Card onPress={() => router.push(`/meetings/${item.meetingId}`)} style={styles.hotCard} padded>
+                 <Card 
+                  onPress={() => router.push(`/meetings/${targetId}`)} 
+                  style={styles.hotCard} 
+                  padded
+                >
                   <Badge label={item.badge} tone="error" size="sm" style={{ marginBottom: 12 }} />
                   <View style={{ gap: 4, marginBottom: 16 }}>
                     <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>

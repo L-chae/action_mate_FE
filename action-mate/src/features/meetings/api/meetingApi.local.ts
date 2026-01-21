@@ -1,49 +1,43 @@
 // src/features/meetings/api/meetingApi.local.ts
-
-import { MOCK_MEETINGS_SEED } from "../mocks/meetingMockData";
-import { 
+import { MOCK_MEETINGS_SEED, HOST_USERS } from "../mocks/meetingMockData";
+import type { 
   MeetingPost, 
   MeetingParams, 
   HomeSort, 
   MeetingApi, 
-  Participant
+  Participant 
 } from "../model/types";
 
-// ✅ Local State
+// ✅ Local State Deep Copy (원본 보호)
 let _DATA: MeetingPost[] = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
 
-// ✅ [신규] 참여자 데이터 Mock
+// ✅ 참여자 더미 데이터 저장소
 const _PARTICIPANTS: Record<string, Participant[]> = {};
 
-// --- Helpers (Internal) ---
+// --- Helpers ---
 const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 const toTimeMs = (iso?: string) => (iso ? new Date(iso).getTime() : Number.MAX_SAFE_INTEGER);
 
-// ✅ 헬퍼: 참여자 더미 데이터 생성 (최초 조회 시)
 const ensureParticipants = (meetingId: string) => {
   if (!_PARTICIPANTS[meetingId]) {
     _PARTICIPANTS[meetingId] = [
       { 
         userId: "u_test_1", 
         nickname: "테니스왕", 
-        // ✅ [수정] avatarUrl -> avatar
-        avatar: undefined, 
+        avatar: "https://i.pravatar.cc/150?u=test1", // 아바타 추가
         status: "PENDING", 
-        appliedAt: new Date(Date.now() - 1000 * 60 * 60).toISOString() 
+        appliedAt: new Date(Date.now() - 3600000).toISOString() 
       },
       { 
         userId: "u_test_2", 
         nickname: "초보에요", 
-        // ✅ [수정] avatarUrl -> avatar
-        avatar: undefined, 
         status: "MEMBER", 
-        appliedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString() 
+        appliedAt: new Date(Date.now() - 7200000).toISOString() 
       },
     ];
   }
 };
 
-// 거리 계산
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371; 
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -57,22 +51,19 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c;
 }
 
-// 텍스트 거리 파싱
 function parseDistance(text?: string) {
   if (!text) return 999;
   const val = parseFloat(text.replace(/[^0-9.]/g, ""));
-  if (text.includes("m") && !text.includes("km")) return val / 1000;
-  return val;
+  return text.includes("m") && !text.includes("km") ? val / 1000 : val;
 }
 
-// 정렬 로직
 function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: number) {
   return [...list].sort((a, b) => {
     if (sort === "NEAR") {
-      if (lat && lng && a.locationLat && b.locationLat && a.locationLng && b.locationLng) {
+      if (lat && lng && a.locationLat && b.locationLat) {
         return (
-          haversineKm(lat, lng, a.locationLat, a.locationLng) -
-          haversineKm(lat, lng, b.locationLat, b.locationLng)
+          haversineKm(lat, lng, a.locationLat, a.locationLng!) -
+          haversineKm(lat, lng, b.locationLat, b.locationLng!)
         );
       }
       return parseDistance(a.distanceText) - parseDistance(b.distanceText);
@@ -80,13 +71,14 @@ function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: numbe
     if (sort === "SOON") {
       return toTimeMs(a.meetingTime) - toTimeMs(b.meetingTime);
     }
-    return Number(b.id) - Number(a.id);
+    // LATEST (ID 역순)
+    return String(b.id).localeCompare(String(a.id));
   });
 }
 
 // ✅ Mock Implementation
 export const meetingApiLocal: MeetingApi = {
-  // 1. 핫한 모임
+  // 1. Hot Items
   async listHotMeetings({ limit = 6, withinMinutes = 180 } = {}) {
     await delay();
     const now = Date.now();
@@ -96,25 +88,25 @@ export const meetingApiLocal: MeetingApi = {
       .filter(({ min }) => min >= 0 && min <= withinMinutes)
       .sort((a, b) => a.min - b.min)
       .slice(0, limit)
-      .map(({ m, min }, idx) => ({
-        id: `hot-${idx}`,
+      .map(({ m, min }) => ({
+        id: `hot-${m.id}`,
         meetingId: m.id,
         badge: min < 60 ? `${Math.floor(min)}분 남음` : `${Math.floor(min / 60)}시간 남음`,
         title: m.title,
-        place: m.locationText,
+        place: m.locationText || "위치 정보 없음",
         capacityJoined: m.capacityJoined,
         capacityTotal: m.capacityTotal,
       }));
   },
 
-  // 2. 모임 목록
+  // 2. List
   async listMeetings({ category = "ALL", sort = "LATEST" } = {}) {
     await delay();
     let list = category === "ALL" ? _DATA : _DATA.filter((m) => m.category === category);
     return sortList(list, sort);
   },
 
-  // 3. 주변 모임
+  // 3. Around
   async listMeetingsAround(lat, lng, { radiusKm = 3, category = "ALL", sort = "NEAR" } = {}) {
     await delay();
     let candidates = _DATA.filter((m) => m.locationLat && m.locationLng);
@@ -135,7 +127,6 @@ export const meetingApiLocal: MeetingApi = {
     }));
   },
 
-  // 4. 모임 상세
   async getMeeting(id) {
     await delay();
     const found = _DATA.find((m) => m.id === id);
@@ -143,148 +134,112 @@ export const meetingApiLocal: MeetingApi = {
     return { ...found };
   },
 
-  // 5. 모임 생성
   async createMeeting(data) {
     await delay(800);
-    const newId = Date.now().toString();
-    const timeIso = data.meetingTimeIso || new Date().toISOString();
-
+    const newId = String(Date.now());
     const newPost: MeetingPost = {
       ...data,
       id: newId,
       status: "OPEN",
       capacityJoined: 1,
       distanceText: "0km",
-      meetingTime: timeIso,
+      meetingTime: data.meetingTimeIso || new Date().toISOString(),
       myState: { membershipStatus: "HOST", canJoin: false },
-      host: { id: "me", nickname: "나(Host)", mannerTemp: 36.5, kudosCount: 0, intro: "안녕하세요!" },
+      host: HOST_USERS.me,
     };
-
     _DATA.unshift(newPost);
     return newPost;
   },
 
-  // 6. 모임 수정
   async updateMeeting(id, data) {
     await delay(800);
     const idx = _DATA.findIndex((m) => m.id === id);
     if (idx === -1) throw new Error("Meeting not found");
-
-    const prev = _DATA[idx];
-
-    _DATA[idx] = {
-      ...prev,
+    
+    _DATA[idx] = { 
+      ..._DATA[idx], 
       ...data,
-      meetingTime: data.meetingTimeIso ?? prev.meetingTime,
-      durationMinutes: data.durationMinutes ?? prev.durationMinutes, 
+      meetingTime: data.meetingTimeIso || _DATA[idx].meetingTime,
     };
-
     return { ..._DATA[idx] };
   },
 
-  // 7. 참여하기
+  async cancelMeeting(id) {
+    await delay();
+    const idx = _DATA.findIndex((m) => m.id === id);
+    if (idx === -1) throw new Error("Meeting not found");
+    
+    const target = _DATA[idx];
+    _DATA.splice(idx, 1);
+    return { post: { ...target, status: "CANCELED" } };
+  },
+
   async joinMeeting(id) {
     await delay();
     const idx = _DATA.findIndex((m) => m.id === id);
     if (idx < 0) throw new Error("Meeting not found");
 
     const target = _DATA[idx];
-    if (target.capacityJoined >= target.capacityTotal) {
-      throw new Error("Meeting is full");
-    }
+    if (target.capacityJoined >= target.capacityTotal) throw new Error("Full");
 
     const isApproval = target.joinMode === "APPROVAL";
-    // 승인제면 PENDING(인원증가X), 선착순이면 MEMBER(인원증가O)
-    const newJoinedCount = isApproval ? target.capacityJoined : target.capacityJoined + 1;
     const newStatus = isApproval ? "PENDING" : "MEMBER";
+    const newCount = isApproval ? target.capacityJoined : target.capacityJoined + 1;
 
-    const newState: MeetingPost = {
+    _DATA[idx] = {
       ...target,
-      capacityJoined: newJoinedCount,
+      capacityJoined: newCount,
       myState: { membershipStatus: newStatus, canJoin: false },
     };
 
-    _DATA[idx] = newState;
-    return { post: newState, membershipStatus: newStatus };
+    return { post: _DATA[idx], membershipStatus: newStatus };
   },
 
-  // 8. 참여 취소
   async cancelJoin(id) {
     await delay();
     const idx = _DATA.findIndex((m) => m.id === id);
     if (idx < 0) throw new Error("Meeting not found");
 
     const target = _DATA[idx];
-    const currentStatus = target.myState?.membershipStatus;
-
-    // MEMBER(확정) 상태였던 경우에만 인원수 감소
-    let newCount = target.capacityJoined;
-    if (currentStatus === "MEMBER") {
-      newCount = Math.max(0, target.capacityJoined - 1);
-    }
-
-    const newState: MeetingPost = {
+    const isMember = target.myState?.membershipStatus === "MEMBER";
+    
+    _DATA[idx] = {
       ...target,
-      capacityJoined: newCount,
+      capacityJoined: isMember ? Math.max(0, target.capacityJoined - 1) : target.capacityJoined,
       myState: { membershipStatus: "NONE", canJoin: true },
     };
 
-    _DATA[idx] = newState;
-    return { post: newState };
+    return { post: _DATA[idx] };
   },
 
-  // 9. 모임 취소/삭제
-  async cancelMeeting(id) {
-    await delay();
-    const idx = _DATA.findIndex((m) => m.id === id);
-    if (idx < 0) throw new Error("Meeting not found");
-    const deletedItem = _DATA[idx];
-    _DATA.splice(idx, 1);
-    return { post: { ...deletedItem, status: "CANCELED" } };
-  },
-
-  // ✅ [신규] 참여자 목록 조회
   async getParticipants(meetingId) {
-    await delay(300);
+    await delay();
     ensureParticipants(meetingId);
     return [..._PARTICIPANTS[meetingId]];
   },
 
-  // ✅ [신규] 참여 승인
   async approveParticipant(meetingId, userId) {
     await delay(500);
     ensureParticipants(meetingId);
     
-    // 1. 상태 변경 (PENDING -> MEMBER)
-    const pIdx = _PARTICIPANTS[meetingId].findIndex(p => p.userId === userId);
-    if (pIdx > -1) {
-      _PARTICIPANTS[meetingId][pIdx].status = "MEMBER";
+    const list = _PARTICIPANTS[meetingId];
+    const target = list.find(p => p.userId === userId);
+    if (target) {
+      target.status = "MEMBER";
+      // 모임 인원 증가
+      const mIdx = _DATA.findIndex(m => m.id === meetingId);
+      if (mIdx > -1) _DATA[mIdx].capacityJoined++;
     }
-
-    // 2. 모임 인원수 증가 (+1)
-    const mIdx = _DATA.findIndex(m => m.id === meetingId);
-    if (mIdx > -1) {
-      _DATA[mIdx].capacityJoined += 1;
-    }
-
-    return [..._PARTICIPANTS[meetingId]];
+    return [...list];
   },
 
-  // ✅ [신규] 참여 거절
   async rejectParticipant(meetingId, userId) {
     await delay(500);
     ensureParticipants(meetingId);
-
-    // 1. 상태 변경 (PENDING -> REJECTED)
-    const pIdx = _PARTICIPANTS[meetingId].findIndex(p => p.userId === userId);
-    if (pIdx > -1) {
-      _PARTICIPANTS[meetingId][pIdx].status = "REJECTED";
-    }
     
-    return [..._PARTICIPANTS[meetingId]];
+    const list = _PARTICIPANTS[meetingId];
+    const target = list.find(p => p.userId === userId);
+    if (target) target.status = "REJECTED";
+    return [...list];
   },
 };
-
-export function __getMockDataUnsafe() {
-  return _DATA;
-}

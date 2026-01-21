@@ -16,8 +16,12 @@ import {
   getCurrentUserId,
   clearCurrentUserId,
 } from "@/shared/api/authToken";
-
-// ----------------------------------------------------------------------
+/* 
+수정 3: signup 바디 확인
+코드에 nickname을 보내고 있는데, 명세서(SignupRequest)에는 id, password, birth, gender만 있고 nickname이 없습니다.
+서버가 깐깐하다면 "없는 필드(nickname)를 보냈다"며 400 에러를 뱉을 수 있습니다.
+ * 조치: 서버 개발자에게 "회원가입 할 때 닉네임 안 받나요?" 물어보거나, 일단 코드에서 nickname 필드는 주석 처리해서 보내지 마세요.
+// ---------------------------------------------------------------------- */
 // 서버 명세 타입 (Server DTO)
 // ----------------------------------------------------------------------
 
@@ -191,6 +195,15 @@ const remoteApi: AuthApi = {
 
   async consumePasswordResetCode(_loginId: string): Promise<void> {
     throw new Error("서버 명세에 비밀번호 재설정 API가 없습니다.");
+  },
+
+   /**
+   * (미지원) 회원 정보 수정
+   */
+  async updateUser(_loginId: string, _patch: Partial<User>): Promise<User> {
+     // 1. 서버에 수정 API가 있다면 여기서 호출
+     // 2. 없다면 에러 발생
+     throw new Error("서버에 회원 정보 수정 API가 아직 없습니다.");
   },
 
   // ----------------------------------------------------------------------

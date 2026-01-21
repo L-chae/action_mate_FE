@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useEffect } from "react";
+// src/features/auth/IdLoginScreen.tsx
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,12 +9,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
-  Alert,
   ScrollView,
-  type TextStyle,
   type ViewStyle,
+  type TextStyle,
 } from "react-native";
 import { router } from "expo-router";
+import { useForm, Controller } from "react-hook-form";
 
 import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
@@ -21,18 +22,12 @@ import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { useAuthStore } from "@/features/auth/model/authStore";
 import { authApi } from "@/features/auth/api/authApi";
-import { seedMockUsers } from "@/features/auth/api/authApi.local";
+import type { LoginInput } from "@/features/auth/model/types";
 
-/**
- * ✅ 목표
- * - 회원가입 화면(카드 + 인풋박스 + 테마 토큰)과 동일한 패턴/톤 유지
- * - 실서비스 UX: 포커스/에러/disabled/submit 흐름 정리
- * - 타입 변경 반영: authApi.login({ loginId, password })
- */
-
-type FieldKey = "loginId" | "password";
-
-function FieldError({ text }: { text?: string | null }) {
+// ----------------------------------------------------------------------
+// ✅ 재사용 가능한 에러 메시지 컴포넌트
+// ----------------------------------------------------------------------
+function FieldError({ text }: { text?: string }) {
   const t = useAppTheme();
   if (!text) return null;
   return (
@@ -42,331 +37,264 @@ function FieldError({ text }: { text?: string | null }) {
   );
 }
 
+type FieldKey = "loginId" | "password";
+
 export default function IdLoginScreen() {
   const t = useAppTheme();
   const loginToStore = useAuthStore((s) => s.login);
 
-  const [loginId, setLoginId] = useState("");
-  const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-
-  const [busy, setBusy] = useState(false);
-  const [seedReady, setSeedReady] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<FieldKey | null>(null);
 
-  const [touched, setTouched] = useState<Record<FieldKey, boolean>>({
-    loginId: false,
-    password: false,
+  // ✅ React Hook Form 설정
+  const {
+    control,
+    handleSubmit,
+    setFocus,
+    formState: { errors, isSubmitting, isValid },
+    setValue, // 퀵 로그인용
+  } = useForm<LoginInput>({
+    mode: "onChange",
+    defaultValues: {
+      loginId: "",
+      password: "",
+    },
   });
 
-  useEffect(() => {
-    let alive = true;
+  // ✅ 로그인 핸들러
+  const onValidSubmit = async (data: LoginInput) => {
+    setGlobalError(null);
 
-    (async () => {
-      try {
-        await seedMockUsers();
-      } finally {
-        if (alive) setSeedReady(true);
-      }
-    })();
+    try {
+      const user = await authApi.login({
+        loginId: data.loginId.trim(),
+        password: data.password,
+      });
 
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  // ✅ 검증 최소화: 공백만 아니면 OK
-  const idOk = useMemo(() => loginId.trim().length > 0, [loginId]);
-  const pwOk = useMemo(() => password.length >= 4, [password]);
-
-  const canSubmit = useMemo(() => idOk && pwOk && seedReady && !busy, [idOk, pwOk, seedReady, busy]);
-
-  const idErr = touched.loginId && !idOk ? "아이디를 입력해주세요." : null;
-  const pwErr = touched.password && !pwOk ? "비밀번호는 4자 이상 입력해주세요." : null;
-
-  const markTouched = (k: FieldKey) => setTouched((p) => ({ ...p, [k]: true }));
-
-  // --- Theme-consistent styles (회원가입 화면과 동일 패턴) ---
-  const cardStyle: ViewStyle = {
-    backgroundColor: t.colors.surface,
-    borderWidth: t.spacing.borderWidth,
-    borderColor: t.colors.border,
-    borderRadius: t.spacing.radiusLg,
-    padding: t.spacing.space[5],
+      // store의 login은 동기(set)라 await 불필요 (의도 명확화)
+      loginToStore(user);
+      router.replace("/(tabs)");
+    } catch (e: any) {
+      setGlobalError(e?.message ?? "로그인에 실패했어요.");
+    }
   };
 
-  const labelStyle: TextStyle = {
-    ...(t.typography.labelMedium as TextStyle),
-    color: t.colors.textSub,
-    marginBottom: t.spacing.space[2],
-    fontWeight: "700",
+  // ✅ 개발용 퀵 로그인 (__DEV__에서만 보이게)
+  const onQuickLogin = () => {
+    setValue("loginId", "user01", { shouldValidate: true });
+    setValue("password", "1234", { shouldValidate: true });
+    handleSubmit(onValidSubmit)();
   };
 
-  const inputBoxBase: ViewStyle = {
+  // 입력 박스 스타일 (포커스/에러에 따른 UI 의도만 유지)
+  const inputBoxStyle = (hasError: boolean, isFocused: boolean): ViewStyle => ({
     height: 56,
     borderRadius: t.spacing.radiusMd,
-    borderWidth: t.spacing.borderWidth,
-    borderColor: t.colors.border,
-    backgroundColor: t.colors.card,
+    borderWidth: isFocused ? 1.5 : t.spacing.borderWidth,
+    borderColor: hasError ? t.colors.error : isFocused ? t.colors.primary : t.colors.border,
+    backgroundColor: hasError ? t.colors.surface : t.colors.card,
     paddingHorizontal: t.spacing.space[4],
     justifyContent: "center",
-  };
+  });
 
-  const inputTextBase: TextStyle = {
+  const inputBase: TextStyle = {
     fontSize: 16,
+    padding: 0, // Android 기본 패딩 제거
     color: t.colors.textMain,
-    padding: 0,
-  };
-
-  const getInputBox = (k: FieldKey, isError: boolean): ViewStyle => {
-    const isFocused = focusedField === k;
-
-    if (isError) {
-      return {
-        ...inputBoxBase,
-        borderColor: t.colors.error,
-        backgroundColor: t.colors.surface,
-      };
-    }
-
-    if (isFocused) {
-      return {
-        ...inputBoxBase,
-        borderColor: t.colors.primary,
-        borderWidth: 1.5,
-      };
-    }
-
-    return inputBoxBase;
-  };
-
-  const dividerStyle: ViewStyle = {
-    width: 1,
-    height: 14,
-    backgroundColor: t.colors.divider,
-    marginHorizontal: t.spacing.space[4],
-  };
-
-  const onLogin = async () => {
-    if (busy) return;
-
-    setTouched({ loginId: true, password: true });
-    if (!idOk || !pwOk) return;
-
-    if (!seedReady) {
-      setErrorMsg("초기 데이터를 준비 중입니다. 잠시 후 다시 시도해주세요.");
-      return;
-    }
-
-    setBusy(true);
-    setErrorMsg(null);
-
-    try {
-      const user = await authApi.login({ loginId: loginId.trim(), password });
-      await loginToStore(user);
-      router.replace("/(tabs)");
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? "로그인에 실패했어요.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onQuickLogin = async () => {
-    if (busy) return;
-    if (!seedReady) {
-      setErrorMsg("초기 데이터를 준비 중입니다. 잠시 후 다시 시도해주세요.");
-      return;
-    }
-
-    setBusy(true);
-    setErrorMsg(null);
-
-    try {
-      const user = await authApi.login({ loginId: "user01", password: "1234" });
-      await loginToStore(user);
-      router.replace("/(tabs)");
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? "퀵 로그인에 실패했어요.");
-    } finally {
-      setBusy(false);
-    }
   };
 
   return (
     <AppLayout padded={false} style={{ backgroundColor: t.colors.background }}>
       <TopBar title="" showBack onPressBack={() => router.back()} />
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{
-            flexGrow: 1,
-            justifyContent: "center",
-            paddingHorizontal: t.spacing.pagePaddingH,
-            paddingVertical: t.spacing.space[6],
-          }}
+          contentContainerStyle={styles.scrollContent}
         >
-          <View style={cardStyle}>
-            {/* 헤더/브랜드 */}
-            <View style={{ alignItems: "center" }}>
-              <Image source={require("../../../assets/images/logo.png")} style={{ width: 80, height: 80, resizeMode: "contain" }} />
-              <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: t.spacing.space[3] }]}>
+          <View
+            style={[
+              styles.card,
+              { backgroundColor: t.colors.surface, borderColor: t.colors.border },
+            ]}
+          >
+            {/* 1) 로고 영역 */}
+            <View style={styles.header}>
+              <Image
+                source={require("../../../assets/images/logo.png")}
+                style={styles.logo}
+              />
+              <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: 12 }]}>
                 아이디로 로그인
               </Text>
               <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
                 당신의 취미 메이트를 찾아보세요!
               </Text>
-
-              {!seedReady ? (
-                <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: t.spacing.space[3] }]}>
-                  초기 데이터 준비 중...
-                </Text>
-              ) : null}
             </View>
 
-            <View style={{ height: t.spacing.space[7] }} />
+            <View style={{ height: 32 }} />
 
-            {/* 아이디 */}
-            <View style={{ marginBottom: t.spacing.space[5] }}>
-              <Text style={labelStyle}>아이디</Text>
-              <View style={getInputBox("loginId", !!idErr)}>
-                <TextInput
-                  value={loginId}
-                  onChangeText={(v) => {
-                    setLoginId(v);
-                    setErrorMsg(null);
-                  }}
-                  onFocus={() => setFocusedField("loginId")}
-                  onBlur={() => {
-                    setFocusedField(null);
-                    markTouched("loginId");
-                  }}
-                  placeholder="아이디 입력"
-                  placeholderTextColor={t.colors.placeholder}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!busy}
-                  style={inputTextBase}
-                  returnKeyType="next"
-                />
-              </View>
-              <FieldError text={idErr} />
-            </View>
+            {/* 2) 아이디 */}
+            <View style={styles.fieldGap}>
+              <Text style={[t.typography.labelMedium, styles.label, { color: t.colors.textSub }]}>
+                아이디
+              </Text>
 
-            {/* 비밀번호 */}
-            <View style={{ marginBottom: t.spacing.space[2] }}>
-              <Text style={labelStyle}>비밀번호</Text>
-              <View style={[getInputBox("password", !!pwErr), styles.pwRow]}>
-                <TextInput
-                  value={password}
-                  onChangeText={(v) => {
-                    setPassword(v);
-                    setErrorMsg(null);
-                  }}
-                  onFocus={() => setFocusedField("password")}
-                  onBlur={() => {
-                    setFocusedField(null);
-                    markTouched("password");
-                  }}
-                  secureTextEntry={!showPw}
-                  placeholder="비밀번호 입력"
-                  placeholderTextColor={t.colors.placeholder}
-                  autoCapitalize="none"
-                  editable={!busy}
-                  style={[inputTextBase, { flex: 1 }]}
-                  returnKeyType="done"
-                  onSubmitEditing={onLogin}
-                />
-
-                <Pressable
-                  onPress={() => setShowPw((p) => !p)}
-                  hitSlop={10}
-                  disabled={busy}
-                  style={({ pressed }) => [{ opacity: busy ? 0.6 : pressed ? 0.85 : 1, padding: 4 }]}
-                >
-                  <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontWeight: "700" }]}>
-                    {showPw ? "숨기기" : "보기"}
-                  </Text>
-                </Pressable>
-              </View>
-              <FieldError text={pwErr} />
-            </View>
-
-            {/* 서버/인증 에러 */}
-            {errorMsg ? (
-              <View
-                style={{
-                  marginTop: t.spacing.space[4],
-                  padding: t.spacing.space[4],
-                  borderRadius: t.spacing.radiusMd,
-                  backgroundColor: t.colors.overlay[6],
-                  borderWidth: t.spacing.borderWidth,
-                  borderColor: t.colors.border,
+              <Controller
+                control={control}
+                name="loginId"
+                rules={{ required: "아이디를 입력해주세요." }}
+                render={({ field: { onChange, onBlur, value }, fieldState: { error } }) => {
+                  const focused = focusedField === "loginId";
+                  return (
+                    <>
+                      <View style={inputBoxStyle(!!error, focused)}>
+                        <TextInput
+                          value={value}
+                          onChangeText={onChange}
+                          onBlur={() => {
+                            onBlur();
+                            setFocusedField(null);
+                          }}
+                          onFocus={() => {
+                            setGlobalError(null);
+                            setFocusedField("loginId");
+                          }}
+                          placeholder="아이디 입력"
+                          placeholderTextColor={t.colors.placeholder}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          returnKeyType="next"
+                          onSubmitEditing={() => setFocus("password")}
+                          style={inputBase}
+                          editable={!isSubmitting}
+                        />
+                      </View>
+                      <FieldError text={error?.message} />
+                    </>
+                  );
                 }}
+              />
+            </View>
+
+            {/* 3) 비밀번호 */}
+            <View style={styles.fieldGap}>
+              <Text style={[t.typography.labelMedium, styles.label, { color: t.colors.textSub }]}>
+                비밀번호
+              </Text>
+
+              <Controller
+                control={control}
+                name="password"
+                rules={{
+                  required: "비밀번호를 입력해주세요.",
+                  minLength: { value: 4, message: "4자 이상 입력해주세요." },
+                }}
+                render={({ field: { onChange, onBlur, value }, fieldState: { error } }) => {
+                  const focused = focusedField === "password";
+                  return (
+                    <>
+                      <View style={[inputBoxStyle(!!error, focused), styles.pwContainer]}>
+                        <TextInput
+                          value={value}
+                          onChangeText={onChange}
+                          onBlur={() => {
+                            onBlur();
+                            setFocusedField(null);
+                          }}
+                          onFocus={() => {
+                            setGlobalError(null);
+                            setFocusedField("password");
+                          }}
+                          secureTextEntry={!showPw}
+                          placeholder="비밀번호 입력"
+                          placeholderTextColor={t.colors.placeholder}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          returnKeyType="done"
+                          onSubmitEditing={handleSubmit(onValidSubmit)}
+                          style={[inputBase, { flex: 1 }]}
+                          editable={!isSubmitting}
+                        />
+
+                        <Pressable
+                          onPress={() => setShowPw((p) => !p)}
+                          hitSlop={10}
+                          style={({ pressed }) => ({
+                            opacity: pressed ? 0.7 : 1,
+                            padding: 4,
+                          })}
+                        >
+                          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontWeight: "700" }]}>
+                            {showPw ? "숨기기" : "보기"}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <FieldError text={error?.message} />
+                    </>
+                  );
+                }}
+              />
+            </View>
+
+            {/* 4) 글로벌 에러 */}
+            {globalError && (
+              <View
+                style={[
+                  styles.errorBox,
+                  { backgroundColor: t.colors.overlay[6], borderColor: t.colors.border },
+                ]}
               >
                 <Text style={[t.typography.bodySmall, { color: t.colors.error, textAlign: "center" }]}>
-                  {errorMsg}
+                  {globalError}
                 </Text>
               </View>
-            ) : null}
+            )}
 
-            <View style={{ height: t.spacing.space[6] }} />
+            <View style={{ height: 24 }} />
 
+            {/* 5) 로그인 버튼 */}
             <Button
-              title={!seedReady ? "준비 중..." : busy ? "로그인 중..." : "로그인"}
-              onPress={onLogin}
-              disabled={!canSubmit}
-              loading={busy}
+              title={isSubmitting ? "로그인 중..." : "로그인"}
+              onPress={handleSubmit(onValidSubmit)}
+              disabled={isSubmitting || !isValid}
+              loading={isSubmitting}
               variant="primary"
               size="lg"
             />
 
-            <View style={{ height: t.spacing.space[3] }} />
+            {/* 6) 개발용 퀵 로그인 */}
+            {__DEV__ && (
+              <View style={{ marginTop: 12 }}>
+                <Button
+                  title="⚡️ user01 (Dev Only)"
+                  onPress={onQuickLogin}
+                  disabled={isSubmitting}
+                  variant="secondary"
+                  size="lg"
+                />
+              </View>
+            )}
 
-            <Button
-              title="⚡️ user01 (테스트 계정)"
-              onPress={onQuickLogin}
-              disabled={busy || !seedReady}
-              variant="secondary"
-              size="lg"
-            />
-
-            {/* 하단 링크 */}
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "center",
-                alignItems: "center",
-                marginTop: t.spacing.space[6],
-              }}
-            >
-              <Pressable
-                onPress={() => router.push("/(auth)/signup")}
-                disabled={busy}
-                hitSlop={10}
-                style={({ pressed }) => [{ opacity: busy ? 0.6 : pressed ? 0.85 : 1 }]}
-              >
+            {/* 7) 하단 링크 */}
+            <View style={styles.footerLinks}>
+              <Pressable onPress={() => router.push("/(auth)/signup")} hitSlop={10}>
                 <Text style={[t.typography.bodyMedium, { color: t.colors.primary, fontWeight: "700" }]}>
                   회원가입
                 </Text>
               </Pressable>
-
-              <View style={dividerStyle} />
-
-              <Pressable
-                onPress={() => router.push("/(auth)/reset-password")}
-                disabled={busy}
-                hitSlop={10}
-                style={({ pressed }) => [{ opacity: busy ? 0.6 : pressed ? 0.85 : 1 }]}
-              >
-                <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>비밀번호 찾기</Text>
+              <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
+              <Pressable onPress={() => router.push("/(auth)/reset-password")} hitSlop={10}>
+                <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>
+                  비밀번호 찾기
+                </Text>
               </Pressable>
             </View>
           </View>
-
-          <View style={{ height: t.spacing.space[6] }} />
         </ScrollView>
       </KeyboardAvoidingView>
     </AppLayout>
@@ -374,10 +302,53 @@ export default function IdLoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  pwRow: {
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 24,
+  },
+  header: {
+    alignItems: "center",
+  },
+  logo: {
+    width: 80,
+    height: 80,
+    resizeMode: "contain",
+  },
+  fieldGap: {
+    marginBottom: 20,
+  },
+  label: {
+    marginBottom: 8,
+    fontWeight: "700",
+  },
+  pwContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 8,
+  },
+  errorBox: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  footerLinks: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 24,
+  },
+  divider: {
+    width: 1,
+    height: 14,
+    marginHorizontal: 16,
   },
 });

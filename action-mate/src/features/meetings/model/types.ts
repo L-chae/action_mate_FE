@@ -5,14 +5,14 @@ export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 export type HomeSort = "LATEST" | "NEAR" | "SOON";
 export type JoinMode = "INSTANT" | "APPROVAL";
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
+// REJECTED 추가 (거절된 상태)
 export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED" | "REJECTED";
 
 // --- SUB TYPES ---
 export type HostSummary = {
   id: string;
   nickname: string;
-  // ✅ [수정] avatarUrl -> avatar 로 통일
-  avatar?: string | null;
+  avatar?: string | null; // 통일됨 (avatarUrl -> avatar)
   mannerTemp: number;
   kudosCount: number;
   intro?: string;
@@ -26,22 +26,22 @@ export type MyState = {
 
 // --- MAIN ENTITY ---
 export type MeetingPost = {
-  id: string;
+  id: string; // 게시글 ID
   category: CategoryKey;
   title: string;
   content?: string; 
 
   // Time
-  meetingTimeText?: string;
-  meetingTime?: string; // ISO String
-  durationHours?: number;
-  durationMinutes?: number;
+  meetingTimeText?: string; // "오늘 14:00" (UI용)
+  meetingTime?: string;     // "2024-01-20T14:00:00" (ISO, 필수 권장)
+  durationHours?: number;   
+  durationMinutes?: number; 
 
   // Location
   locationText: string;
   locationLat?: number;
   locationLng?: number;
-  distanceText?: string;
+  distanceText?: string; // "1.2km" (UI용)
 
   // Capacity
   capacityJoined: number;
@@ -51,20 +51,18 @@ export type MeetingPost = {
   joinMode: JoinMode;
   conditions?: string;
   status: PostStatus;
-  
+
   // Meta
-  items?: string;
-  host?: HostSummary;
-  myState?: MyState; 
+  items?: string;       // 준비물
+  host?: HostSummary;   // 호스트 정보
+  myState?: MyState;    // 내 참여 상태
 };
 
-// --- API DTOs (Request/Response Types) ---
+// --- API DTOs ---
 
-// 모임 생성/수정 Params
 export type MeetingParams = {
   title: string;
   category: CategoryKey;
-  meetingTimeText?: string;
   meetingTimeIso: string;
   locationText: string;
   locationLat?: number;
@@ -77,14 +75,12 @@ export type MeetingParams = {
   items?: string;
 };
 
-// 지도/주변 조회 옵션
 export type AroundMeetingsOptions = {
   radiusKm?: number;
   category?: CategoryKey | "ALL";
   sort?: HomeSort;
 };
 
-// 홈 핫딜 카드 아이템
 export type HotMeetingItem = {
   id: string;
   meetingId: string;
@@ -95,40 +91,25 @@ export type HotMeetingItem = {
   capacityTotal: number;
 };
 
-export type Comment = {
-  id: string;
-  postId: string;
-  authorId: string;
-  authorNickname: string;
-  // ✅ [수정] authorAvatarUrl -> authorAvatar 로 통일
-  authorAvatar?: string | null;
-  content: string;
-  createdAt: string;
-};
-
-// 참여자 정보 타입
+// 참여자 정보 타입 (API 응답)
 export type Participant = {
   userId: string;
   nickname: string;
-  // ✅ [수정] avatarUrl -> avatar 로 통일
   avatar?: string | null;
-  status: MembershipStatus; // PENDING, MEMBER, REJECTED
-  appliedAt: string;
+  status: MembershipStatus;
+  appliedAt: string; // ISO Date
 };
 
 // --- API Interface ---
 export interface MeetingApi {
   listHotMeetings(opts?: { limit?: number; withinMinutes?: number }): Promise<HotMeetingItem[]>;
   listMeetings(opts?: { category?: CategoryKey | "ALL"; sort?: HomeSort }): Promise<MeetingPost[]>;
-  listMeetingsAround(
-    lat: number,
-    lng: number,
-    opts?: AroundMeetingsOptions
-  ): Promise<MeetingPost[]>;
+  listMeetingsAround(lat: number, lng: number, opts?: AroundMeetingsOptions): Promise<MeetingPost[]>;
   getMeeting(id: string): Promise<MeetingPost>;
 
   createMeeting(data: MeetingParams): Promise<MeetingPost>;
   updateMeeting(id: string, data: Partial<MeetingParams>): Promise<MeetingPost>;
+  
   joinMeeting(id: string): Promise<{ post: MeetingPost; membershipStatus: MembershipStatus }>;
   cancelJoin(id: string): Promise<{ post: MeetingPost }>;
   cancelMeeting(id: string): Promise<{ post: MeetingPost }>;
