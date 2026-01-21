@@ -33,7 +33,10 @@ function getParticipantUserId(p: Participant): string {
 function getParticipantLabel(p: Participant): string {
   const anyP = p as any;
   const uid = getParticipantUserId(p);
-  return String(anyP.nickname ?? anyP.name ?? anyP.displayName ?? "") || (uid ? `사용자 ${uid}` : "사용자");
+  return (
+    String(anyP.nickname ?? anyP.name ?? anyP.displayName ?? "") ||
+    (uid ? `사용자 ${uid}` : "사용자")
+  );
 }
 
 export default function NotificationDetailScreen() {
@@ -51,10 +54,12 @@ export default function NotificationDetailScreen() {
   const [meeting, setMeeting] = useState<MeetingPost | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
-  const pending = useMemo(
-    () => participants.filter((p) => p.status === "PENDING"),
-    [participants]
-  );
+  const isHost = useMemo(() => {
+    const hostId = (meeting as any)?.host?.id;
+    return Boolean(hostId) && String(hostId) === CURRENT_USER_ID;
+  }, [meeting]);
+
+  const pending = useMemo(() => participants.filter((p) => p.status === "PENDING"), [participants]);
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -65,8 +70,16 @@ export default function NotificationDetailScreen() {
         const m = await meetingApi.getMeeting(meetingId);
         setMeeting(m);
 
-        const parts = await meetingApi.getParticipants(meetingId);
-        setParticipants(parts);
+        const hostId = (m as any)?.host?.id;
+        const host = Boolean(hostId) && String(hostId) === CURRENT_USER_ID;
+
+        if (host) {
+          const parts = await meetingApi.getParticipants(meetingId);
+          setParticipants(parts);
+        } else {
+          // ✅ 호스트가 아니면 참여자 목록 자체를 안 가져오고 빈 배열
+          setParticipants([]);
+        }
       } catch (e) {
         console.error(e);
         Alert.alert("오류", "알림 상세 정보를 불러오지 못했습니다.");
@@ -90,17 +103,9 @@ export default function NotificationDetailScreen() {
     }
   }, [load]);
 
-  const ensureHost = useCallback(() => {
-    if (meeting?.host?.id && meeting.host.id !== CURRENT_USER_ID) {
-      Alert.alert("권한 없음", "호스트만 참여 신청을 처리할 수 있어요.");
-      return false;
-    }
-    return true;
-  }, [meeting]);
-
   const onApprove = useCallback(
     async (userId: string) => {
-      if (!ensureHost()) return;
+      if (!isHost) return;
 
       setActionLoadingUserId(userId);
       try {
@@ -113,12 +118,12 @@ export default function NotificationDetailScreen() {
         setActionLoadingUserId(null);
       }
     },
-    [ensureHost, meetingId]
+    [isHost, meetingId]
   );
 
   const onReject = useCallback(
     async (userId: string) => {
-      if (!ensureHost()) return;
+      if (!isHost) return;
 
       Alert.alert("거절할까요?", "이 참여 신청을 거절합니다.", [
         { text: "취소", style: "cancel" },
@@ -140,10 +145,10 @@ export default function NotificationDetailScreen() {
         },
       ]);
     },
-    [ensureHost, meetingId]
+    [isHost, meetingId]
   );
 
-  const empty = !loading && pending.length === 0;
+  const emptyPending = !loading && pending.length === 0;
 
   return (
     <AppLayout padded={false}>
@@ -189,12 +194,27 @@ export default function NotificationDetailScreen() {
               </Text>
 
               <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 8 }]}>
-                대기 중 신청 {pending.length}건
+                대기 중 신청 {isHost ? pending.length : 0}건
               </Text>
             </View>
 
-            {/* 목록/빈상태 */}
-            {empty ? (
+            {/* ✅ 호스트가 아니면 여기서 끝 */}
+            {!isHost ? (
+              <View style={[styles.emptyBox, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+                <Ionicons name="lock-closed-outline" size={28} color={t.colors.textSub} />
+                <Text style={[t.typography.titleSmall, { marginTop: 10, color: t.colors.textMain }]}>
+                  호스트만 볼 수 있어요
+                </Text>
+                <Text
+                  style={[
+                    t.typography.bodySmall,
+                    { marginTop: 6, color: t.colors.textSub, textAlign: "center" },
+                  ]}
+                >
+                  이 화면은 참여 신청 처리(수락/거절) 전용입니다.
+                </Text>
+              </View>
+            ) : emptyPending ? (
               <View style={[styles.emptyBox, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
                 <Ionicons name="checkmark-circle-outline" size={28} color={t.colors.textSub} />
                 <Text style={[t.typography.titleSmall, { marginTop: 10, color: t.colors.textMain }]}>

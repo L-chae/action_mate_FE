@@ -1,58 +1,90 @@
 // src/features/meetings/api/meetingApi.remote.ts
 import { client } from "@/shared/api/apiClient";
 import { endpoints } from "@/shared/api/endpoints";
-import type { 
-  MeetingApi, 
-  MeetingPost, 
+
+import type {
+  MeetingApi,
+  SubmitMeetingRatingReq,
+  SubmitMeetingRatingRes,
+} from "./meetingApi";
+
+import type {
+  MeetingPost,
   HotMeetingItem,
-  Participant 
+  Participant,
+  HomeSort,
+  CategoryKey,
+  AroundMeetingsOptions,
+  MembershipStatus,
+  MeetingParams,
 } from "../model/types";
 
 // ✅ 서버 응답 타입 정의 (DTO)
 // 필요하다면 types.ts로 옮겨도 되지만, 여기서만 쓰이면 여기에 둬도 됨
-type ServerPost = MeetingPost; // 지금은 구조가 거의 같다고 가정
+type ServerPost = MeetingPost; // 현재는 구조가 거의 같다고 가정
+
 type ServerApplicant = {
   postId: number;
   userId: string;
   state: "APPROVED" | "REJECTED" | "PENDING";
 };
 
+function mapApplicantStateToParticipantStatus(
+  state: ServerApplicant["state"]
+): Participant["status"] {
+  if (state === "APPROVED") return "MEMBER";
+  if (state === "PENDING") return "PENDING";
+  return "REJECTED";
+}
+
+function mapApplicantStateToMembershipStatus(
+  state: ServerApplicant["state"]
+): MembershipStatus {
+  if (state === "APPROVED") return "MEMBER";
+  if (state === "PENDING") return "PENDING";
+  return "REJECTED";
+}
+
 export const meetingApiRemote: MeetingApi = {
-  // 1. 핫한 모임 (서버에 별도 API가 없으면 전체 조회 후 프론트 필터링 or 카테고리별 조회 대체)
-  // 명세서에 "Hot" 전용 API가 없으므로 일단 '전체 조회' 후 가공하거나, 서버 개발자에게 요청 필요.
-  // 여기서는 임시로 전체 조회를 호출함.
+  // 1. 핫한 모임
   async listHotMeetings({ limit = 6 } = {}) {
-    // ⚠️ TODO: 서버에 /posts/hot API 만들어달라고 하기
-    // 임시: 그냥 전체 조회해서 앞부분 자름
-    const res = await client.get<ServerPost[]>(endpoints.posts.create); // GET /posts?
-    // (만약 GET /posts가 없다면 카테고리별 조회로 대체해야 함)
-    
-    return res.data.slice(0, limit).map((m) => ({
-      id: `hot-${m.id}`,
-      meetingId: String(m.id),
-      badge: "마감임박",
-      title: m.title,
-      place: m.locationText || "위치 미정",
-      capacityJoined: m.capacityJoined,
-      capacityTotal: m.capacityTotal,
-    }));
+    // ⚠️ TODO: 서버에 /posts/hot 같은 API가 없으면 Hot은 프론트에서 가공
+    const res = await client.get<ServerPost[]>(endpoints.posts.create); // GET /posts
+
+    return res.data.slice(0, limit).map(
+      (m): HotMeetingItem => ({
+        id: `hot-${m.id}`,
+        meetingId: String(m.id),
+        badge: "마감임박",
+        title: m.title,
+        place: m.locationText || "위치 미정",
+        capacityJoined: m.capacityJoined,
+        capacityTotal: m.capacityTotal,
+      })
+    );
   },
 
-  // 2. 모임 목록 (카테고리별)
-  async listMeetings({ category = "ALL" } = {}) {
+  // 2. 모임 목록 (카테고리 + 정렬)
+  async listMeetings({ category = "ALL", sort = "LATEST" } = {}) {
+    // 현재 서버 명세에 sort 파라미터가 없어서 프론트 정렬을 권장
+    // 그래도 인터페이스 맞추려고 sort는 받되 여기서는 그대로 반환
+    const _sort: HomeSort = sort;
+
     if (category === "ALL") {
-      // 전체 조회 API가 명세에 정확히 없으므로, 카테고리별로 다 불러오거나 
-      // "자유" 카테고리를 기본으로 부르는 등 정책 필요.
-      // 일단 "자유" 카테고리 예시
+      // ⚠️ 전체 조회가 없다면 임시로 "자유" 카테고리 호출
+      // (정책 확정되면 서버에 전체조회 추가 or 카테고리 전체 병합)
       const res = await client.get<ServerPost[]>(endpoints.posts.byCategory("자유"));
       return res.data;
     }
-    const res = await client.get<ServerPost[]>(endpoints.posts.byCategory(category));
+
+    const res = await client.get<ServerPost[]>(endpoints.posts.byCategory(category as CategoryKey));
     return res.data;
   },
 
   // 3. 주변 모임
-  async listMeetingsAround(lat, lng, { radiusKm = 1 } = {}) {
+  async listMeetingsAround(lat, lng, opts: AroundMeetingsOptions = {}) {
+    const { radiusKm = 1 } = opts;
+
     const res = await client.get<ServerPost[]>(endpoints.posts.nearby, {
       params: {
         latitude: lat,
@@ -70,7 +102,7 @@ export const meetingApiRemote: MeetingApi = {
   },
 
   // 5. 생성
-  async createMeeting(data) {
+  async createMeeting(data: MeetingParams) {
     const res = await client.post<ServerPost>(endpoints.posts.create, {
       category: data.category,
       title: data.title,
@@ -85,7 +117,7 @@ export const meetingApiRemote: MeetingApi = {
   },
 
   // 6. 수정
-  async updateMeeting(id, data) {
+  async updateMeeting(id: string, data: MeetingParams) {
     const res = await client.put<ServerPost>(endpoints.posts.byId(id), {
       category: data.category,
       title: data.title,
@@ -100,61 +132,68 @@ export const meetingApiRemote: MeetingApi = {
   },
 
   // 7. 삭제/취소
-  async cancelMeeting(id) {
+  async cancelMeeting(id: string) {
     await client.delete(endpoints.posts.byId(id));
-    // 삭제 후 껍데기 반환
     return { post: { id, status: "CANCELED" } as any };
   },
 
   // 8. 참여하기
-  async joinMeeting(id) {
+  async joinMeeting(id: string) {
     const res = await client.post<ServerApplicant>(endpoints.posts.applicants(id));
-    // 서버 응답(Applicant)을 보고 상태 매핑
-    const statusMap: Record<string, any> = {
-      APPROVED: "MEMBER",
-      PENDING: "PENDING",
-      REJECTED: "REJECTED",
-    };
-    
-    // UI 갱신을 위해 MeetingPost 정보가 필요하지만, 
-    // API가 Applicant만 준다면 다시 getMeeting을 호출해야 할 수도 있음.
-    // 여기서는 약식으로 처리
-    const newStatus = statusMap[res.data.state] || "NONE";
-    return { 
-      post: { id, myState: { membershipStatus: newStatus } } as any, 
-      membershipStatus: newStatus 
+
+    const membershipStatus = mapApplicantStateToMembershipStatus(res.data.state);
+
+    // Applicant만 내려오면 post 정보가 없어서 최소 껍데기만 반환
+    return {
+      post: { id, myState: { membershipStatus, canJoin: false } } as any,
+      membershipStatus,
     };
   },
 
-  // 9. 참여 취소 (명세서에 API 없음?!)
-  async cancelJoin(id) {
-    // ⚠️ 명세서에 '신청 취소(DELETE /posts/{id}/applicants)'가 안 보임.
-    // 일단 에러 처리하거나 서버 개발자에게 문의.
+  // 9. 참여 취소
+  async cancelJoin(_id: string) {
+    // ⚠️ 서버에 참여 취소 API가 없다면 스펙 확정 필요
     throw new Error("서버에 참여 취소 API가 없습니다.");
   },
 
   // 10. 참여자 목록
-  async getParticipants(meetingId) {
+  async getParticipants(meetingId: string) {
     const res = await client.get<ServerApplicant[]>(endpoints.posts.applicants(meetingId));
-    // ServerApplicant -> Participant 변환
-    return res.data.map(a => ({
-      userId: a.userId,
-      nickname: a.userId, // 닉네임 정보가 없으면 ID로 대체
-      status: a.state === "APPROVED" ? "MEMBER" : a.state,
-      appliedAt: new Date().toISOString(), // 시간 정보 없으면 현재 시간
-    }));
+
+    return res.data.map(
+      (a): Participant => ({
+        userId: a.userId,
+        nickname: a.userId, // 닉네임 필드가 없으면 임시로 userId 사용
+        status: mapApplicantStateToParticipantStatus(a.state),
+        appliedAt: new Date().toISOString(),
+      })
+    );
   },
 
   // 11. 승인
-  async approveParticipant(meetingId, userId) {
+  async approveParticipant(meetingId: string, userId: string) {
+    // 서버가 body로 "APPROVED" 문자열 받는 형태라면 그대로
     await client.patch(endpoints.posts.decideApplicant(meetingId, userId), "APPROVED");
-    // 목록 다시 불러오기
-    return this.getParticipants(meetingId);
+    // this 바인딩 이슈 방지
+    return meetingApiRemote.getParticipants(meetingId);
   },
 
   // 12. 거절
-  async rejectParticipant(meetingId, userId) {
+  async rejectParticipant(meetingId: string, userId: string) {
     await client.patch(endpoints.posts.decideApplicant(meetingId, userId), "REJECTED");
-    return this.getParticipants(meetingId);
+    return meetingApiRemote.getParticipants(meetingId);
+  },
+
+  // ✅ 13. 모임 평가(별점 0~5)
+  async submitMeetingRating(req: SubmitMeetingRatingReq): Promise<SubmitMeetingRatingRes> {
+    const meetingId = String(req.meetingId);
+    const stars = Number(req.stars);
+
+    const res = await client.post<SubmitMeetingRatingRes>(
+      endpoints.posts.ratings(meetingId),
+      { stars }
+    );
+
+    return res.data;
   },
 };
