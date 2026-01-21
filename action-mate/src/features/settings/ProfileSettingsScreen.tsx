@@ -1,3 +1,4 @@
+// src/features/settings/ProfileSettingsScreen.tsx
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
@@ -25,7 +26,7 @@ import { withAlpha } from "@/shared/theme/colors";
 import { useAuthStore } from "@/features/auth/model/authStore";
 import type { Gender, User } from "@/features/auth/model/types";
 
-// --- 타입 및 유틸리티 (변경 없음) ---
+// --- 타입 및 유틸리티 ---
 type FieldKey = "nickname" | "birthDate";
 type FieldRowProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -228,6 +229,7 @@ export default function ProfileSettingsScreen() {
   }, [saving, isDirty, nickValidation.ok, birthOk]);
 
   // 이미지 선택 핸들러
+// 이미지 선택 핸들러
   const onPickAvatar = useCallback(async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (permissionResult.granted === false) {
@@ -236,6 +238,7 @@ export default function ProfileSettingsScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
+      // ✅ 다시 원래대로 MediaTypeOptions 사용 (현재 버전 호환용)
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
@@ -289,7 +292,7 @@ export default function ProfileSettingsScreen() {
     try {
       setSaving(true);
       
-      // 1. UI 즉시 반영 (선택 사항: updateProfile 내부에서도 수행하지만, 여기서 먼저 해주면 더 빠름)
+      // 1. UI 즉시 반영
       await setUser(optimisticUser);
 
       // 2. API 호출 (실제 저장)
