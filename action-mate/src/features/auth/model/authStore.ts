@@ -8,8 +8,9 @@ import type { User } from "./types";
 /**
  * [개발용 설정]
  * true일 경우 앱 실행 시 저장된 세션이 없으면 'user01'로 자동 로그인 시도
+ * ⚠️ 카카오 로그인 테스트 중에는 false로 설정하세요!
  */
-const USE_AUTO_MOCK = __DEV__ && true;
+const USE_MOCK = false; // __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === "true";
 
 type AuthState = {
   hasHydrated: boolean; // 초기화 완료 여부
@@ -20,9 +21,14 @@ type AuthState = {
   hydrateFromStorage: () => Promise<void>;
 
   /** * ✅ 로그인 상태 업데이트
-   * 주의: API 호출이나 토큰 저장은 이 함수 호출 전에 완료되어야 함 
+   * (LoginScreen에서 토큰 저장 후 호출됨)
    */
   login: (user: User) => void;
+
+  /** * ✅ [추가됨] 유저 정보 강제 업데이트
+   * (프로필 수정 화면에서 UI 즉시 반영을 위해 사용) 
+   */
+  setUser: (user: User) => void;
 
   /** 로그아웃 (토큰 삭제 + 상태 초기화) */
   logout: () => Promise<void>;
@@ -45,9 +51,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       // 2. 토큰 존재 확인
       const token = await getAccessToken();
+      
+      // 토큰이 없으면
       if (!token) {
-        // 토큰 없으면 자동 로그인 시도 or 실패 처리
-        if (USE_AUTO_MOCK) {
+        if (USE_MOCK) {
           await tryAutoMockLogin(set);
         } else {
           set({ hasHydrated: true, isLoggedIn: false, user: null });
@@ -58,6 +65,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // 3. 마지막 로그인 ID 확인
       const lastLoginId = await authApi.getCurrentLoginId();
       if (!lastLoginId) {
+        // 토큰은 있는데 ID를 모르면 로그아웃 처리
         throw new Error("No saved login ID");
       }
 
@@ -72,20 +80,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     } catch (e) {
       console.log("⚠️ 세션 복구 실패:", e);
-      // 복구 실패 시 자동 로그인 재시도 or 로그아웃 처리
-      if (USE_AUTO_MOCK) {
+      // 복구 실패 시
+      if (USE_MOCK) {
         await tryAutoMockLogin(set);
       } else {
-        await clearAuthTokens(); // 꼬인 토큰 삭제
+        await clearAuthTokens();
         await authApi.clearCurrentLoginId();
         set({ hasHydrated: true, isLoggedIn: false, user: null });
       }
     }
   },
 
-  // ✅ 개선: 단순히 상태만 변경 (토큰 처리는 LoginScreen에서 수행됨)
   login: (user: User) => {
+    // 메모리 상태 업데이트
     set({ isLoggedIn: true, user });
+    
+    // (선택) 여기서 로컬에 ID 저장 로직을 추가할 수도 있습니다.
+    authApi.setCurrentLoginId(user.loginId).catch(console.warn);
+  },
+
+  // ✅ [추가됨] setUser 구현부
+  setUser: (user: User) => {
+    set({ user });
   },
 
   logout: async () => {
@@ -103,10 +119,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: optimisticUser });
 
     try {
-      // 2. 서버 요청 (실패 시 catch로 이동)
-      // loginId를 기준으로 업데이트 요청
+      // 2. 서버 요청
       const updatedUser = await authApi.updateUser(currentUser.loginId, patch);
-      
       // 3. 서버 응답값으로 확정
       set({ user: updatedUser });
     } catch (e) {
