@@ -1,18 +1,34 @@
-// src/features/meetings/api/meetingApi.local.ts
 import { MOCK_MEETINGS_SEED, HOST_USERS } from "../mocks/meetingMockData";
-import type { 
-  MeetingPost, 
-  MeetingParams, 
-  HomeSort, 
-  MeetingApi, 
-  Participant 
-} from "../model/types";
+import type { HomeSort, MeetingApi, MeetingPost, Participant } from "../model/types";
 
 // ✅ Local State Deep Copy (원본 보호)
 let _DATA: MeetingPost[] = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
 
 // ✅ 참여자 더미 데이터 저장소
 const _PARTICIPANTS: Record<string, Participant[]> = {};
+
+// ----------------------------------------------------------------------
+// ✅ Mock Data Debug Helpers
+// - myApi 등 다른 mock layer에서 "현재 모임 seed"를 조회/리셋/주입할 때 사용.
+// - export 가 있어야 번들에서 meetingApiLocal.__getMockDataUnsafe 로 접근 가능.
+// ----------------------------------------------------------------------
+
+/** ⚠️ 개발/목업용: 현재 _DATA 참조를 그대로 반환(외부 mutate 가능) */
+export function __getMockDataUnsafe(): MeetingPost[] {
+  return _DATA;
+}
+
+/** 개발/목업용: _DATA를 seed 상태로 리셋 */
+export function __resetMockData(): void {
+  _DATA = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
+  for (const k of Object.keys(_PARTICIPANTS)) delete _PARTICIPANTS[k];
+}
+
+/** 개발/목업용: _DATA를 외부에서 주입(주입 시 deep copy로 원본 보호) */
+export function __setMockData(next: MeetingPost[]): void {
+  _DATA = JSON.parse(JSON.stringify(next));
+  for (const k of Object.keys(_PARTICIPANTS)) delete _PARTICIPANTS[k];
+}
 
 // --- Helpers ---
 const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -21,25 +37,25 @@ const toTimeMs = (iso?: string) => (iso ? new Date(iso).getTime() : Number.MAX_S
 const ensureParticipants = (meetingId: string) => {
   if (!_PARTICIPANTS[meetingId]) {
     _PARTICIPANTS[meetingId] = [
-      { 
-        userId: "u_test_1", 
-        nickname: "테니스왕", 
-        avatar: "https://i.pravatar.cc/150?u=test1", // 아바타 추가
-        status: "PENDING", 
-        appliedAt: new Date(Date.now() - 3600000).toISOString() 
+      {
+        userId: "u_test_1",
+        nickname: "테니스왕",
+        avatar: "https://i.pravatar.cc/150?u=test1",
+        status: "PENDING",
+        appliedAt: new Date(Date.now() - 3600000).toISOString(),
       },
-      { 
-        userId: "u_test_2", 
-        nickname: "초보에요", 
-        status: "MEMBER", 
-        appliedAt: new Date(Date.now() - 7200000).toISOString() 
+      {
+        userId: "u_test_2",
+        nickname: "초보에요",
+        status: "MEMBER",
+        appliedAt: new Date(Date.now() - 7200000).toISOString(),
       },
     ];
   }
 };
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371; 
+  const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -102,7 +118,7 @@ export const meetingApiLocal: MeetingApi = {
   // 2. List
   async listMeetings({ category = "ALL", sort = "LATEST" } = {}) {
     await delay();
-    let list = category === "ALL" ? _DATA : _DATA.filter((m) => m.category === category);
+    const list = category === "ALL" ? _DATA : _DATA.filter((m) => m.category === category);
     return sortList(list, sort);
   },
 
@@ -143,7 +159,7 @@ export const meetingApiLocal: MeetingApi = {
       status: "OPEN",
       capacityJoined: 1,
       distanceText: "0km",
-      meetingTime: data.meetingTimeIso || new Date().toISOString(),
+      meetingTime: (data as any).meetingTimeIso || new Date().toISOString(),
       myState: { membershipStatus: "HOST", canJoin: false },
       host: HOST_USERS.me,
     };
@@ -155,11 +171,11 @@ export const meetingApiLocal: MeetingApi = {
     await delay(800);
     const idx = _DATA.findIndex((m) => m.id === id);
     if (idx === -1) throw new Error("Meeting not found");
-    
-    _DATA[idx] = { 
-      ..._DATA[idx], 
+
+    _DATA[idx] = {
+      ..._DATA[idx],
       ...data,
-      meetingTime: data.meetingTimeIso || _DATA[idx].meetingTime,
+      meetingTime: (data as any).meetingTimeIso || _DATA[idx].meetingTime,
     };
     return { ..._DATA[idx] };
   },
@@ -168,7 +184,7 @@ export const meetingApiLocal: MeetingApi = {
     await delay();
     const idx = _DATA.findIndex((m) => m.id === id);
     if (idx === -1) throw new Error("Meeting not found");
-    
+
     const target = _DATA[idx];
     _DATA.splice(idx, 1);
     return { post: { ...target, status: "CANCELED" } };
@@ -202,7 +218,7 @@ export const meetingApiLocal: MeetingApi = {
 
     const target = _DATA[idx];
     const isMember = target.myState?.membershipStatus === "MEMBER";
-    
+
     _DATA[idx] = {
       ...target,
       capacityJoined: isMember ? Math.max(0, target.capacityJoined - 1) : target.capacityJoined,
@@ -221,13 +237,13 @@ export const meetingApiLocal: MeetingApi = {
   async approveParticipant(meetingId, userId) {
     await delay(500);
     ensureParticipants(meetingId);
-    
+
     const list = _PARTICIPANTS[meetingId];
-    const target = list.find(p => p.userId === userId);
+    const target = list.find((p) => p.userId === userId);
     if (target) {
       target.status = "MEMBER";
-      // 모임 인원 증가
-      const mIdx = _DATA.findIndex(m => m.id === meetingId);
+      // 승인 시 인원 증가
+      const mIdx = _DATA.findIndex((m) => m.id === meetingId);
       if (mIdx > -1) _DATA[mIdx].capacityJoined++;
     }
     return [...list];
@@ -236,10 +252,13 @@ export const meetingApiLocal: MeetingApi = {
   async rejectParticipant(meetingId, userId) {
     await delay(500);
     ensureParticipants(meetingId);
-    
+
     const list = _PARTICIPANTS[meetingId];
-    const target = list.find(p => p.userId === userId);
+    const target = list.find((p) => p.userId === userId);
     if (target) target.status = "REJECTED";
     return [...list];
   },
 };
+
+// (선택) default export도 같이 제공하면 import 형태가 섞여도 안전해집니다.
+export default meetingApiLocal;
