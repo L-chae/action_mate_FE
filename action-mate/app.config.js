@@ -1,4 +1,4 @@
-import 'dotenv/config'; // .env 파일을 읽어오기 위해 필수
+import 'dotenv/config'; // .env 로드
 
 export default {
   expo: {
@@ -10,41 +10,38 @@ export default {
     scheme: "actionmate",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
-    
+
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.actionmate.app",
       config: {
-        // ✅ 수정됨: 직접 키를 적지 않고 환경 변수에서 가져옵니다.
-        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY
-      }
+        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
+      },
     },
-    
+
     android: {
       package: "com.actionmate.app",
       adaptiveIcon: {
         backgroundColor: "#E6F4FE",
         foregroundImage: "./assets/images/android-icon-foreground.png",
         backgroundImage: "./assets/images/android-icon-background.png",
-        monochromeImage: "./assets/images/android-icon-monochrome.png"
+        monochromeImage: "./assets/images/android-icon-monochrome.png",
       },
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
-      softwareKeyboardLayoutMode: "resize",
-      "softwareKeyboardLayoutMode": "resize",
+      softwareKeyboardLayoutMode: "resize", 
       config: {
         googleMaps: {
-          // ✅ 수정됨: 안드로이드도 동일하게 환경 변수 사용
-          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY
-        }
-      }
+          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
+        },
+      },
     },
-    
+
     web: {
       output: "static",
-      favicon: "./assets/images/favicon.png"
+      favicon: "./assets/images/favicon.png",
     },
-    
+
     plugins: [
       "expo-router",
       [
@@ -55,15 +52,30 @@ export default {
           resizeMode: "contain",
           backgroundColor: "#ffffff",
           dark: {
-            backgroundColor: "#000000"
-          }
-        }
+            backgroundColor: "#000000",
+          },
+        },
       ],
-      "@react-native-community/datetimepicker"
+      [
+        "@react-native-seoul/kakao-login",
+        {
+          kakaoAppKey: process.env.KAKAO_NATIVE_APP_KEY,
+          kotlinVersion: "2.0.0",
+        },
+      ],
+      [
+        "expo-build-properties",
+        {
+          android: {
+            extraMavenRepos: ["https://devrepo.kakao.com/nexus/content/groups/public/"],
+          },
+        },
+      ],
+      "@react-native-community/datetimepicker",
     ],
     experiments: {
       typedRoutes: true,
-      reactCompiler: true
-    }
-  }
+      reactCompiler: true,
+    },
+  },
 };
