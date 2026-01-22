@@ -62,8 +62,8 @@ export default function MyScreen() {
   // ✅ [핵심] Store에서 user 정보를 가져옵니다. (프로필 설정에서 업데이트한 최신 정보)
   const user = useAuthStore((s) => (s as any).user ?? (s as any).me);
   
-  // ✅ [핵심] Store에 있는 avatar(방금 바꾼 사진)를 별도로 가져옵니다.
-  const userAvatar = user?.avatar;
+  // ✅ [핵심] Store에 있는 avatarUrl(방금 바꾼 사진)를 별도로 가져옵니다.
+  const useravatarUrl = user?.avatarUrl;
 
   const currentUserId = user?.id ? String(user.id) : "me";
 
@@ -95,10 +95,10 @@ export default function MyScreen() {
 
   // ✅ [핵심] 아바타: Store(방금 바꾼 로컬 경로) -> API(서버 URL) 순서
   // 이렇게 하면 서버 업로드가 늦어도 사용자는 바뀐 사진을 바로 볼 수 있습니다.
-  const displayAvatar = useMemo(() => {
-    if (userAvatar) return userAvatar;
-    return profile.photoUrl;
-  }, [userAvatar, profile.photoUrl]);
+  const displayavatarUrl = useMemo(() => {
+    if (useravatarUrl) return useravatarUrl;
+    return profile.avatarUrlUrl;
+  }, [useravatarUrl, profile.avatarUrlUrl]);
 
   const genderRaw: any = user?.gender ?? (profile as any)?.gender;
   const birthRaw: string =
@@ -323,22 +323,22 @@ export default function MyScreen() {
                 hitSlop={10}
                 style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
               >
-                <View style={styles.avatarWrap}>
-                  {displayAvatar ? (
+                <View style={styles.avatarUrlWrap}>
+                  {displayavatarUrl ? (
                     <Image
                       // ✅ [중요] key를 사용하여 URL/URI 변경 시 강제 리렌더링
-                      key={displayAvatar}
-                      source={{ uri: displayAvatar }}
+                      key={displayavatarUrl}
+                      source={{ uri: displayavatarUrl }}
                       style={[
-                        styles.avatar,
+                        styles.avatarUrl,
                         { borderColor: t.colors.background, backgroundColor: t.colors.border },
                       ]}
                     />
                   ) : (
                     <View
                       style={[
-                        styles.avatar,
-                        styles.avatarFallback,
+                        styles.avatarUrl,
+                        styles.avatarUrlFallback,
                         { borderColor: t.colors.background, backgroundColor: t.colors.primary },
                       ]}
                     >
@@ -352,7 +352,7 @@ export default function MyScreen() {
                     onPress={() => router.push("/settings/profile" as any)}
                     hitSlop={10}
                     style={({ pressed }) => [
-                      styles.avatarEditBtnBase,
+                      styles.avatarUrlEditBtnBase,
                       Platform.select({
                         ios: {
                           shadowColor: "#000",
@@ -406,7 +406,7 @@ export default function MyScreen() {
             <View style={styles.mannerTop}>
               <View style={{ flex: 1 }}>
                 <Text style={t.typography.labelSmall}>매너온도</Text>
-                <Text style={[styles.mannerTemp, { color: pillTone.text }]}>{temp.toFixed(1)}℃</Text>
+                <Text style={[styles.mannerTemperature, { color: pillTone.text }]}>{temp.toFixed(1)}℃</Text>
               </View>
 
               <View style={[styles.tempBadge, { backgroundColor: pillTone.bg }]}>
@@ -529,11 +529,11 @@ const styles = StyleSheet.create({
   },
   profileLeft: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0 },
 
-  avatarWrap: { width: 56, height: 56, position: "relative" },
-  avatar: { width: 56, height: 56, borderRadius: 28, borderWidth: 3 },
-  avatarFallback: { alignItems: "center", justifyContent: "center" },
+  avatarUrlWrap: { width: 56, height: 56, position: "relative" },
+  avatarUrl: { width: 56, height: 56, borderRadius: 28, borderWidth: 3 },
+  avatarUrlFallback: { alignItems: "center", justifyContent: "center" },
 
-  avatarEditBtnBase: {
+  avatarUrlEditBtnBase: {
     position: "absolute",
     right: -6,
     bottom: -6,
@@ -553,7 +553,7 @@ const styles = StyleSheet.create({
   star: { fontSize: 12, marginTop: 1 },
 
   mannerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  mannerTemp: { marginTop: 6, fontSize: 20, fontWeight: "900" },
+  mannerTemperature: { marginTop: 6, fontSize: 20, fontWeight: "900" },
 
   tempBadge: {
     width: 34,

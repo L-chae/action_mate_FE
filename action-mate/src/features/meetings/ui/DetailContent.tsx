@@ -78,21 +78,21 @@ function getDurationLabel(mins?: number | null) {
   return `${m}분`;
 }
 
-// ✅ [수정] 댓글에서 아바타 URL 추출 로직 개선 (User 모델의 avatar 우선)
-function pickAvatarUrlFromComment(item: Comment, post: MeetingPost): string | undefined {
+// ✅ [수정] 댓글에서 아바타 URL 추출 로직 개선 (User 모델의 avatarUrl 우선)
+function pickavatarUrlUrlFromComment(item: Comment, post: MeetingPost): string | undefined {
   const anyItem = item as any;
 
-  // 1. Comment 객체 안에 author 객체가 있고 그 안에 avatar가 있는 경우 (Best)
-  if (anyItem.author?.avatar) return anyItem.author.avatar;
+  // 1. Comment 객체 안에 author 객체가 있고 그 안에 avatarUrl가 있는 경우 (Best)
+  if (anyItem.author?.avatarUrl) return anyItem.author.avatarUrl;
 
   // 2. Comment 객체에 평탄화(Flatten)된 필드로 있는 경우
-  if (anyItem.authorAvatar) return anyItem.authorAvatar;
-  if (anyItem.avatar) return anyItem.avatar;
+  if (anyItem.authoravatarUrl) return anyItem.authoravatarUrl;
+  if (anyItem.avatarUrl) return anyItem.avatarUrl;
 
   // 3. (Fallback) 호스트가 쓴 댓글이면 게시글의 호스트 정보를 사용
   if (item.authorId && post?.host?.id && String(item.authorId) === String(post.host.id)) {
-    // post.host는 User 타입이므로 avatar 필드 사용
-    return post.host.avatar || undefined; 
+    // post.host는 User 타입이므로 avatarUrl 필드 사용
+    return post.host.avatarUrl || undefined; 
   }
 
   return undefined;
@@ -163,7 +163,7 @@ type DetailContentProps = {
   onPressHostProfile: () => void;
 
   // 댓글 작성자(프로필) 클릭
-  onPressCommentAuthor?: (payload: { id: string; nickname: string; avatarUrl?: string }) => void;
+  onPressCommentAuthor?: (payload: { id: string; nickname: string; avatarUrlUrl?: string }) => void;
 
   onReply: (c: Comment) => void;
   onEditComment: (c: Comment) => void;
@@ -252,8 +252,8 @@ export function DetailContent({
     return { lat, lng, ok };
   }, [post]);
 
-  // ✅ [수정] 호스트 아바타 URL 추출 (User 모델의 avatar 사용)
-  const hostAvatarUrl = post.host?.avatar || null;
+  // ✅ [수정] 호스트 아바타 URL 추출 (User 모델의 avatarUrl 사용)
+  const hostavatarUrlUrl = post.host?.avatarUrl || null;
 
   return (
     <ScrollView
@@ -306,10 +306,10 @@ export function DetailContent({
             { backgroundColor: surface, borderColor: border, opacity: pressed ? 0.86 : 1 },
           ]}
         >
-          <View style={[styles.hostAvatar, { backgroundColor: subtleBg }]}>
-            {/* ✅ [수정] hostAvatarUrl 사용 */}
-            {hostAvatarUrl ? (
-              <Image source={{ uri: hostAvatarUrl }} style={styles.avatarImg} />
+          <View style={[styles.hostavatarUrl, { backgroundColor: subtleBg }]}>
+            {/* ✅ [수정] hostavatarUrlUrl 사용 */}
+            {hostavatarUrlUrl ? (
+              <Image source={{ uri: hostavatarUrlUrl }} style={styles.avatarUrlImg} />
             ) : (
               <Ionicons name="person" size={20} color={mutedIcon} />
             )}
@@ -323,7 +323,7 @@ export function DetailContent({
               </View>
             </View>
 
-            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>매너 {post.host?.mannerTemp ?? 36.5}°C</Text>
+            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>매너 {post.host?.mannerTemperature ?? 36.5}°C</Text>
           </View>
 
           <Ionicons name="chevron-forward" size={20} color={mutedIcon} />
@@ -422,15 +422,15 @@ export function DetailContent({
                 const isReply = !!reply;
 
                 // ✅ [수정] 개선된 헬퍼 함수 사용
-                const avatarUrl = pickAvatarUrlFromComment(item, post);
+                const avatarUrlUrl = pickavatarUrlUrlFromComment(item, post);
 
                 const onPressAuthor = () => {
                   if (!onPressCommentAuthor) return;
                   const id = String((item as any)?.authorId ?? "");
                   const nickname = String((item as any)?.authorNickname ?? "");
                   if (!id || !nickname) return;
-                  // avatarUrl 전달
-                  onPressCommentAuthor({ id, nickname, avatarUrl });
+                  // avatarUrlUrl 전달
+                  onPressCommentAuthor({ id, nickname, avatarUrlUrl });
                 };
 
                 return (
@@ -453,9 +453,9 @@ export function DetailContent({
                           { opacity: pressed ? 0.9 : 1 },
                         ]}
                       >
-                        <View style={[styles.commentAvatar, { backgroundColor: subtleBg }]}>
-                          {avatarUrl ? (
-                            <Image source={{ uri: avatarUrl }} style={styles.commentAvatarImg} />
+                        <View style={[styles.commentavatarUrl, { backgroundColor: subtleBg }]}>
+                          {avatarUrlUrl ? (
+                            <Image source={{ uri: avatarUrlUrl }} style={styles.commentavatarUrlImg} />
                           ) : (
                             <Ionicons name="person" size={14} color={mutedIcon} />
                           )}
@@ -606,7 +606,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
-  hostAvatar: {
+  hostavatarUrl: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -615,7 +615,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
     overflow: "hidden",
   },
-  avatarImg: { width: 40, height: 40, borderRadius: 20 },
+  avatarUrlImg: { width: 40, height: 40, borderRadius: 20 },
   hostBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   hostBadgeText: { fontSize: 10, fontWeight: "800" },
 
@@ -659,7 +659,7 @@ const styles = StyleSheet.create({
   commentRow: { flexDirection: "row" },
   authorPressable: { flexDirection: "row", alignItems: "center", marginRight: 10, flex: 1, minWidth: 0 },
 
-  commentAvatar: {
+  commentavatarUrl: {
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -669,7 +669,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginRight: 10,
   },
-  commentAvatarImg: { width: 28, height: 28, borderRadius: 14 },
+  commentavatarUrlImg: { width: 28, height: 28, borderRadius: 14 },
 
   authorLine: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
 

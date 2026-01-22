@@ -4,7 +4,7 @@ import type { HostSummary, MeetingPost } from "../model/types";
 /**
  * ✅ 목업 원본만 담당
  * ✅ durationMinutes(정식 필드)로 통일
- * ✅ avatarUrl -> avatar 필드명 변경 완료
+ * ✅ avatarUrlUrl -> avatarUrl 필드명 변경 완료
  */
 
 // ✅ Mock Hosts
@@ -12,58 +12,58 @@ export const HOST_USERS: Record<string, HostSummary> = {
   user1: {
     id: "u1",
     nickname: "민수",
-    mannerTemp: 37.5,
-    kudosCount: 12,
+    mannerTemperature: 37.5,
+    praiseCount: 12,
     intro: "운동 끝나고 맥주 한잔 좋아해요 🍺",
-    // ✅ [수정] avatarUrl -> avatar
-    avatar: "https://i.pravatar.cc/150?u=u1",
+    // ✅ [수정] avatarUrlUrl -> avatarUrl
+    avatarUrl: "https://i.pravatarUrl.cc/150?u=u1",
   },
   user2: {
     id: "u2",
     nickname: "보드게임마스터",
-    mannerTemp: 42.0,
-    kudosCount: 56,
+    mannerTemperature: 42.0,
+    praiseCount: 56,
     intro: "전략 게임 전문입니다. 초보 환영!",
-    avatar: "https://i.pravatar.cc/150?u=u2",
+    avatarUrl: "https://i.pravatarUrl.cc/150?u=u2",
   },
   user3: {
     id: "u3",
     nickname: "새벽러너",
-    mannerTemp: 36.5,
-    kudosCount: 3,
+    mannerTemperature: 36.5,
+    praiseCount: 3,
     intro: "매일 아침 6시 뜁니다.",
-    // avatar 없음
+    // avatarUrl 없음
   },
   user4: {
     id: "u4",
     nickname: "맛집탐방러",
-    mannerTemp: 38.2,
-    kudosCount: 20,
+    mannerTemperature: 38.2,
+    praiseCount: 20,
     intro: "맛없는 건 안 먹어요 🙅‍♂️",
-    avatar: "https://i.pravatar.cc/150?u=u4",
+    avatarUrl: "https://i.pravatarUrl.cc/150?u=u4",
   },
   user5: {
     id: "u5",
     nickname: "모각코러",
-    mannerTemp: 39.1,
-    kudosCount: 8,
+    mannerTemperature: 39.1,
+    praiseCount: 8,
     intro: "집중모드 환영. 말없이 각자 코딩해요.",
-    avatar: "https://i.pravatar.cc/150?u=u5",
+    avatarUrl: "https://i.pravatarUrl.cc/150?u=u5",
   },
   user6: {
     id: "u6",
     nickname: "오늘은한잔",
-    mannerTemp: 35.9,
-    kudosCount: 1,
+    mannerTemperature: 35.9,
+    praiseCount: 1,
     intro: "퇴근 후 가볍게 이야기 나눠요.",
   },
   me: {
     id: "me",
     nickname: "나(호스트)",
-    mannerTemp: 36.8,
-    kudosCount: 0,
+    mannerTemperature: 36.8,
+    praiseCount: 0,
     intro: "내가 만든 모임이에요 🙂",
-    avatar: "https://i.pravatar.cc/150?u=me",
+    avatarUrl: "https://i.pravatarUrl.cc/150?u=me",
   },
 };
 

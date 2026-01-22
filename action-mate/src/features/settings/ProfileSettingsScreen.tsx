@@ -192,14 +192,14 @@ export default function ProfileSettingsScreen() {
       nickname: user?.nickname ?? "",
       birthDate: user?.birthDate ?? "",
       gender: (user?.gender === "male" || user?.gender === "female") ? user.gender : "none",
-      avatar: user?.avatar ?? null,
+      avatarUrl: user?.avatarUrl ?? null,
     } as const;
   }, [user]);
 
   const [nickname, setNickname] = useState<string>(initial.nickname);
   const [birthDate, setBirthDate] = useState<string>(initial.birthDate);
   const [gender, setGender] = useState<Gender | "none">(initial.gender);
-  const [avatar, setAvatar] = useState<string | null>(initial.avatar);
+  const [avatarUrl, setavatarUrl] = useState<string | null>(initial.avatarUrl);
   
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState<Record<FieldKey, boolean>>({ nickname: false, birthDate: false });
@@ -219,10 +219,10 @@ export default function ProfileSettingsScreen() {
   const isDirty = useMemo(() => {
     const aNick = normalizeNickname(initial.nickname);
     const aBirth = normalizeBirthForSave(initial.birthDate);
-    const avatarChanged = initial.avatar !== avatar;
+    const avatarUrlChanged = initial.avatarUrl !== avatarUrl;
     
-    return aNick !== normalizedNick || aBirth !== normalizedBirth || initial.gender !== gender || avatarChanged;
-  }, [initial, normalizedNick, normalizedBirth, gender, avatar]);
+    return aNick !== normalizedNick || aBirth !== normalizedBirth || initial.gender !== gender || avatarUrlChanged;
+  }, [initial, normalizedNick, normalizedBirth, gender, avatarUrl]);
 
   const canSave = useMemo(() => {
     return !saving && isDirty && nickValidation.ok && birthOk;
@@ -230,7 +230,7 @@ export default function ProfileSettingsScreen() {
 
   // 이미지 선택 핸들러
 // 이미지 선택 핸들러
-  const onPickAvatar = useCallback(async () => {
+  const onPickavatarUrl = useCallback(async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (permissionResult.granted === false) {
       Alert.alert("권한 필요", "사진을 선택하려면 갤러리 접근 권한이 필요합니다.");
@@ -246,7 +246,7 @@ export default function ProfileSettingsScreen() {
     });
 
     if (!result.canceled) {
-      setAvatar(result.assets[0].uri);
+      setavatarUrl(result.assets[0].uri);
     }
   }, []);
 
@@ -280,7 +280,7 @@ export default function ProfileSettingsScreen() {
       nickname: v.value,
       birthDate: bd,
       gender: safeGender,
-      avatar: avatar,
+      avatarUrl: avatarUrl,
     };
 
     // ✅ [핵심] setUser용 전체 객체 (즉시 UI 반영을 위해 필요하다면)
@@ -305,7 +305,7 @@ export default function ProfileSettingsScreen() {
     } finally {
       setSaving(false);
     }
-  }, [saving, nickname, birthDate, gender, avatar, isDirty, user, setUser, updateProfile, router]);
+  }, [saving, nickname, birthDate, gender, avatarUrl, isDirty, user, setUser, updateProfile, router]);
 
   // 뒤로가기 핸들러
   const onPressBack = useCallback(() => {
@@ -345,16 +345,16 @@ export default function ProfileSettingsScreen() {
           }}
         >
           {/* 아바타 카드 */}
-          <View style={[styles.avatarCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
-            <View style={styles.avatarLeft}>
+          <View style={[styles.avatarUrlCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+            <View style={styles.avatarUrlLeft}>
               <View
                 style={[
-                  styles.avatarCircle,
+                  styles.avatarUrlCircle,
                   { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12), overflow: 'hidden' },
                 ]}
               >
-                {avatar ? (
-                  <Image source={{ uri: avatar }} style={{ width: '100%', height: '100%' }} />
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
                 ) : (
                   <Ionicons name="person" size={26} color={t.colors.icon.default} />
                 )}
@@ -371,7 +371,7 @@ export default function ProfileSettingsScreen() {
             </View>
 
             <Pressable
-              onPress={onPickAvatar}
+              onPress={onPickavatarUrl}
               style={({ pressed }) => [
                 styles.ghostBtn,
                 {
@@ -448,8 +448,8 @@ const styles = StyleSheet.create({
   iconWrap: { width: 34, height: 34, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
   metaRow: { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  avatarCard: { borderWidth: 1, borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  avatarLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 },
-  avatarCircle: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  avatarUrlCard: { borderWidth: 1, borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  avatarUrlLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 },
+  avatarUrlCircle: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   ghostBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
 });

@@ -16,7 +16,7 @@ export default function ChatBubble({ message }: ChatBubbleProps) {
     <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
       {/* 상대방일 경우 프로필 아이콘 표시 */}
       {!isMe && (
-        <View style={[styles.avatar, { backgroundColor: t.colors.neutral[200] }]}>
+        <View style={[styles.avatarUrl, { backgroundColor: t.colors.neutral[200] }]}>
           <Ionicons name="person" size={16} color={t.colors.neutral[400]} />
         </View>
       )}
@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
   msgRowOther: {
     flexDirection: "row",
   },
-  avatar: {
+  avatarUrl: {
     width: 32,
     height: 32,
     borderRadius: 16,

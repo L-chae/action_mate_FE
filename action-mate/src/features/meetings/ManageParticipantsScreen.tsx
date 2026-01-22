@@ -322,10 +322,10 @@ export default function ManageParticipantsScreen() {
         <View style={{ paddingHorizontal: 16 }}>
           <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
             <View style={styles.cardLeft}>
-              {item.avatarUrl ? (
-                <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+              {item.avatarUrlUrl ? (
+                <Image source={{ uri: item.avatarUrlUrl }} style={styles.avatarUrl} />
               ) : (
-                <View style={[styles.avatarPlaceholder, { backgroundColor: t.colors.neutral[100] }]}>
+                <View style={[styles.avatarUrlPlaceholder, { backgroundColor: t.colors.neutral[100] }]}>
                   <Ionicons name="person" size={18} color={t.colors.icon.muted} />
                 </View>
               )}
@@ -555,8 +555,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  avatar: { width: 38, height: 38, borderRadius: 19, marginRight: 10 },
-  avatarPlaceholder: {
+  avatarUrl: { width: 38, height: 38, borderRadius: 19, marginRight: 10 },
+  avatarUrlPlaceholder: {
     width: 38,
     height: 38,
     borderRadius: 19,

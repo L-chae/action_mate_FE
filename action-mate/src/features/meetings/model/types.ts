@@ -1,21 +1,24 @@
-// src/features/meetings/model/types.ts
+import { UserSummary, UserReputation } from "@/shared/model/types";
 
 // --- ENUMS & KEYS ---
 export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 export type HomeSort = "LATEST" | "NEAR" | "SOON";
 export type JoinMode = "INSTANT" | "APPROVAL";
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
-// REJECTED 추가 (거절된 상태)
 export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED" | "REJECTED";
 
-// --- SUB TYPES ---
-export type HostSummary = {
-  id: string;
-  nickname: string;
-  avatar?: string | null; // 통일됨 (avatarUrl -> avatar)
-  mannerTemp: number;
-  kudosCount: number;
+// --- SUB TYPES (개선됨) ---
+
+// ✅ UserSummary + Reputation + 자기소개
+export type HostSummary = UserSummary & UserReputation & {
   intro?: string;
+};
+
+// ✅ UserSummary + 참여 상태 정보
+// 기존 userId -> id로 통일 (UserSummary 상속 때문)
+export type Participant = UserSummary & {
+  status: MembershipStatus;
+  appliedAt: string; 
 };
 
 export type MyState = {
@@ -26,14 +29,14 @@ export type MyState = {
 
 // --- MAIN ENTITY ---
 export type MeetingPost = {
-  id: string; // 게시글 ID
+  id: string;
   category: CategoryKey;
   title: string;
   content?: string; 
 
   // Time
-  meetingTimeText?: string; // "오늘 14:00" (UI용)
-  meetingTime?: string;     // "2024-01-20T14:00:00" (ISO, 필수 권장)
+  meetingTimeText?: string;
+  meetingTime?: string;     
   durationHours?: number;   
   durationMinutes?: number; 
 
@@ -41,7 +44,7 @@ export type MeetingPost = {
   locationText: string;
   locationLat?: number;
   locationLng?: number;
-  distanceText?: string; // "1.2km" (UI용)
+  distanceText?: string;
 
   // Capacity
   capacityJoined: number;
@@ -53,13 +56,12 @@ export type MeetingPost = {
   status: PostStatus;
 
   // Meta
-  items?: string;       // 준비물
-  host?: HostSummary;   // 호스트 정보
-  myState?: MyState;    // 내 참여 상태
+  items?: string;
+  host?: HostSummary;   
+  myState?: MyState;
 };
 
-// --- API DTOs ---
-
+// --- API DTOs (입력/응답) ---
 export type MeetingParams = {
   title: string;
   category: CategoryKey;
@@ -89,15 +91,6 @@ export type HotMeetingItem = {
   place: string;
   capacityJoined: number;
   capacityTotal: number;
-};
-
-// 참여자 정보 타입 (API 응답)
-export type Participant = {
-  userId: string;
-  nickname: string;
-  avatar?: string | null;
-  status: MembershipStatus;
-  appliedAt: string; // ISO Date
 };
 
 // --- API Interface ---

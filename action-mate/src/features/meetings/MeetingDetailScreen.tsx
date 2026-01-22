@@ -127,7 +127,7 @@ export default function MeetingDetailScreen() {
   const displayHost = useMemo(() => {
     if (!post?.host) return null;
     if (isAuthor && me) {
-      return { ...post.host, nickname: me.nickname, avatar: me.avatar };
+      return { ...post.host, nickname: me.nickname, avatarUrl: me.avatarUrl };
     }
     return post.host;
   }, [post?.host, isAuthor, me]);
@@ -245,7 +245,7 @@ export default function MeetingDetailScreen() {
         postId: String(post?.id),
         authorId: currentUserId,
         authorNickname: me?.nickname || "나",
-        authorAvatar: me?.avatar,
+        authoravatarUrl: me?.avatarUrl,
         content: replyTarget ? `@${replyTarget.authorNickname} ${commentText}` : commentText,
         createdAt: new Date().toISOString(),
       };

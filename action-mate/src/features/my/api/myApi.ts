@@ -33,10 +33,10 @@ function getMeetingsDB(): MeetingPost[] {
 // 초기값 (fallback용)
 let mockLocalProfile: MyProfile = {
   nickname: "액션메이트",
-  photoUrl: undefined,
+  avatarUrlUrl: undefined,
 };
 
-let dbPraiseCount = HOST_USERS.me?.kudosCount ?? 0;
+let dbPraiseCount = HOST_USERS.me?.praiseCount ?? 0;
 
 // ✅ 내가 주최한 모임 필터링 (현재 ID 기준)
 function hostedPosts(db: MeetingPost[]) {
@@ -69,7 +69,7 @@ const mockApi = {
     if (user) {
       return {
         nickname: user.nickname,
-        photoUrl: user.avatar ?? mockLocalProfile.photoUrl, // avatar 필드명 확인 필요 (types.ts에 avatar로 되어있음)
+        avatarUrlUrl: user.avatarUrl ?? mockLocalProfile.avatarUrlUrl, // avatarUrl 필드명 확인 필요 (types.ts에 avatarUrl로 되어있음)
       };
     }
     return mockLocalProfile;
@@ -84,7 +84,7 @@ const mockApi = {
     if (user) {
         useAuthStore.getState().updateProfile({ 
             nickname: payload.nickname, 
-            avatar: payload.photoUrl // User 타입에 맞게 매핑
+            avatarUrl: payload.avatarUrlUrl // User 타입에 맞게 매핑
         });
     }
 

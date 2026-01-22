@@ -40,7 +40,7 @@ const ensureParticipants = (meetingId: string) => {
       {
         userId: "u_test_1",
         nickname: "테니스왕",
-        avatar: "https://i.pravatar.cc/150?u=test1",
+        avatarUrl: "https://i.pravatarUrl.cc/150?u=test1",
         status: "PENDING",
         appliedAt: new Date(Date.now() - 3600000).toISOString(),
       },

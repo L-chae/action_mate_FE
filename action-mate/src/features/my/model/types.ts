@@ -1,18 +1,18 @@
-export type MySummary = {
-  praiseCount: number; // 받은 칭찬 수
-  temperature: number; // 계산된 온도(표시용)
-};
+import { UserReputation } from "@/shared/model/types";
+
+// ✅ UserReputation 사용 (praiseCount, mannerTemperatureerature 통일)
+export type MySummary = UserReputation; 
 
 export type MyProfile = {
   nickname: string;
-  photoUrl?: string;
+  avatarUrlUrl?: string; // avatarUrlUrl -> avatarUrlUrl 통일
 };
 
 export type MyMeetingItem = {
   id: string;
   title: string;
   place: string;
-  dateText: string; // "1/20(화) 19:00" 같은 표시용
+  dateText: string;
   memberCount: number;
   myJoinStatus?: "MEMBER" | "PENDING";
 };

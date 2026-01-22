@@ -114,7 +114,7 @@ export default function DMListScreen() {
         },
       ]}
     >
-      <View style={[styles.avatar, { backgroundColor: t.colors.neutral[200] }]}>
+      <View style={[styles.avatarUrl, { backgroundColor: t.colors.neutral[200] }]}>
         <Ionicons name="person" size={24} color={t.colors.neutral[400]} />
       </View>
 
@@ -197,7 +197,7 @@ export default function DMListScreen() {
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   itemContainer: { flexDirection: "row", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
-  avatar: { width: 48, height: 48, borderRadius: 24, justifyContent: "center", alignItems: "center", marginRight: 16 },
+  avatarUrl: { width: 48, height: 48, borderRadius: 24, justifyContent: "center", alignItems: "center", marginRight: 16 },
   content: { flex: 1, justifyContent: "center", minWidth: 0 },
   headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 10 },
   msgRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

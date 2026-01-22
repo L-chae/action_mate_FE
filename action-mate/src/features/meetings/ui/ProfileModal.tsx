@@ -7,7 +7,7 @@ import { withAlpha } from "@/shared/theme/colors";
 import type { HostSummary } from "../model/types";
 
 // 🔥 매너 온도 바 (시각적 바)
-function MannerTempBar({ temp }: { temp: number }) {
+function mannerTemperatureBar({ temp }: { temp: number }) {
   const t = useAppTheme();
   // 36.5도 기준
   const isHigh = temp >= 36.5;
@@ -50,12 +50,12 @@ export function ProfileModal({
   const ratingColor = t.colors.ratingStar ?? "#FFB800"; // 별점 색상 (없으면 노란색)
 
   // 배경 (이미지 없을 때)
-  const fallbackBg = user.avatar ? "transparent" : t.colors.primary; 
+  const fallbackBg = user.avatarUrl ? "transparent" : t.colors.primary; 
   const fallbackText = "#FFFFFF";
 
   // ✅ 별점 계산 (매너온도 기반)
   // (온도 - 32) / 10 * 5 공식 (최소 0, 최대 5)
-  const rawRating = ((user.mannerTemp - 32) / 10) * 5;
+  const rawRating = ((user.mannerTemperature - 32) / 10) * 5;
   const rating = Math.max(0, Math.min(5, Number(rawRating.toFixed(1))));
 
   // ✅ 아이콘 배경색
@@ -74,9 +74,9 @@ export function ProfileModal({
           </Pressable>
 
           {/* 1. 프로필 이미지 */}
-          <View style={[styles.avatarContainer, { backgroundColor: fallbackBg, borderColor: t.colors.border }]}>
-            {user.avatar ? (
-              <Image source={{ uri: user.avatar }} style={styles.avatarImg} />
+          <View style={[styles.avatarUrlContainer, { backgroundColor: fallbackBg, borderColor: t.colors.border }]}>
+            {user.avatarUrl ? (
+              <Image source={{ uri: user.avatarUrl }} style={styles.avatarUrlImg} />
             ) : (
               <Text style={[t.typography.headlineMedium, { color: fallbackText, fontWeight: "bold" }]}>
                 {user.nickname?.slice(0, 1) || "?"}
@@ -115,7 +115,7 @@ export function ProfileModal({
               </View>
               <Text style={[t.typography.labelMedium, { marginTop: 8, color: t.colors.textSub }]}>매너온도</Text>
               <Text style={[t.typography.titleMedium, { color: t.colors.textMain, marginTop: 2, fontWeight: "700" }]}>
-                {user.mannerTemp}°C
+                {user.mannerTemperature}°C
               </Text>
             </View>
 
@@ -123,7 +123,7 @@ export function ProfileModal({
 
           {/* 4. 매너 온도 바 (시각적 표시) */}
           <View style={[styles.tempBox, { backgroundColor: boxBg }]}>
-            <MannerTempBar temp={user.mannerTemp} />
+            <mannerTemperatureBar temp={user.mannerTemperature} />
           </View>
 
         </View>
@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
     padding: 4,
     zIndex: 1,
   },
-  avatarContainer: { 
+  avatarUrlContainer: { 
     width: 90, 
     height: 90, 
     borderRadius: 45, 
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
   },
-  avatarImg: { 
+  avatarUrlImg: { 
     width: "100%", 
     height: "100%" 
   },
