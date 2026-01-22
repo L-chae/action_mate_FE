@@ -1,3 +1,4 @@
+// src/features/my/MyScreen.tsx
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -28,7 +29,7 @@ import TopBar from "@/shared/ui/TopBar";
 import MeetingList from "./ui/MeetingList";
 
 import { myApi } from "./api/myApi";
-import type { MyMeetingItem, MyProfile } from "./model/types";
+import type { MyMeetingItem, MyProfile, MySummary } from "./model/types";
 
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost } from "@/features/meetings/model/types";
@@ -46,11 +47,6 @@ function tempIconName(temp: number): keyof typeof MaterialIcons.glyphMap {
   return "whatshot";
 }
 
-type LocalSummary = {
-  praiseCount: number;
-  temperature: number;
-};
-
 type PillTone = { text: string; bg: string };
 type GradientColors = readonly [string, string];
 
@@ -58,18 +54,21 @@ export default function MyScreen() {
   const t = useAppTheme();
   const router = useRouter();
 
-  // ✅ Store 최신 user (프로필 설정에서 업데이트한 최신 정보)
   const user = useAuthStore((s) => (s as any).user ?? (s as any).me);
-
-  // ✅ Store에 있는 avatar(방금 바꾼 사진)
-  const userAvatar = user?.avatar;
+  const userAvatarUrl = user?.avatarUrl;
   const currentUserId = user?.id ? String(user.id) : "me";
 
   const [refreshing, setRefreshing] = useState(false);
 
-  // API에서 불러온 프로필 정보
-  const [profile, setProfile] = useState<MyProfile>({ nickname: "액션메이트" });
-  const [summary, setSummary] = useState<LocalSummary>({ praiseCount: 0, temperature: 36.5 });
+  const [profile, setProfile] = useState<MyProfile>({
+    id: "",
+    nickname: "액션메이트",
+  });
+
+  const [summary, setSummary] = useState<MySummary>({
+    praiseCount: 0,
+    mannerTemperature: 36.5,
+  });
 
   const [hosted, setHosted] = useState<MyMeetingItem[]>([]);
   const [joined, setJoined] = useState<MyMeetingItem[]>([]);
@@ -81,40 +80,21 @@ export default function MyScreen() {
   const fillAnim = useRef(new Animated.Value(0)).current;
 
   // ----------------------------------------------------------------------
-  // (1) 빈 상태 액션: 헤더 우측 칩
-  // ----------------------------------------------------------------------
-  const goCreateMeeting = useCallback(() => {
-    router.push("/meetings/create" as any); // ✅ 너희 모임 생성 라우트로 맞추기
-  }, [router]);
-
-  const goDiscover = useCallback(() => {
-    router.push("/" as any); // ✅ 모임 찾기/홈 라우트로 맞추기
-  }, [router]);
-
-  // ----------------------------------------------------------------------
   // 표시용 데이터 계산
   // ----------------------------------------------------------------------
-
-  // 닉네임: Store(최신) -> API(기존) -> 기본값 순서
   const displayNickname = useMemo(() => {
     const n = user?.nickname?.trim();
     if (n) return n;
     return profile.nickname?.trim() || "액션메이트";
   }, [user?.nickname, profile.nickname]);
 
-  // ✅ 아바타: Store(방금 바꾼 로컬/URI) -> API(서버 URL) 순서
-  const displayAvatar = useMemo(() => {
-    if (userAvatar) return userAvatar;
-    return profile.photoUrl;
-  }, [userAvatar, profile.photoUrl]);
+  const displayAvatarUrl = useMemo(() => {
+    if (userAvatarUrl) return userAvatarUrl;
+    return profile.avatarUrl;
+  }, [userAvatarUrl, profile.avatarUrl]);
 
-  const genderRaw: any = user?.gender ?? (profile as any)?.gender;
-  const birthRaw: string =
-    user?.birthDate ??
-    (profile as any)?.birthDate ??
-    (profile as any)?.birth_date ??
-    (profile as any)?.birthday ??
-    "";
+  const genderRaw: any = user?.gender;
+  const birthRaw: string = user?.birthDate ?? "";
 
   const genderLabel = useMemo(() => {
     if (!genderRaw) return "";
@@ -139,79 +119,156 @@ export default function MyScreen() {
   }, [genderLabel, birthLabel]);
 
   // ----------------------------------------------------------------------
-  // Data Load
+  // 알림 dot 체크
+  // ----------------------------------------------------------------------
+  const checkHasNoti = useCallback(
+    async (cached?: MeetingPost[]) => {
+      try {
+        const all = cached ?? (await meetingApi.listMeetings({}).catch(() => [] as MeetingPost[]));
+
+        const hostMeetings = all.filter((m: MeetingPost) => {
+          const hostId = (m as any)?.host?.id;
+          return String(hostId ?? "") === String(currentUserId);
+        });
+
+        if (hostMeetings.length === 0) {
+          setHasNoti(false);
+          return;
+        }
+
+        // TODO: 실제 알림 조건 생기면 여기서 판단
+        setHasNoti(false);
+      } catch (e) {
+        console.error("checkHasNoti error:", e);
+        setHasNoti(false);
+      }
+    },
+    [currentUserId]
+  );
+
+  // ----------------------------------------------------------------------
+  // Data Load (✅ hosted/joined에 joinMode/status/capacity 등 보강)
   // ----------------------------------------------------------------------
   const loadAll = useCallback(async () => {
     try {
-      const [p, s, h, j] = await Promise.all([
+      const [p, s, h, j, allMeetings] = await Promise.all([
         myApi.getProfile(),
         myApi.getSummary(),
         myApi.getHostedMeetings(),
         myApi.getJoinedMeetings(),
+        meetingApi.listMeetings({}).catch(() => [] as MeetingPost[]),
       ]);
 
       setProfile(p);
 
-      const praiseCount = Number((s as any)?.praiseCount ?? 0);
-      const temperature = clamp(Number((s as any)?.temperature ?? 36.5), 32, 42);
+      const praiseCount = Number(s?.praiseCount ?? 0);
+      const rawTemp = s?.mannerTemperature ?? 36.5;
+      const mannerTemperature = clamp(Number(rawTemp), 32, 42);
 
       setSummary({
         praiseCount: Number.isFinite(praiseCount) ? praiseCount : 0,
-        temperature: Number.isFinite(temperature) ? temperature : 36.5,
+        mannerTemperature: Number.isFinite(mannerTemperature) ? mannerTemperature : 36.5,
       });
 
-      setHosted(h);
-      setJoined(j);
+      // ✅ id -> MeetingPost 맵
+      const byId = new Map<string, MeetingPost>();
+      for (const post of allMeetings) byId.set(String((post as any).id), post);
+
+      // ✅ (선택) listMeetings에 없는 애들(예: 종료/필터) 보강 시도: 가능한 상세 API가 있으면 사용
+      const fetchDetailIfPossible = async (id: string): Promise<MeetingPost | null> => {
+        const api: any = meetingApi as any;
+        const candidates = [
+          api.getMeeting,
+          api.getMeetingDetail,
+          api.getMeetingById,
+          api.fetchMeeting,
+          api.readMeeting,
+          api.detailMeeting,
+        ].filter((fn) => typeof fn === "function");
+
+        for (const fn of candidates) {
+          try {
+            const res = await fn(id);
+            if (res) return res as MeetingPost;
+          } catch {
+            // ignore
+          }
+        }
+        return null;
+      };
+
+      const needIds = Array.from(
+        new Set(
+          [...h, ...j]
+            .map((it) => String((it as any)?.id ?? ""))
+            .filter((id) => id && !byId.has(id))
+        )
+      );
+
+      // 너무 많은 호출 방지 (필요 시 조절)
+      if (needIds.length > 0) {
+        const details = await Promise.all(needIds.slice(0, 20).map((id) => fetchDetailIfPossible(id)));
+        for (const d of details) {
+          if (d) byId.set(String((d as any).id), d);
+        }
+      }
+
+      const enrich = (arr: MyMeetingItem[]) =>
+        arr.map((it) => {
+          const id = String((it as any).id);
+          const post = byId.get(id);
+          if (!post) return it;
+
+          // ✅ MeetingList가 어떤 키를 보든 잡히게 다 심어줌
+          return {
+            ...it,
+            meeting: post,
+            joinMode: (post as any).joinMode,
+            status: (post as any).status,
+            capacity: (post as any).capacity,
+            location: (post as any).location,
+            distanceText: (post as any).distanceText,
+            meetingTimeText: (post as any).meetingTimeText,
+            content: (post as any).content,
+          } as any;
+        });
+
+      const hostedEnriched = enrich(h);
+      const joinedEnriched = enrich(j);
+
+      setHosted(hostedEnriched);
+      setJoined(joinedEnriched);
+
+      // ✅ 알림dot 재사용
+      checkHasNoti(allMeetings);
     } catch (e) {
       console.error("MyScreen load error:", e);
     }
-  }, []);
-
-  const checkHasNoti = useCallback(async () => {
-    try {
-      const all = await meetingApi.listMeetings(undefined);
-
-      const hostMeetings = all.filter((m: MeetingPost) => {
-        const hostId = (m as any)?.host?.id;
-        return String(hostId ?? "") === String(currentUserId);
-      });
-
-      if (hostMeetings.length === 0) {
-        setHasNoti(false);
-        return;
-      }
-      setHasNoti(false);
-    } catch (e) {
-      console.error("checkHasNoti error:", e);
-      setHasNoti(false);
-    }
-  }, [currentUserId]);
+  }, [checkHasNoti]);
 
   useEffect(() => {
     loadAll();
-    checkHasNoti();
-  }, [loadAll, checkHasNoti]);
+  }, [loadAll]);
 
   useFocusEffect(
     useCallback(() => {
       loadAll();
-      checkHasNoti();
-    }, [loadAll, checkHasNoti])
+    }, [loadAll])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadAll(), checkHasNoti()]);
+      await loadAll();
     } finally {
       setRefreshing(false);
     }
-  }, [loadAll, checkHasNoti]);
+  }, [loadAll]);
 
   // ----------------------------------------------------------------------
   // UI calc
   // ----------------------------------------------------------------------
-  const temp = clamp(summary.temperature, 32, 42);
+  const temp = clamp(summary.mannerTemperature, 32, 42);
 
   const rating = useMemo(() => {
     const r = ((temp - 32) / 10) * 5;
@@ -254,11 +311,10 @@ export default function MyScreen() {
     outputRange: ["0%", "100%"],
   });
 
-  // ✅ 3개 초과일 때만 더보기(chevron) 노출
   const hostedHasMore = hosted.length > PREVIEW_COUNT;
   const joinedHasMore = joined.length > PREVIEW_COUNT;
 
-  // ✅ 3개 이하로 줄어든 경우 expanded가 남아있지 않게 자동 정리
+  // ✅ 3개 이하로 바뀌면 확장 상태 자동 해제
   useEffect(() => {
     if (!hostedHasMore && hostedExpanded) setHostedExpanded(false);
   }, [hostedHasMore, hostedExpanded]);
@@ -277,13 +333,15 @@ export default function MyScreen() {
   );
 
   // ----------------------------------------------------------------------
-  // Style
+  // Style & Rendering
   // ----------------------------------------------------------------------
   const iconDefault = t.colors.icon.default;
   const iconMuted = t.colors.icon.muted;
   const soft06 = t.colors.overlay[6];
   const soft45 = t.colors.overlay[45];
   const soft55 = t.colors.overlay[55];
+
+  const onPrimaryText = (t.colors as any).onPrimary ?? "#FFFFFF";
 
   const s = useMemo(() => {
     return {
@@ -339,10 +397,10 @@ export default function MyScreen() {
                 style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
               >
                 <View style={styles.avatarWrap}>
-                  {displayAvatar ? (
+                  {displayAvatarUrl ? (
                     <Image
-                      key={displayAvatar}
-                      source={{ uri: displayAvatar }}
+                      key={displayAvatarUrl}
+                      source={{ uri: displayAvatarUrl }}
                       style={[
                         styles.avatar,
                         { borderColor: t.colors.background, backgroundColor: t.colors.border },
@@ -356,7 +414,7 @@ export default function MyScreen() {
                         { borderColor: t.colors.background, backgroundColor: t.colors.primary },
                       ]}
                     >
-                      <Text style={[t.typography.titleMedium, { color: t.colors.backgroundLight }]}>
+                      <Text style={[t.typography.titleMedium, { color: onPrimaryText }]}>
                         {displayNickname?.slice(0, 1) || "A"}
                       </Text>
                     </View>
@@ -369,7 +427,7 @@ export default function MyScreen() {
                       styles.avatarEditBtnBase,
                       Platform.select({
                         ios: {
-                          shadowColor: "#000",
+                          shadowColor: (t.colors.shadow?.color ?? "#000") as any,
                           shadowOpacity: 0.12,
                           shadowRadius: 8,
                           shadowOffset: { width: 0, height: 3 },
@@ -391,7 +449,7 @@ export default function MyScreen() {
 
               <View style={{ marginLeft: t.spacing.space[3], flex: 1, minWidth: 0 }}>
                 <View style={styles.nameLine}>
-                  <Text style={t.typography.titleMedium} numberOfLines={1}>
+                  <Text style={[t.typography.titleMedium, styles.nameText]} numberOfLines={1}>
                     {displayNickname}
                   </Text>
 
@@ -420,7 +478,9 @@ export default function MyScreen() {
             <View style={styles.mannerTop}>
               <View style={{ flex: 1 }}>
                 <Text style={t.typography.labelSmall}>매너온도</Text>
-                <Text style={[styles.mannerTemp, { color: pillTone.text }]}>{temp.toFixed(1)}℃</Text>
+                <Text style={[styles.mannerTemperature, { color: pillTone.text }]}>
+                  {temp.toFixed(1)}℃
+                </Text>
               </View>
 
               <View style={[styles.tempBadge, { backgroundColor: pillTone.bg }]}>
@@ -448,103 +508,88 @@ export default function MyScreen() {
 
         {/* 내가 만든 모임 */}
         <View style={s.sectionHeader}>
-          <Pressable
-            // ✅ 3개 초과일 때만 토글 가능
-            disabled={!hostedHasMore}
-            onPress={() => hostedHasMore && setHostedExpanded((v) => !v)}
-            style={({ pressed }) => [
-              styles.sectionHeaderRow,
-              { opacity: pressed && hostedHasMore ? 0.9 : 1 },
-            ]}
-          >
-            <View style={styles.sectionLeft}>
-              <Text style={t.typography.titleMedium}>내가 만든 모임</Text>
-              <View style={[styles.countPill, { backgroundColor: soft06 }]}>
-                <Text style={[t.typography.labelMedium, { color: soft55 }]}>{hosted.length}</Text>
+          {hostedHasMore ? (
+            <Pressable
+              onPress={() => setHostedExpanded((v) => !v)}
+              hitSlop={6}
+              style={({ pressed }) => [styles.sectionHeaderRow, { opacity: pressed ? 0.9 : 1 }]}
+            >
+              <View style={styles.sectionLeft}>
+                <Text style={t.typography.titleMedium}>내가 만든 모임</Text>
+                <View style={[styles.countPill, { backgroundColor: soft06 }]}>
+                  <Text style={[t.typography.labelMedium, { color: soft55 }]}>{hosted.length}</Text>
+                </View>
               </View>
-            </View>
 
-            {/* ✅ (1) 0개면: 액션 칩 */}
-            {hosted.length === 0 ? (
-              <Pressable
-                onPress={goCreateMeeting}
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.actionChip,
-                  {
-                    backgroundColor: t.colors.overlay[6],
-                    borderColor: t.colors.border,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                <MaterialIcons name="add" size={16} color={t.colors.primary} />
-                <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>
-                  모임 만들기
-                </Text>
-              </Pressable>
-            ) : hostedHasMore ? (
-              // ✅ (4) 텍스트 없이 chevron만
               <View style={styles.sectionRight}>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+                  {hostedExpanded ? "접기" : "더보기"}
+                </Text>
                 <MaterialIcons
                   name={hostedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
-                  size={22}
+                  size={18}
                   color={iconMuted}
                 />
               </View>
-            ) : null}
-          </Pressable>
+            </Pressable>
+          ) : (
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionLeft}>
+                <Text style={t.typography.titleMedium}>내가 만든 모임</Text>
+                <View style={[styles.countPill, { backgroundColor: soft06 }]}>
+                  <Text style={[t.typography.labelMedium, { color: soft55 }]}>{hosted.length}</Text>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
 
         <MeetingList items={hostedPreview} emptyText="아직 내가 만든 모임이 없어요." editable />
 
         {/* 참여한 모임 */}
         <View style={s.sectionHeader}>
-          <Pressable
-            disabled={!joinedHasMore}
-            onPress={() => joinedHasMore && setJoinedExpanded((v) => !v)}
-            style={({ pressed }) => [
-              styles.sectionHeaderRow,
-              { opacity: pressed && joinedHasMore ? 0.9 : 1 },
-            ]}
-          >
-            <View style={styles.sectionLeft}>
-              <Text style={t.typography.titleMedium}>참여한 모임</Text>
-              <View style={[styles.countPill, { backgroundColor: soft06 }]}>
-                <Text style={[t.typography.labelMedium, { color: soft55 }]}>{joined.length}</Text>
+          {joinedHasMore ? (
+            <Pressable
+              onPress={() => setJoinedExpanded((v) => !v)}
+              hitSlop={6}
+              style={({ pressed }) => [styles.sectionHeaderRow, { opacity: pressed ? 0.9 : 1 }]}
+            >
+              <View style={styles.sectionLeft}>
+                <Text style={t.typography.titleMedium}>참여한 모임</Text>
+                <View style={[styles.countPill, { backgroundColor: soft06 }]}>
+                  <Text style={[t.typography.labelMedium, { color: soft55 }]}>{joined.length}</Text>
+                </View>
               </View>
-            </View>
 
-            {/* ✅ 0개면: 액션 칩 */}
-            {joined.length === 0 ? (
-              <Pressable
-                onPress={goDiscover}
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.actionChip,
-                  {
-                    backgroundColor: t.colors.overlay[6],
-                    borderColor: t.colors.border,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                <MaterialIcons name="search" size={16} color={t.colors.primary} />
-                <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>모임 찾기</Text>
-              </Pressable>
-            ) : joinedHasMore ? (
               <View style={styles.sectionRight}>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+                  {joinedExpanded ? "접기" : "더보기"}
+                </Text>
                 <MaterialIcons
                   name={joinedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
-                  size={22}
+                  size={18}
                   color={iconMuted}
                 />
               </View>
-            ) : null}
-          </Pressable>
+            </Pressable>
+          ) : (
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionLeft}>
+                <Text style={t.typography.titleMedium}>참여한 모임</Text>
+                <View style={[styles.countPill, { backgroundColor: soft06 }]}>
+                  <Text style={[t.typography.labelMedium, { color: soft55 }]}>{joined.length}</Text>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
 
-        <MeetingList items={joinedPreview} emptyText="아직 참여한 모임이 없어요." />
+        {/* ✅ 참여한 모임: 종료/취소/마감 상태는 홈처럼 딤 처리 */}
+        <MeetingList
+          items={joinedPreview}
+          emptyText="아직 참여한 모임이 없어요."
+          dimEnded
+        />
       </ScrollView>
     </AppLayout>
   );
@@ -577,15 +622,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 
-  nameLine: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  // ✅ 줄바꿈/깨짐 방지 (닉네임 + 알약 한 줄 유지)
+  nameLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+  },
+  nameText: { flexShrink: 1 },
 
-  tempPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  tempPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
 
   ratingRight: { flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 6 },
-  star: { fontSize: 12, marginTop: 1 },
+  star: { fontSize: 14, marginTop: 1 },
 
   mannerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  mannerTemp: { marginTop: 6, fontSize: 20, fontWeight: "900" },
+  mannerTemperature: { marginTop: 6, fontSize: 20, fontWeight: "900" },
 
   tempBadge: {
     width: 34,
@@ -610,15 +662,4 @@ const styles = StyleSheet.create({
   sectionRight: { flexDirection: "row", alignItems: "center", gap: 4 },
 
   countPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-
-  // ✅ (1) 헤더 우측 액션 칩 (미니멀)
-  actionChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
 });

@@ -330,11 +330,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     host: HOST_USERS.me,
   },
 
-  // =========================================================
-  // ✅ ENDED 모임 추가 (평가 테스트용)
-  // - 조건: status === "ENDED" && myState.membershipStatus === "MEMBER"
-  // - NotificationsScreen에서 "평가할 모임"으로 잡힘
-  // =========================================================
+ // ✅ 평가 테스트용 (ENDED & MEMBER)
   {
     id: "301",
     category: "SPORTS",
