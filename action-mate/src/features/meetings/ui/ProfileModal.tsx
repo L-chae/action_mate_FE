@@ -6,8 +6,8 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors"; 
 import type { HostSummary } from "../model/types";
 
-// 🔥 매너 온도 바 (시각적 바)
-function mannerTemperatureBar({ temp }: { temp: number }) {
+// 🔥 [수정] 대문자로 변경: MannerTemperatureBar
+function MannerTemperatureBar({ temp }: { temp: number }) {
   const t = useAppTheme();
   // 36.5도 기준
   const isHigh = temp >= 36.5;
@@ -40,21 +40,19 @@ export function ProfileModal({
   onClose: () => void;
 }) {
   const t = useAppTheme();
-  const isDark = t.mode === "dark";
 
   // 색상 토큰
   const surfaceColor = t.colors.surface;
   const iconColor = t.colors.textSub;
   const dividerColor = t.colors.divider ?? t.colors.border;
   const boxBg = t.colors.overlay?.[6] ?? "#fafafa"; 
-  const ratingColor = t.colors.ratingStar ?? "#FFB800"; // 별점 색상 (없으면 노란색)
+  const ratingColor = t.colors.ratingStar ?? "#FFB800"; 
 
   // 배경 (이미지 없을 때)
   const fallbackBg = user.avatarUrl ? "transparent" : t.colors.primary; 
   const fallbackText = "#FFFFFF";
 
-  // ✅ 별점 계산 (매너온도 기반)
-  // (온도 - 32) / 10 * 5 공식 (최소 0, 최대 5)
+  // ✅ 별점 계산
   const rawRating = ((user.mannerTemperature - 32) / 10) * 5;
   const rating = Math.max(0, Math.min(5, Number(rawRating.toFixed(1))));
 
@@ -123,7 +121,8 @@ export function ProfileModal({
 
           {/* 4. 매너 온도 바 (시각적 표시) */}
           <View style={[styles.tempBox, { backgroundColor: boxBg }]}>
-            <mannerTemperatureBar temp={user.mannerTemperature} />
+            {/* ✅ [수정] 대문자 컴포넌트 사용 */}
+            <MannerTemperatureBar temp={user.mannerTemperature} />
           </View>
 
         </View>
@@ -203,7 +202,7 @@ const styles = StyleSheet.create({
   tempBox: { 
     width: "100%", 
     padding: 20, 
-    paddingBottom: 16, // 텍스트 간격 조절
+    paddingBottom: 16, 
     borderRadius: 16 
   },
 });

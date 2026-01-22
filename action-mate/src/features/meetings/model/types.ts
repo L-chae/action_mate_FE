@@ -37,10 +37,10 @@ export type MeetingPost = {
   // Time
   meetingTime: string;      // ISO String (필수)
   meetingTimeText?: string; // UI 표시용 (옵션)
-  durationHours?: number;   
+  durationHours?: number;   
   durationMinutes?: number; 
 
-  // ✅ Location: 객체로 그룹화 (api.local.ts 에러 해결)
+  // ✅ Location: 객체로 그룹화
   location: {
     name: string; // 기존 locationText
     lat: number;  // 기존 locationLat
@@ -48,7 +48,7 @@ export type MeetingPost = {
   };
   distanceText?: string; // UI용 거리 텍스트 ("1.2km")
 
-  // ✅ Capacity: 객체로 그룹화 (api.local.ts 에러 해결)
+  // ✅ Capacity: 객체로 그룹화
   capacity: {
     current: number; // 기존 capacityJoined
     total: number;   // 기존 capacityTotal
@@ -61,7 +61,7 @@ export type MeetingPost = {
 
   // Meta
   items?: string;
-  host?: HostSummary;   
+  host?: HostSummary;   
   myState?: MyState;
 };
 
@@ -118,6 +118,9 @@ export interface MeetingApi {
   getParticipants(meetingId: string): Promise<Participant[]>;
   approveParticipant(meetingId: string, userId: string): Promise<Participant[]>;
   rejectParticipant(meetingId: string, userId: string): Promise<Participant[]>;
+
+  // ✅ [NEW] 별점 평가 (이 부분이 누락되어 에러가 발생했었습니다)
+  submitMeetingRating(req: { meetingId: string; stars: number }): Promise<any>;
 }
 
 // 댓글 타입 정의

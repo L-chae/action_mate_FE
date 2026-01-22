@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,7 +10,8 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Stack, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -18,10 +20,15 @@ import TopBar from "@/shared/ui/TopBar";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
 
+import { Button } from "@/shared/ui/Button";
+import StarRating from "@/shared/ui/StarRating";
+
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, Participant } from "@/features/meetings/model/types";
 
-const CURRENT_USER_ID = "me";
+// 현재 로그인한 유저 ID (Store에서 가져오는 게 좋지만 여기선 임시 상수)
+const CURRENT_USER_ID = "me"; 
+const ratingDoneKey = (meetingId: string) => `meeting_rating_done:${meetingId}`;
 
 type HostNotiItem = {
   meetingId: string;
@@ -29,39 +36,83 @@ type HostNotiItem = {
   pendingCount: number;
 };
 
+type RatingNotiItem = {
+  meetingId: string;
+  title: string;
+  subtitle?: string;
+};
+
+type RatingSheetState =
+  | { open: false }
+  | { open: true; meetingId: string; title: string; subtitle?: string };
+
 export default function NotificationsScreen() {
   const t = useAppTheme();
+  const s = t.spacing;
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  const styles = useMemo(() => makeStyles(t), [t]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [items, setItems] = useState<HostNotiItem[]>([]);
+
+  // ✅ 섹션 1: 호스트 참여 신청
+  const [hostItems, setHostItems] = useState<HostNotiItem[]>([]);
+
+  // ✅ 섹션 2: 참여자 모임 평가
+  const [ratingItems, setRatingItems] = useState<RatingNotiItem[]>([]);
+
+  // ✅ 평가 모달 상태
+  const [sheet, setSheet] = useState<RatingSheetState>({ open: false });
+  const [stars, setStars] = useState(0);
+  const [ratingLoading, setRatingLoading] = useState(false);
 
   const totalPending = useMemo(
-    () => items.reduce((sum, it) => sum + it.pendingCount, 0),
-    [items]
+    () => hostItems.reduce((sum, it) => sum + it.pendingCount, 0),
+    [hostItems]
   );
+  const totalRating = useMemo(() => ratingItems.length, [ratingItems]);
+
+  const closeSheet = useCallback(() => {
+    if (ratingLoading) return;
+    setSheet({ open: false });
+    setStars(0);
+  }, [ratingLoading]);
+
+  const openRatingSheet = useCallback((item: RatingNotiItem) => {
+    setSheet({
+      open: true,
+      meetingId: item.meetingId,
+      title: item.title,
+      subtitle: item.subtitle,
+    });
+    setStars(0);
+  }, []);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
-    // ✅ 화면 구조는 유지하되, 로딩 플래그만 제어
     if (!opts?.silent) setLoading(true);
 
     try {
-      const all = await meetingApi.listMeetings(undefined);
+      // ✅ [수정] undefined 대신 빈 객체 {} 전달 (안전성 확보)
+      const all = await meetingApi.listMeetings({});
+
+      // =========================
+      // 1) 참여 신청(호스트용)
+      // =========================
       const hostMeetings = all.filter((m: MeetingPost) => m.host?.id === CURRENT_USER_ID);
 
-      const results = await Promise.all(
+      const hostResults = await Promise.all(
         hostMeetings.map(async (m) => {
           try {
             const parts: Participant[] = await meetingApi.getParticipants(m.id);
             const pendingCount = parts.filter((p) => p.status === "PENDING").length;
             return pendingCount > 0
               ? ({
-                meetingId: String(m.id),
-                title: m.title,
-                pendingCount,
-              } as HostNotiItem)
+                  meetingId: String(m.id),
+                  title: m.title,
+                  pendingCount,
+                } as HostNotiItem)
               : null;
           } catch {
             return null;
@@ -69,13 +120,39 @@ export default function NotificationsScreen() {
         })
       );
 
-      const filtered = results.filter(Boolean) as HostNotiItem[];
-      filtered.sort((a, b) => b.pendingCount - a.pendingCount);
+      const hostFiltered = hostResults.filter(Boolean) as HostNotiItem[];
+      hostFiltered.sort((a, b) => b.pendingCount - a.pendingCount);
+      setHostItems(hostFiltered);
 
-      setItems(filtered);
+      // =========================
+      // 2) 모임 평가(참여자용)
+      // - ENDED + MEMBER + 아직 평가 안함
+      // =========================
+      const candidates = all.filter((m: MeetingPost) => {
+        const statusAny = (m as any).status; // status 타입 확인
+        const membership = (m as any).myState?.membershipStatus;
+        return statusAny === "ENDED" && membership === "MEMBER";
+      });
+
+      const ratingResults = await Promise.all(
+        candidates.map(async (m) => {
+          const meetingId = String(m.id);
+          const done = await AsyncStorage.getItem(ratingDoneKey(meetingId));
+          if (done === "1") return null;
+
+          return {
+            meetingId,
+            title: m.title,
+            // ✅ [수정] 최신 타입 location.name 사용
+            subtitle: m.location?.name || undefined,
+          } as RatingNotiItem;
+        })
+      );
+
+      setRatingItems(ratingResults.filter(Boolean) as RatingNotiItem[]);
     } catch (e) {
       console.error(e);
-      Alert.alert("오류", "알림 정보를 불러오지 못했습니다.");
+      // Alert.alert("오류", "알림 정보를 불러오지 못했습니다."); // 너무 자주 뜨면 거슬림
     } finally {
       if (!opts?.silent) setLoading(false);
     }
@@ -94,11 +171,50 @@ export default function NotificationsScreen() {
     }
   }, [load]);
 
-  const empty = !loading && items.length === 0;
+  const empty = useMemo(
+    () => !loading && hostItems.length === 0 && ratingItems.length === 0,
+    [loading, hostItems.length, ratingItems.length]
+  );
+
+  const onSubmitRating = useCallback(async () => {
+    if (!sheet.open) return;
+
+    if (stars < 1) {
+      Alert.alert("별점을 선택해 주세요", "최소 1점부터 평가할 수 있어요.");
+      return;
+    }
+
+    try {
+      setRatingLoading(true);
+
+      // ✅ meetingApi에 submitMeetingRating이 없을 수도 있음 (Mock에만 있거나)
+      // 타입 에러가 난다면 (any)로 우회하거나 api에 추가 필요
+      if ('submitMeetingRating' in meetingApi) {
+          await (meetingApi as any).submitMeetingRating({ meetingId: sheet.meetingId, stars });
+      } else {
+          // 임시 로직
+          await new Promise(r => setTimeout(r, 500));
+      }
+      
+      await AsyncStorage.setItem(ratingDoneKey(sheet.meetingId), "1");
+
+      setRatingItems((prev) => prev.filter((it) => it.meetingId !== sheet.meetingId));
+
+      setSheet({ open: false });
+      setStars(0);
+
+      Alert.alert("평가 완료", "소중한 평가가 반영됐어요!");
+    } catch (e: any) {
+      Alert.alert("평가 실패", e?.message ?? "잠시 후 다시 시도해 주세요.");
+    } finally {
+      setRatingLoading(false);
+    }
+  }, [sheet, stars]);
 
   return (
-    // ✅ 항상 동일 레이아웃 유지 (padded=false 고정)
     <AppLayout padded={false}>
+      <Stack.Screen options={{ headerShown: false }} />
+
       <TopBar
         title="알림"
         showBack
@@ -106,7 +222,7 @@ export default function NotificationsScreen() {
         showBorder
         showNoti={false}
         renderRight={() => (
-          <Pressable onPress={onRefresh} hitSlop={10} style={{ padding: 4 }}>
+          <Pressable onPress={onRefresh} hitSlop={10} style={{ padding: s.space[1] }}>
             <Ionicons name="refresh" size={22} color={t.colors.textMain} />
           </Pressable>
         )}
@@ -115,82 +231,140 @@ export default function NotificationsScreen() {
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={{
-          padding: 16,
-          paddingBottom: Math.max(16, insets.bottom),
-          flexGrow: 1, // ✅ 로딩/빈화면에서도 높이 유지 → 가운데 정렬이 자연스러움
+          paddingHorizontal: s.pagePaddingH,
+          paddingTop: s.space[4],
+          paddingBottom: Math.max(s.space[4], insets.bottom),
+          flexGrow: 1,
         }}
       >
         {loading ? (
-          // ✅ 로딩도 동일 padding/배경/스크롤 구조 안에서 표시
           <View style={styles.centerGrow}>
             <ActivityIndicator size="large" color={t.colors.primary} />
           </View>
+        ) : empty ? (
+          <View style={[styles.emptyBox, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+            <Ionicons name="checkmark-circle-outline" size={28} color={t.colors.textSub} />
+            <Text style={[t.typography.titleSmall, { marginTop: s.space[2], color: t.colors.textMain }]}>
+              지금 확인할 알림이 없어요
+            </Text>
+            <Text style={[t.typography.bodySmall, { marginTop: s.space[1], color: t.colors.textSub, textAlign: "center" }]}>
+              새 참여 신청이나 평가 요청이 들어오면 여기에 표시됩니다.
+            </Text>
+          </View>
         ) : (
           <>
-            {/* 요약 */}
+            {/* ✅ 참여 신청 */}
+            {hostItems.length > 0 && (
+              <>
+                <View
+                  style={[
+                    styles.summary,
+                    {
+                      backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.08),
+                      borderColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.3 : 0.22),
+                    },
+                  ]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Ionicons
+                      name="notifications-outline"
+                      size={18}
+                      color={t.colors.primary}
+                      style={{ marginRight: s.space[2] }}
+                    />
+                    <Text style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]} numberOfLines={1}>
+                      참여 신청
+                    </Text>
+                  </View>
+
+                  <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: s.space[2] }]}>
+                    대기 중 신청 {totalPending}건
+                  </Text>
+                </View>
+
+                <View style={{ marginTop: s.space[3] }}>
+                  {hostItems.map((it, idx) => (
+                    <Pressable
+                      key={it.meetingId}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/notifications/[id]",
+                          params: { id: it.meetingId },
+                        })
+                      }
+                      style={({ pressed }) => [
+                        styles.cardRow,
+                        {
+                          backgroundColor: t.colors.surface,
+                          borderColor: t.colors.border,
+                          opacity: pressed ? 0.9 : 1,
+                          marginBottom: idx === hostItems.length - 1 ? 0 : s.space[2],
+                        },
+                      ]}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
+                          {it.title}
+                        </Text>
+                        <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: s.space[1] }]}>
+                          대기 {it.pendingCount}명
+                        </Text>
+                      </View>
+
+                      <View style={[styles.badge, { backgroundColor: t.colors.error }]}>
+                        <Text style={[t.typography.labelSmall, { color: t.colors.neutral[50], fontWeight: "900" }]}>
+                          {it.pendingCount > 99 ? "99+" : it.pendingCount}
+                        </Text>
+                      </View>
+
+                      <Ionicons name="chevron-forward" size={20} color={t.colors.textSub} style={{ marginLeft: s.space[2] }} />
+                    </Pressable>
+                  ))}
+                </View>
+
+                <View style={{ height: s.space[4] }} />
+              </>
+            )}
+
+            {/* ✅ 모임 평가 */}
             <View
               style={[
                 styles.summary,
                 {
-                  backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.08),
-                  borderColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.30 : 0.22),
+                  backgroundColor: withAlpha(t.colors.success, t.mode === "dark" ? 0.18 : 0.08),
+                  borderColor: withAlpha(t.colors.success, t.mode === "dark" ? 0.3 : 0.22),
                 },
               ]}
             >
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Ionicons
-                  name="notifications-outline"
-                  size={18}
-                  color={t.colors.primary}
-                  style={{ marginRight: 8 }}
-                />
-                <Text
-                  style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]}
-                  numberOfLines={1}
-                >
-                  참여 신청 알림
+                <Ionicons name="star-outline" size={18} color={t.colors.success} style={{ marginRight: s.space[2] }} />
+                <Text style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]} numberOfLines={1}>
+                  모임 평가
                 </Text>
               </View>
 
-              <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 8 }]}>
-                대기 중 신청 {totalPending}건
+              <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: s.space[2] }]}>
+                평가할 모임 {totalRating}건
               </Text>
             </View>
 
-            {/* 리스트 */}
-            {empty ? (
-              <View style={[styles.emptyBox, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
-                <Ionicons name="checkmark-circle-outline" size={28} color={t.colors.textSub} />
-                <Text style={[t.typography.titleSmall, { marginTop: 10, color: t.colors.textMain }]}>
-                  지금 확인할 알림이 없어요
-                </Text>
-                <Text
-                  style={[
-                    t.typography.bodySmall,
-                    { marginTop: 6, color: t.colors.textSub, textAlign: "center" },
-                  ]}
-                >
-                  새 참여 신청이 들어오면 여기에 표시됩니다.
-                </Text>
+            {ratingItems.length === 0 ? (
+              <View style={[styles.sectionEmpty, { borderColor: t.colors.border, backgroundColor: t.colors.surface }]}>
+                <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>평가할 모임이 없어요.</Text>
               </View>
             ) : (
-              <View style={{ marginTop: 12, gap: 10 }}>
-                {items.map((it) => (
+              <View style={{ marginTop: s.space[3] }}>
+                {ratingItems.map((it, idx) => (
                   <Pressable
                     key={it.meetingId}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/notifications/[id]",
-                        params: { id: it.meetingId },
-                      })
-                    }
-
+                    onPress={() => openRatingSheet(it)}
                     style={({ pressed }) => [
-                      styles.card,
+                      styles.cardRow,
                       {
                         backgroundColor: t.colors.surface,
                         borderColor: t.colors.border,
                         opacity: pressed ? 0.9 : 1,
+                        marginBottom: idx === ratingItems.length - 1 ? 0 : s.space[2],
                       },
                     ]}
                   >
@@ -198,18 +372,12 @@ export default function NotificationsScreen() {
                       <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
                         {it.title}
                       </Text>
-                      <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
-                        대기 {it.pendingCount}명
+                      <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: s.space[1] }]}>
+                        눌러서 평가하기
                       </Text>
                     </View>
 
-                    <View style={[styles.badge, { backgroundColor: t.colors.error }]}>
-                      <Text style={{ color: "white", fontSize: 12, fontWeight: "900" }}>
-                        {it.pendingCount > 99 ? "99+" : it.pendingCount}
-                      </Text>
-                    </View>
-
-                    <Ionicons name="chevron-forward" size={20} color={t.colors.textSub} style={{ marginLeft: 8 }} />
+                    <Ionicons name="chevron-forward" size={20} color={t.colors.textSub} style={{ marginLeft: s.space[2] }} />
                   </Pressable>
                 ))}
               </View>
@@ -217,45 +385,65 @@ export default function NotificationsScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* ✅ 평가 모달: 가운데 카드 */}
+      <Modal transparent visible={sheet.open} animationType="fade" onRequestClose={closeSheet}>
+        <View style={styles.modalWrap}>
+          <Pressable style={[styles.backdrop, { backgroundColor: t.colors.scrim }]} onPress={closeSheet} />
+
+          <View style={[styles.dialog, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+            <Pressable onPress={closeSheet} hitSlop={10} style={styles.dialogClose}>
+              <Ionicons name="close" size={20} color={t.colors.textMain} />
+            </Pressable>
+
+            <View style={[styles.dialogTitleRow, { paddingHorizontal: s.space[6] }]}>
+              <Ionicons name="notifications" size={14} color={t.colors.textSub} style={{ marginRight: s.space[1] }} />
+              <Text style={[t.typography.labelMedium, { color: t.colors.textSub }]} numberOfLines={1}>
+                {sheet.open ? sheet.title : ""}
+              </Text>
+            </View>
+
+            <Text style={[t.typography.titleMedium, { color: t.colors.textMain, textAlign: "center", marginTop: s.space[2] }]}>
+              오늘 모임 어떠셨나요?
+            </Text>
+
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, textAlign: "center", marginTop: s.space[2] }]}>
+              별점으로 모임을 평가해 주세요.
+            </Text>
+
+            <View style={{ marginTop: s.space[3], alignItems: "center" }}>
+              <StarRating value={stars} onChange={setStars} size={30} disabled={ratingLoading} />
+            </View>
+
+            <View style={{ marginTop: s.space[3] }}>
+              <Button
+                title={ratingLoading ? "전송 중..." : "평가 완료"}
+                onPress={onSubmitRating}
+                disabled={ratingLoading || stars < 1}
+                loading={ratingLoading}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </AppLayout>
   );
 }
 
-const styles = StyleSheet.create({
-  // ✅ flexGrow에서 가운데 정렬용
-  centerGrow: { flex: 1, justifyContent: "center", alignItems: "center" },
+function makeStyles(t: ReturnType<typeof useAppTheme>) {
+  const s = t.spacing;
 
-  summary: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-  },
-
-  emptyBox: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 22,
-    paddingHorizontal: 16,
-    alignItems: "center",
-  },
-
-  card: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  badge: {
-    minWidth: 28,
-    height: 28,
-    paddingHorizontal: 8,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 10,
-  },
-});
+  return StyleSheet.create({
+    centerGrow: { flex: 1, justifyContent: "center", alignItems: "center" },
+    summary: { borderWidth: s.borderWidth, borderRadius: s.radiusLg, padding: s.space[3] },
+    emptyBox: { marginTop: s.space[3], borderWidth: s.borderWidth, borderRadius: s.radiusLg, paddingVertical: s.space[6], paddingHorizontal: s.pagePaddingH, alignItems: "center" },
+    sectionEmpty: { marginTop: s.space[3], borderWidth: s.borderWidth, borderRadius: s.radiusLg, paddingVertical: s.space[3], paddingHorizontal: s.space[3], alignItems: "center" },
+    cardRow: { borderWidth: s.borderWidth, borderRadius: s.radiusLg, paddingHorizontal: s.space[3], paddingVertical: s.space[3], flexDirection: "row", alignItems: "center" },
+    badge: { minWidth: s.space[7], height: s.space[7], paddingHorizontal: s.space[2], borderRadius: 999, alignItems: "center", justifyContent: "center", marginLeft: s.space[2] },
+    modalWrap: { flex: 1, justifyContent: "center", alignItems: "center" },
+    backdrop: { ...StyleSheet.absoluteFillObject },
+    dialog: { width: "86%", maxWidth: 420, borderWidth: s.borderWidth, borderRadius: s.radiusXl, paddingHorizontal: s.pagePaddingH, paddingTop: s.space[3], paddingBottom: s.space[3] },
+    dialogClose: { position: "absolute", right: s.space[2], top: s.space[2], padding: s.space[1], zIndex: 10 },
+    dialogTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  });
+}

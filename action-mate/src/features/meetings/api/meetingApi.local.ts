@@ -2,16 +2,23 @@ import { MOCK_MEETINGS_SEED, HOST_USERS } from "../mocks/meetingMockData";
 import type { HomeSort, MeetingApi, MeetingPost, Participant } from "../model/types";
 
 // ✅ Local State Deep Copy
-// (주의: MOCK_MEETINGS_SEED가 구버전 데이터라면 여기서 매핑이 필요할 수 있습니다. 
-//  일단 타입 단언으로 넘어가고, 아래 로직들은 새 구조를 따릅니다.)
 let _DATA: MeetingPost[] = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
 
 // ✅ 참여자 더미 데이터 저장소
 const _PARTICIPANTS: Record<string, Participant[]> = {};
 
+// ✅ 평가 기록 저장소 (Mock)
+const _MEETING_LAST_STARS: Record<string, number> = {};
+
 // --- Helpers ---
 const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 const toTimeMs = (iso?: string) => (iso ? new Date(iso).getTime() : Number.MAX_SAFE_INTEGER);
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+
+// 별점 -> 온도 변환 로직 (Mock용 단순 계산)
+const starsToTemp = (stars: number) => {
+  return 36.5 + (stars - 3) * 2; // 3점=36.5도, 5점=40.5도
+};
 
 const ensureParticipants = (meetingId: string) => {
   if (!_PARTICIPANTS[meetingId]) {
@@ -56,7 +63,6 @@ function parseDistance(text?: string) {
 function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: number) {
   return [...list].sort((a, b) => {
     if (sort === "NEAR") {
-      // ✅ 수정됨: location 객체 내부 접근
       if (lat && lng && a.location.lat && b.location.lat) {
         return (
           haversineKm(lat, lng, a.location.lat, a.location.lng) -
@@ -80,7 +86,7 @@ export const meetingApiLocal: MeetingApi = {
     await delay();
     const now = Date.now();
     return _DATA
-      .filter((m) => m.status === "OPEN") // ✅ state -> status
+      .filter((m) => m.status === "OPEN")
       .map((m) => ({ m, min: (toTimeMs(m.meetingTime) - now) / 60000 }))
       .filter(({ min }) => min >= 0 && min <= withinMinutes)
       .sort((a, b) => a.min - b.min)
@@ -90,9 +96,9 @@ export const meetingApiLocal: MeetingApi = {
         meetingId: m.id,
         badge: min < 60 ? `${Math.floor(min)}분 남음` : `${Math.floor(min / 60)}시간 남음`,
         title: m.title,
-        place: m.location.name,      // ✅ location.name
-        capacityJoined: m.capacity.current, // ✅ capacity.current
-        capacityTotal: m.capacity.total,    // ✅ capacity.total
+        place: m.location.name,
+        capacityJoined: m.capacity.current,
+        capacityTotal: m.capacity.total,
       }));
   },
 
@@ -135,7 +141,6 @@ export const meetingApiLocal: MeetingApi = {
     await delay(800);
     const newId = String(Date.now());
     
-    // ✅ 새 타입에 맞춰 객체 생성
     const newPost: MeetingPost = {
       id: newId,
       category: data.category,
@@ -154,12 +159,12 @@ export const meetingApiLocal: MeetingApi = {
         current: 1,
       },
       
-      status: "OPEN", // ✅ state -> status
+      status: "OPEN",
       joinMode: data.joinMode,
       distanceText: "0km",
       
       myState: { membershipStatus: "HOST", canJoin: false },
-      host: HOST_USERS.me, 
+      host: HOST_USERS.me,
     };
     
     _DATA.unshift(newPost);
@@ -181,7 +186,7 @@ export const meetingApiLocal: MeetingApi = {
         lat: data.locationLat ?? prev.location.lat,
         lng: data.locationLng ?? prev.location.lng,
       },
-      capacity: prev.capacity // capacity 정보 유지
+      capacity: prev.capacity
     } as MeetingPost;
     return { ..._DATA[idx] };
   },
@@ -193,7 +198,6 @@ export const meetingApiLocal: MeetingApi = {
 
     const target = _DATA[idx];
     _DATA.splice(idx, 1);
-    // ✅ state -> status
     return { post: { ...target, status: "CANCELED" } };
   },
 
@@ -255,7 +259,6 @@ export const meetingApiLocal: MeetingApi = {
     const target = list.find((p) => p.id === userId);
     if (target) {
       target.status = "MEMBER";
-      // 승인 시 인원 증가 (capacity.current)
       const mIdx = _DATA.findIndex((m) => m.id === meetingId);
       if (mIdx > -1) _DATA[mIdx].capacity.current++;
     }
@@ -270,6 +273,34 @@ export const meetingApiLocal: MeetingApi = {
     const target = list.find((p) => p.id === userId);
     if (target) target.status = "REJECTED";
     return [...list];
+  },
+
+  // ✅ [수정 완료] 객체 내부에 위치시킴 + 타입 any 우회 (interface에 없을 경우 대비)
+  async submitMeetingRating(req: { meetingId: string; stars: number }): Promise<any> {
+    await delay(500);
+
+    const meetingId = String(req.meetingId);
+    const stars = clamp(Number(req.stars ?? 0), 0, 5);
+
+    const idx = _DATA.findIndex((m) => m.id === meetingId);
+    if (idx < 0) throw new Error("Meeting not found");
+
+    _MEETING_LAST_STARS[meetingId] = stars;
+
+    // 호스트 매너온도 업데이트 시늉
+    const hostTemperature = starsToTemp(stars);
+
+    if (_DATA[idx] && (_DATA[idx] as any).host) {
+      (_DATA[idx] as any).host = {
+        ...(_DATA[idx] as any).host,
+        mannerTemperature: hostTemperature, // mannerTemperature로 필드명 통일
+      };
+    }
+
+    return {
+      ok: true,
+      hostTemperature,
+    };
   },
 };
 
