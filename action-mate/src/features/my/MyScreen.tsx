@@ -31,10 +31,9 @@ import { myApi } from "./api/myApi";
 import type { MyMeetingItem, MyProfile } from "./model/types";
 
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type { MeetingPost, Participant } from "@/features/meetings/model/types";
+import type { MeetingPost } from "@/features/meetings/model/types";
 
 const PREVIEW_COUNT = 3;
-const WHITE = "#FFFFFF";
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -58,13 +57,12 @@ type GradientColors = readonly [string, string];
 export default function MyScreen() {
   const t = useAppTheme();
   const router = useRouter();
-  
-  // ✅ [핵심] Store에서 user 정보를 가져옵니다. (프로필 설정에서 업데이트한 최신 정보)
-  const user = useAuthStore((s) => (s as any).user ?? (s as any).me);
-  
-  // ✅ [핵심] Store에 있는 avatar(방금 바꾼 사진)를 별도로 가져옵니다.
-  const userAvatar = user?.avatar;
 
+  // ✅ Store 최신 user (프로필 설정에서 업데이트한 최신 정보)
+  const user = useAuthStore((s) => (s as any).user ?? (s as any).me);
+
+  // ✅ Store에 있는 avatar(방금 바꾼 사진)
+  const userAvatar = user?.avatar;
   const currentUserId = user?.id ? String(user.id) : "me";
 
   const [refreshing, setRefreshing] = useState(false);
@@ -83,9 +81,20 @@ export default function MyScreen() {
   const fillAnim = useRef(new Animated.Value(0)).current;
 
   // ----------------------------------------------------------------------
+  // (1) 빈 상태 액션: 헤더 우측 칩
+  // ----------------------------------------------------------------------
+  const goCreateMeeting = useCallback(() => {
+    router.push("/meetings/create" as any); // ✅ 너희 모임 생성 라우트로 맞추기
+  }, [router]);
+
+  const goDiscover = useCallback(() => {
+    router.push("/" as any); // ✅ 모임 찾기/홈 라우트로 맞추기
+  }, [router]);
+
+  // ----------------------------------------------------------------------
   // 표시용 데이터 계산
   // ----------------------------------------------------------------------
-  
+
   // 닉네임: Store(최신) -> API(기존) -> 기본값 순서
   const displayNickname = useMemo(() => {
     const n = user?.nickname?.trim();
@@ -93,8 +102,7 @@ export default function MyScreen() {
     return profile.nickname?.trim() || "액션메이트";
   }, [user?.nickname, profile.nickname]);
 
-  // ✅ [핵심] 아바타: Store(방금 바꾼 로컬 경로) -> API(서버 URL) 순서
-  // 이렇게 하면 서버 업로드가 늦어도 사용자는 바뀐 사진을 바로 볼 수 있습니다.
+  // ✅ 아바타: Store(방금 바꾼 로컬/URI) -> API(서버 URL) 순서
   const displayAvatar = useMemo(() => {
     if (userAvatar) return userAvatar;
     return profile.photoUrl;
@@ -135,7 +143,6 @@ export default function MyScreen() {
   // ----------------------------------------------------------------------
   const loadAll = useCallback(async () => {
     try {
-      // API 호출은 그대로 유지하되, 렌더링 시 Store 값을 우선합니다.
       const [p, s, h, j] = await Promise.all([
         myApi.getProfile(),
         myApi.getSummary(),
@@ -173,8 +180,7 @@ export default function MyScreen() {
         setHasNoti(false);
         return;
       }
-      // (간략화: 실제 로직은 유지)
-      setHasNoti(false); 
+      setHasNoti(false);
     } catch (e) {
       console.error("checkHasNoti error:", e);
       setHasNoti(false);
@@ -248,6 +254,19 @@ export default function MyScreen() {
     outputRange: ["0%", "100%"],
   });
 
+  // ✅ 3개 초과일 때만 더보기(chevron) 노출
+  const hostedHasMore = hosted.length > PREVIEW_COUNT;
+  const joinedHasMore = joined.length > PREVIEW_COUNT;
+
+  // ✅ 3개 이하로 줄어든 경우 expanded가 남아있지 않게 자동 정리
+  useEffect(() => {
+    if (!hostedHasMore && hostedExpanded) setHostedExpanded(false);
+  }, [hostedHasMore, hostedExpanded]);
+
+  useEffect(() => {
+    if (!joinedHasMore && joinedExpanded) setJoinedExpanded(false);
+  }, [joinedHasMore, joinedExpanded]);
+
   const hostedPreview = useMemo(
     () => (hostedExpanded ? hosted : hosted.slice(0, PREVIEW_COUNT)),
     [hosted, hostedExpanded]
@@ -257,11 +276,8 @@ export default function MyScreen() {
     [joined, joinedExpanded]
   );
 
-  const hostedHasMore = hosted.length > PREVIEW_COUNT;
-  const joinedHasMore = joined.length > PREVIEW_COUNT;
-
   // ----------------------------------------------------------------------
-  // Style & Rendering
+  // Style
   // ----------------------------------------------------------------------
   const iconDefault = t.colors.icon.default;
   const iconMuted = t.colors.icon.muted;
@@ -294,7 +310,6 @@ export default function MyScreen() {
         marginBottom: t.spacing.space[2],
         paddingHorizontal: 2,
       } as ViewStyle,
-      inlineMoreBtn: { marginTop: 2, paddingVertical: t.spacing.space[2] } as ViewStyle,
     } as const;
   }, [t]);
 
@@ -326,7 +341,6 @@ export default function MyScreen() {
                 <View style={styles.avatarWrap}>
                   {displayAvatar ? (
                     <Image
-                      // ✅ [중요] key를 사용하여 URL/URI 변경 시 강제 리렌더링
                       key={displayAvatar}
                       source={{ uri: displayAvatar }}
                       style={[
@@ -342,7 +356,7 @@ export default function MyScreen() {
                         { borderColor: t.colors.background, backgroundColor: t.colors.primary },
                       ]}
                     >
-                      <Text style={[t.typography.titleMedium, { color: WHITE }]}>
+                      <Text style={[t.typography.titleMedium, { color: t.colors.backgroundLight }]}>
                         {displayNickname?.slice(0, 1) || "A"}
                       </Text>
                     </View>
@@ -435,8 +449,13 @@ export default function MyScreen() {
         {/* 내가 만든 모임 */}
         <View style={s.sectionHeader}>
           <Pressable
-            onPress={() => setHostedExpanded((v) => !v)}
-            style={({ pressed }) => [styles.sectionHeaderRow, { opacity: pressed ? 0.9 : 1 }]}
+            // ✅ 3개 초과일 때만 토글 가능
+            disabled={!hostedHasMore}
+            onPress={() => hostedHasMore && setHostedExpanded((v) => !v)}
+            style={({ pressed }) => [
+              styles.sectionHeaderRow,
+              { opacity: pressed && hostedHasMore ? 0.9 : 1 },
+            ]}
           >
             <View style={styles.sectionLeft}>
               <Text style={t.typography.titleMedium}>내가 만든 모임</Text>
@@ -445,41 +464,49 @@ export default function MyScreen() {
               </View>
             </View>
 
-            <View style={styles.sectionRight}>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                {hostedExpanded ? "접기" : "펼치기"}
-              </Text>
-              <MaterialIcons
-                name={hostedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
-                size={18}
-                color={iconMuted}
-              />
-            </View>
+            {/* ✅ (1) 0개면: 액션 칩 */}
+            {hosted.length === 0 ? (
+              <Pressable
+                onPress={goCreateMeeting}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.actionChip,
+                  {
+                    backgroundColor: t.colors.overlay[6],
+                    borderColor: t.colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <MaterialIcons name="add" size={16} color={t.colors.primary} />
+                <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>
+                  모임 만들기
+                </Text>
+              </Pressable>
+            ) : hostedHasMore ? (
+              // ✅ (4) 텍스트 없이 chevron만
+              <View style={styles.sectionRight}>
+                <MaterialIcons
+                  name={hostedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
+                  size={22}
+                  color={iconMuted}
+                />
+              </View>
+            ) : null}
           </Pressable>
-
-          {!hostedExpanded && hostedHasMore ? (
-            <Pressable
-              onPress={() => setHostedExpanded(true)}
-              style={({ pressed }) => [s.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
-            >
-              <Text style={[t.typography.bodySmall, { color: soft55 }]}>
-                최근 {PREVIEW_COUNT}개만 보여요 · 더보기
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
 
-        <MeetingList
-          items={hostedPreview}
-          emptyText="아직 내가 만든 모임이 없어요."
-          editable
-        />
+        <MeetingList items={hostedPreview} emptyText="아직 내가 만든 모임이 없어요." editable />
 
         {/* 참여한 모임 */}
         <View style={s.sectionHeader}>
           <Pressable
-            onPress={() => setJoinedExpanded((v) => !v)}
-            style={({ pressed }) => [styles.sectionHeaderRow, { opacity: pressed ? 0.9 : 1 }]}
+            disabled={!joinedHasMore}
+            onPress={() => joinedHasMore && setJoinedExpanded((v) => !v)}
+            style={({ pressed }) => [
+              styles.sectionHeaderRow,
+              { opacity: pressed && joinedHasMore ? 0.9 : 1 },
+            ]}
           >
             <View style={styles.sectionLeft}>
               <Text style={t.typography.titleMedium}>참여한 모임</Text>
@@ -488,28 +515,33 @@ export default function MyScreen() {
               </View>
             </View>
 
-            <View style={styles.sectionRight}>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                {joinedExpanded ? "접기" : "펼치기"}
-              </Text>
-              <MaterialIcons
-                name={joinedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
-                size={18}
-                color={iconMuted}
-              />
-            </View>
+            {/* ✅ 0개면: 액션 칩 */}
+            {joined.length === 0 ? (
+              <Pressable
+                onPress={goDiscover}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.actionChip,
+                  {
+                    backgroundColor: t.colors.overlay[6],
+                    borderColor: t.colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <MaterialIcons name="search" size={16} color={t.colors.primary} />
+                <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>모임 찾기</Text>
+              </Pressable>
+            ) : joinedHasMore ? (
+              <View style={styles.sectionRight}>
+                <MaterialIcons
+                  name={joinedExpanded ? "keyboard-arrow-up" : "keyboard-arrow-down"}
+                  size={22}
+                  color={iconMuted}
+                />
+              </View>
+            ) : null}
           </Pressable>
-
-          {!joinedExpanded && joinedHasMore ? (
-            <Pressable
-              onPress={() => setJoinedExpanded(true)}
-              style={({ pressed }) => [s.inlineMoreBtn, { opacity: pressed ? 0.85 : 1 }]}
-            >
-              <Text style={[t.typography.bodySmall, { color: soft55 }]}>
-                최근 {PREVIEW_COUNT}개만 보여요 · 더보기
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
 
         <MeetingList items={joinedPreview} emptyText="아직 참여한 모임이 없어요." />
@@ -578,4 +610,15 @@ const styles = StyleSheet.create({
   sectionRight: { flexDirection: "row", alignItems: "center", gap: 4 },
 
   countPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+
+  // ✅ (1) 헤더 우측 액션 칩 (미니멀)
+  actionChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
 });
