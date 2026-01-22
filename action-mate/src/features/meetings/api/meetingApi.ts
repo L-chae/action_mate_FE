@@ -1,7 +1,7 @@
 // src/features/meetings/api/index.ts
 import { 
   MeetingPost, 
-  MeetingParams, 
+  MeetingUpsert, 
   HotMeetingItem, 
   CategoryKey, 
   HomeSort, 
@@ -21,8 +21,8 @@ export interface MeetingApi {
   getMeeting(id: string): Promise<MeetingPost>;
 
   // 2. 생성/수정/삭제
-  createMeeting(data: MeetingParams): Promise<MeetingPost>;
-  updateMeeting(id: string, data: MeetingParams): Promise<MeetingPost>;
+  createMeeting(data: MeetingUpsert): Promise<MeetingPost>;
+  updateMeeting(id: string, data: MeetingUpsert): Promise<MeetingPost>;
   cancelMeeting(id: string): Promise<{ post: MeetingPost }>;
 
   // 3. 참여 상태 관리
@@ -37,6 +37,6 @@ export interface MeetingApi {
 
 // ✅ 환경변수로 Mock/Remote 자동 선택
 // (__DEV__일 때만 Mock 사용 가능하도록 안전장치 추가)
-//const USE_MOCK = __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === "true";
-const USE_MOCK = true;  //22일 기준 백엔드 불안정해서 임시로 넣어둠
+const USE_MOCK = __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === "true";
+//const USE_MOCK = true;  //22일 기준 백엔드 불안정해서 임시로 넣어둠
 export const meetingApi: MeetingApi = USE_MOCK ? meetingApiLocal : meetingApiRemote;

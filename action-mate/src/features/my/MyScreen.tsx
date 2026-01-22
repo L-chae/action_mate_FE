@@ -28,10 +28,11 @@ import TopBar from "@/shared/ui/TopBar";
 import MeetingList from "./ui/MeetingList";
 
 import { myApi } from "./api/myApi";
-import type { MyMeetingItem, MyProfile } from "./model/types";
+// ✅ [변경] 타입 import 경로 및 이름 확인
+import type { MyMeetingItem, MyProfile, MySummary } from "./model/types";
 
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type { MeetingPost, Participant } from "@/features/meetings/model/types";
+import type { MeetingPost } from "@/features/meetings/model/types";
 
 const PREVIEW_COUNT = 3;
 const WHITE = "#FFFFFF";
@@ -47,21 +48,16 @@ function tempIconName(temp: number): keyof typeof MaterialIcons.glyphMap {
   return "whatshot";
 }
 
-type LocalSummary = {
-  praiseCount: number;
-  temperature: number;
-};
-
 type PillTone = { text: string; bg: string };
 type GradientColors = readonly [string, string];
 
 export default function MyScreen() {
   const t = useAppTheme();
   const router = useRouter();
-  
+
   // ✅ [핵심] Store에서 user 정보를 가져옵니다. (프로필 설정에서 업데이트한 최신 정보)
   const user = useAuthStore((s) => (s as any).user ?? (s as any).me);
-  
+
   // ✅ [핵심] Store에 있는 avatarUrl(방금 바꾼 사진)를 별도로 가져옵니다.
   const useravatarUrl = user?.avatarUrl;
 
@@ -69,10 +65,19 @@ export default function MyScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
 
-  // API에서 불러온 프로필 정보
-  const [profile, setProfile] = useState<MyProfile>({ nickname: "액션메이트" });
-  const [summary, setSummary] = useState<LocalSummary>({ praiseCount: 0, temperature: 36.5 });
+  // ✅ [변경] MyProfile은 UserSummary와 같으므로 id 필드 필수 (초기값에 id 추가)
+  const [profile, setProfile] = useState<MyProfile>({ 
+    id: "", 
+    nickname: "액션메이트" 
+  });
+  
+  // ✅ [변경] MySummary(=UserReputation) 타입을 직접 사용 (temperature -> mannerTemperature)
+  const [summary, setSummary] = useState<MySummary>({ 
+    praiseCount: 0, 
+    mannerTemperature: 36.5 
+  });
 
+  // ✅ [변경] hosted, joined의 아이템 타입이 location: { name: string } 구조를 가짐
   const [hosted, setHosted] = useState<MyMeetingItem[]>([]);
   const [joined, setJoined] = useState<MyMeetingItem[]>([]);
 
@@ -85,7 +90,7 @@ export default function MyScreen() {
   // ----------------------------------------------------------------------
   // 표시용 데이터 계산
   // ----------------------------------------------------------------------
-  
+
   // 닉네임: Store(최신) -> API(기존) -> 기본값 순서
   const displayNickname = useMemo(() => {
     const n = user?.nickname?.trim();
@@ -94,19 +99,15 @@ export default function MyScreen() {
   }, [user?.nickname, profile.nickname]);
 
   // ✅ [핵심] 아바타: Store(방금 바꾼 로컬 경로) -> API(서버 URL) 순서
-  // 이렇게 하면 서버 업로드가 늦어도 사용자는 바뀐 사진을 바로 볼 수 있습니다.
   const displayavatarUrl = useMemo(() => {
     if (useravatarUrl) return useravatarUrl;
     return profile.avatarUrl;
   }, [useravatarUrl, profile.avatarUrl]);
 
-  const genderRaw: any = user?.gender ?? (profile as any)?.gender;
-  const birthRaw: string =
-    user?.birthDate ??
-    (profile as any)?.birthDate ??
-    (profile as any)?.birth_date ??
-    (profile as any)?.birthday ??
-    "";
+  // ✅ [변경] MyProfile(UserSummary)에는 gender, birthDate가 없으므로 AuthStore(user)에서만 가져옴
+  // 혹시 백엔드가 여전히 보내준다면 (profile as any)로 접근 가능하지만, 타입 정의에 따르는 것이 안전함
+  const genderRaw: any = user?.gender;
+  const birthRaw: string = user?.birthDate ?? "";
 
   const genderLabel = useMemo(() => {
     if (!genderRaw) return "";
@@ -135,7 +136,7 @@ export default function MyScreen() {
   // ----------------------------------------------------------------------
   const loadAll = useCallback(async () => {
     try {
-      // API 호출은 그대로 유지하되, 렌더링 시 Store 값을 우선합니다.
+      // API 호출
       const [p, s, h, j] = await Promise.all([
         myApi.getProfile(),
         myApi.getSummary(),
@@ -145,12 +146,14 @@ export default function MyScreen() {
 
       setProfile(p);
 
-      const praiseCount = Number((s as any)?.praiseCount ?? 0);
-      const temperature = clamp(Number((s as any)?.temperature ?? 36.5), 32, 42);
+      // ✅ [변경] API 응답(MySummary)을 State에 반영. (UserReputation 구조 준수)
+      const praiseCount = Number(s?.praiseCount ?? 0);
+      const rawTemp = s?.mannerTemperature ?? 36.5; 
+      const mannerTemperature = clamp(Number(rawTemp), 32, 42);
 
       setSummary({
         praiseCount: Number.isFinite(praiseCount) ? praiseCount : 0,
-        temperature: Number.isFinite(temperature) ? temperature : 36.5,
+        mannerTemperature: Number.isFinite(mannerTemperature) ? mannerTemperature : 36.5,
       });
 
       setHosted(h);
@@ -163,7 +166,6 @@ export default function MyScreen() {
   const checkHasNoti = useCallback(async () => {
     try {
       const all = await meetingApi.listMeetings({});
-
       const hostMeetings = all.filter((m: MeetingPost) => {
         const hostId = (m as any)?.host?.id;
         return String(hostId ?? "") === String(currentUserId);
@@ -173,8 +175,7 @@ export default function MyScreen() {
         setHasNoti(false);
         return;
       }
-      // (간략화: 실제 로직은 유지)
-      setHasNoti(false); 
+      setHasNoti(false);
     } catch (e) {
       console.error("checkHasNoti error:", e);
       setHasNoti(false);
@@ -205,7 +206,8 @@ export default function MyScreen() {
   // ----------------------------------------------------------------------
   // UI calc
   // ----------------------------------------------------------------------
-  const temp = clamp(summary.temperature, 32, 42);
+  // ✅ [변경] summary.temperature -> summary.mannerTemperature 사용
+  const temp = clamp(summary.mannerTemperature, 32, 42);
 
   const rating = useMemo(() => {
     const r = ((temp - 32) / 10) * 5;
@@ -326,7 +328,6 @@ export default function MyScreen() {
                 <View style={styles.avatarUrlWrap}>
                   {displayavatarUrl ? (
                     <Image
-                      // ✅ [중요] key를 사용하여 URL/URI 변경 시 강제 리렌더링
                       key={displayavatarUrl}
                       source={{ uri: displayavatarUrl }}
                       style={[
