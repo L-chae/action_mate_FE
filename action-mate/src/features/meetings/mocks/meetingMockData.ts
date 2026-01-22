@@ -1,13 +1,7 @@
 // src/features/meetings/mocks/meetingMockData.ts
 import type { HostSummary, MeetingPost } from "../model/types";
 
-/**
- * ✅ 목업 원본만 담당
- * ✅ durationMinutes(정식 필드)로 통일
- * ✅ avatarUrlUrl -> avatarUrl 필드명 변경 완료
- */
-
-// ✅ Mock Hosts
+// ✅ 1. 호스트 유저 데이터 (수정: avatarUrl은 null 또는 string)
 export const HOST_USERS: Record<string, HostSummary> = {
   user1: {
     id: "u1",
@@ -15,8 +9,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemperature: 37.5,
     praiseCount: 12,
     intro: "운동 끝나고 맥주 한잔 좋아해요 🍺",
-    // ✅ [수정] avatarUrlUrl -> avatarUrl
-    avatarUrl: "https://i.pravatarUrl.cc/150?u=u1",
+    avatarUrl: "https://i.pravatar.cc/150?u=u1",
   },
   user2: {
     id: "u2",
@@ -24,7 +17,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemperature: 42.0,
     praiseCount: 56,
     intro: "전략 게임 전문입니다. 초보 환영!",
-    avatarUrl: "https://i.pravatarUrl.cc/150?u=u2",
+    avatarUrl: "https://i.pravatar.cc/150?u=u2",
   },
   user3: {
     id: "u3",
@@ -32,7 +25,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemperature: 36.5,
     praiseCount: 3,
     intro: "매일 아침 6시 뜁니다.",
-    // avatarUrl 없음
+    avatarUrl: null, // 프사는 없을 수 있음
   },
   user4: {
     id: "u4",
@@ -40,7 +33,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemperature: 38.2,
     praiseCount: 20,
     intro: "맛없는 건 안 먹어요 🙅‍♂️",
-    avatarUrl: "https://i.pravatarUrl.cc/150?u=u4",
+    avatarUrl: "https://i.pravatar.cc/150?u=u4",
   },
   user5: {
     id: "u5",
@@ -48,7 +41,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemperature: 39.1,
     praiseCount: 8,
     intro: "집중모드 환영. 말없이 각자 코딩해요.",
-    avatarUrl: "https://i.pravatarUrl.cc/150?u=u5",
+    avatarUrl: "https://i.pravatar.cc/150?u=u5",
   },
   user6: {
     id: "u6",
@@ -56,6 +49,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemperature: 35.9,
     praiseCount: 1,
     intro: "퇴근 후 가볍게 이야기 나눠요.",
+    avatarUrl: null,
   },
   me: {
     id: "me",
@@ -63,11 +57,11 @@ export const HOST_USERS: Record<string, HostSummary> = {
     mannerTemperature: 36.8,
     praiseCount: 0,
     intro: "내가 만든 모임이에요 🙂",
-    avatarUrl: "https://i.pravatarUrl.cc/150?u=me",
+    avatarUrl: "https://i.pravatar.cc/150?u=me",
   },
 };
 
-// ✅ 시간 헬퍼 (실서비스처럼 ISO 생성)
+// --- Helpers ---
 const now = Date.now();
 const h = (hoursFromNow: number) => new Date(now + hoursFromNow * 3600_000).toISOString();
 const d = (daysFromNow: number, hour = 12, minute = 0) => {
@@ -77,256 +71,262 @@ const d = (daysFromNow: number, hour = 12, minute = 0) => {
   return base.toISOString();
 };
 
-// ✅ durationMinutes 헬퍼 (타입 통일용)
-const mins = (m: number) => m;
-
-// ✅ 목업 모임 원본
+// ✅ 2. 모임 데이터 (수정: location, capacity 객체 구조화)
 export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "101",
     category: "SPORTS",
     title: "🏸 배드민턴 2게임만 (초보 환영)",
+    content: "라켓 여분 있어요! 몸만 오세요.",
     meetingTime: h(2),
+    
+    // ✅ 구조 변경됨
+    location: {
+      name: "잠원지구 3주차장",
+      lat: 37.5195,
+      lng: 127.0093,
+    },
     distanceText: "0.6km",
-    locationText: "잠원지구 3주차장",
-    locationLat: 37.5195,
-    locationLng: 127.0093,
-    capacityJoined: 2,
-    capacityTotal: 4,
+
+    // ✅ 구조 변경됨
+    capacity: {
+      current: 2, // capacityJoined -> current
+      total: 4,   // capacityTotal -> total
+    },
+
     joinMode: "INSTANT",
     status: "OPEN",
-    content: "라켓 여분 있어요! 몸만 오세요.",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(120),
+    durationMinutes: 120,
     host: HOST_USERS.user1,
   },
   {
     id: "102",
     category: "MEAL",
     title: "🍔 강남 버거 같이 먹을 분",
+    content: "가볍게 점심!",
     meetingTime: h(1),
+    
+    location: {
+      name: "강남역 근처 버거집",
+      lat: 37.4981,
+      lng: 127.0277,
+    },
     distanceText: "1.1km",
-    locationText: "강남역 근처 버거집",
-    locationLat: 37.4981,
-    locationLng: 127.0277,
-    capacityJoined: 1,
-    capacityTotal: 4,
+
+    capacity: {
+      current: 1,
+      total: 4,
+    },
+
     joinMode: "INSTANT",
     status: "OPEN",
-    content: "가볍게 점심!",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(60),
+    durationMinutes: 60,
     host: HOST_USERS.user4,
   },
   {
     id: "103",
     category: "STUDY",
     title: "📚 모각코 (조용히 각자)",
-    meetingTime: d(1, 14, 0),
-    distanceText: "0.9km",
-    locationText: "스타벅스 강남R점",
-    locationLat: 37.499,
-    locationLng: 127.03,
-    capacityJoined: 2,
-    capacityTotal: 6,
-    joinMode: "APPROVAL",
-    conditions: "노트북 필수 / 조용히 작업",
-    status: "OPEN",
     content: "룰: 서로 말 걸기 X, 필요 시 채팅으로.",
+    conditions: "노트북 필수 / 조용히 작업",
+    meetingTime: d(1, 14, 0),
+    
+    location: {
+      name: "스타벅스 강남R점",
+      lat: 37.499,
+      lng: 127.03,
+    },
+    distanceText: "0.9km",
+
+    capacity: {
+      current: 2,
+      total: 6,
+    },
+
+    joinMode: "APPROVAL",
+    status: "OPEN",
     myState: { membershipStatus: "PENDING", canJoin: false, reason: "승인 대기중" },
-    durationMinutes: mins(180),
+    durationMinutes: 180,
     host: HOST_USERS.user5,
   },
-
   {
     id: "104",
     category: "GAMES",
     title: "🎲 보드게임 가볍게 한 판",
-    meetingTime: d(1, 15, 0),
-    distanceText: "2.0km",
-    locationText: "성수 보드게임 카페",
-    locationLat: 37.5446,
-    locationLng: 127.0559,
-    capacityJoined: 1,
-    capacityTotal: 5,
-    joinMode: "APPROVAL",
-    conditions: "기본 룰 안내 가능 / 초보 환영",
-    status: "OPEN",
     content: "전략/파티게임 섞어서 해요!",
+    conditions: "기본 룰 안내 가능 / 초보 환영",
+    meetingTime: d(1, 15, 0),
+    
+    location: {
+      name: "성수 보드게임 카페",
+      lat: 37.5446,
+      lng: 127.0559,
+    },
+    distanceText: "2.0km",
+
+    capacity: {
+      current: 1,
+      total: 5,
+    },
+
+    joinMode: "APPROVAL",
+    status: "OPEN",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(180),
+    durationMinutes: 180,
     host: HOST_USERS.user2,
   },
   {
     id: "105",
     category: "MEAL",
     title: "🍜 홍대 라멘 번개",
+    content: "맛집이라 웨이팅 있을 수 있어요.",
     meetingTime: h(3),
+    
+    location: {
+      name: "홍대 라멘집",
+      lat: 37.5558,
+      lng: 126.9225,
+    },
     distanceText: "1.2km",
-    locationText: "홍대 라멘집",
-    locationLat: 37.5558,
-    locationLng: 126.9225,
-    capacityJoined: 4,
-    capacityTotal: 4,
+
+    capacity: {
+      current: 4,
+      total: 4,
+    },
+
     joinMode: "INSTANT",
     status: "FULL",
-    content: "맛집이라 웨이팅 있을 수 있어요.",
     myState: { membershipStatus: "NONE", canJoin: false, reason: "정원마감" },
-    durationMinutes: mins(90),
+    durationMinutes: 90,
     host: HOST_USERS.user4,
   },
-
   {
     id: "106",
     category: "SPORTS",
     title: "🏃 한강 러닝 5km (600~630)",
+    content: "가볍게 뛰고 스트레칭까지!",
     meetingTime: h(4),
+    
+    location: {
+      name: "반포 나들목",
+      lat: 37.509,
+      lng: 126.995,
+    },
     distanceText: "2.4km",
-    locationText: "반포 나들목",
-    locationLat: 37.509,
-    locationLng: 126.995,
-    capacityJoined: 3,
-    capacityTotal: 6,
+
+    capacity: {
+      current: 3,
+      total: 6,
+    },
+
     joinMode: "INSTANT",
     status: "OPEN",
-    content: "가볍게 뛰고 스트레칭까지!",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(60),
+    durationMinutes: 60,
     host: HOST_USERS.user3,
   },
-
   {
     id: "107",
     category: "STUDY",
     title: "🧑‍💻 판교 카페 사이드프로젝트",
-    meetingTime: d(2, 13, 0),
-    distanceText: "0.8km",
-    locationText: "판교역 근처 카페",
-    locationLat: 37.3947,
-    locationLng: 127.1112,
-    capacityJoined: 2,
-    capacityTotal: 5,
-    joinMode: "APPROVAL",
-    conditions: "간단한 자기소개 필수",
-    status: "OPEN",
     content: "각자 할 일 하고 30분마다 공유해요.",
+    conditions: "간단한 자기소개 필수",
+    meetingTime: d(2, 13, 0),
+    
+    location: {
+      name: "판교역 근처 카페",
+      lat: 37.3947,
+      lng: 127.1112,
+    },
+    distanceText: "0.8km",
+
+    capacity: {
+      current: 2,
+      total: 5,
+    },
+
+    joinMode: "APPROVAL",
+    status: "OPEN",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(240),
+    durationMinutes: 240,
     host: HOST_USERS.user5,
   },
-
   {
     id: "108",
     category: "GAMES",
     title: "🎮 광교에서 마리오카트",
+    content: "2명 더 오면 토너먼트!",
     meetingTime: d(1, 19, 30),
+    
+    location: {
+      name: "광교 카페",
+      lat: 37.2919,
+      lng: 127.0455,
+    },
     distanceText: "1.5km",
-    locationText: "광교 카페",
-    locationLat: 37.2919,
-    locationLng: 127.0455,
-    capacityJoined: 3,
-    capacityTotal: 4,
+
+    capacity: {
+      current: 3,
+      total: 4,
+    },
+
     joinMode: "INSTANT",
     status: "OPEN",
-    content: "2명 더 오면 토너먼트!",
     myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(120),
+    durationMinutes: 120,
     host: HOST_USERS.user2,
   },
-
-  {
-    id: "109",
-    category: "SPORTS",
-    title: "🏃‍♂️ 동탄 센트럴파크 야간 러닝",
-    meetingTime: h(2.5),
-    distanceText: "100m",
-    locationText: "동탄 센트럴파크",
-    locationLat: 37.2005,
-    locationLng: 127.0685,
-    capacityJoined: 4,
-    capacityTotal: 10,
-    joinMode: "INSTANT",
-    status: "OPEN",
-    content: "페이스 630~700, 초보 환영!",
-    myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(72),
-    host: HOST_USERS.user3,
-  },
-  {
-    id: "110",
-    category: "MEAL",
-    title: "🍝 동탄 타임테라스 파스타",
-    meetingTime: d(1, 12, 30),
-    distanceText: "500m",
-    locationText: "동탄 타임테라스",
-    locationLat: 37.2045,
-    locationLng: 127.0665,
-    capacityJoined: 2,
-    capacityTotal: 4,
-    joinMode: "APPROVAL",
-    conditions: "매너 좋게! 노쇼 금지",
-    status: "OPEN",
-    content: "메뉴 미리 보고 오면 좋아요.",
-    myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(90),
-    host: HOST_USERS.user6,
-  },
-
-  {
-    id: "111",
-    category: "STUDY",
-    title: "📖 송도 영어회화 스터디",
-    meetingTime: d(3, 10, 0),
-    distanceText: "1.0km",
-    locationText: "송도 센트럴파크 근처",
-    locationLat: 37.3936,
-    locationLng: 126.643,
-    capacityJoined: 5,
-    capacityTotal: 8,
-    joinMode: "APPROVAL",
-    conditions: "간단한 영어 자기소개 가능",
-    status: "OPEN",
-    content: "주제: 여행/일상. 난이도: 초중급",
-    myState: { membershipStatus: "NONE", canJoin: true },
-    durationMinutes: mins(120),
-    host: HOST_USERS.user1,
-  },
-
   {
     id: "201",
     category: "MEAL",
     title: "✍️ 강남역 점심 김치찌개 같이 먹어요",
+    content: "혼밥 싫어서 만들었어요. 40분 정도만 가볍게!",
     meetingTime: h(0.8),
+    
+    location: {
+      name: "강남역 11번 출구 근처",
+      lat: 37.4986,
+      lng: 127.0279,
+    },
     distanceText: "0.3km",
-    locationText: "강남역 11번 출구 근처",
-    locationLat: 37.4986,
-    locationLng: 127.0279,
-    capacityJoined: 1,
-    capacityTotal: 4,
+
+    capacity: {
+      current: 1,
+      total: 4,
+    },
+
     joinMode: "INSTANT",
     status: "OPEN",
-    content: "혼밥 싫어서 만들었어요. 40분 정도만 가볍게!",
     myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" },
-    durationMinutes: mins(40),
+    durationMinutes: 40,
     host: HOST_USERS.me,
   },
   {
     id: "202",
     category: "STUDY",
     title: "✍️ 저녁 모각코 2시간 (초집중)",
-    meetingTime: d(1, 20, 0),
-    distanceText: "0.7km",
-    locationText: "서초 카페 (조용한 곳)",
-    locationLat: 37.4929,
-    locationLng: 127.0156,
-    capacityJoined: 1,
-    capacityTotal: 6,
-    joinMode: "APPROVAL",
-    conditions: "노트북 필수 / 통화 금지 / 대화 최소",
-    status: "OPEN",
     content: "각자 할 일 하고 마지막 10분만 공유해요.",
+    conditions: "노트북 필수 / 통화 금지 / 대화 최소",
+    meetingTime: d(1, 20, 0),
+    
+    location: {
+      name: "서초 카페 (조용한 곳)",
+      lat: 37.4929,
+      lng: 127.0156,
+    },
+    distanceText: "0.7km",
+
+    capacity: {
+      current: 1,
+      total: 6,
+    },
+
+    joinMode: "APPROVAL",
+    status: "OPEN",
     myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" },
-    durationMinutes: mins(120),
+    durationMinutes: 120,
     host: HOST_USERS.me,
   },
 ];

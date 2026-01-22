@@ -37,6 +37,6 @@ export interface MeetingApi {
 
 // ✅ 환경변수로 Mock/Remote 자동 선택
 // (__DEV__일 때만 Mock 사용 가능하도록 안전장치 추가)
-const USE_MOCK = __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === "true";
-
+//const USE_MOCK = __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === "true";
+const USE_MOCK = true;  //22일 기준 백엔드 불안정해서 임시로 넣어둠
 export const meetingApi: MeetingApi = USE_MOCK ? meetingApiLocal : meetingApiRemote;

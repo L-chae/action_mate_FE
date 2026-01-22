@@ -42,6 +42,12 @@ type FieldRowProps = {
   onBlur?: () => void;
 };
 
+type ReadOnlyRowProps = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+};
+
 function normalizeNickname(input: string) {
   return input.replace(/\s+/g, " ").trim();
 }
@@ -51,7 +57,8 @@ function validateNickname(nickname: string) {
   if (!v) return { ok: false as const, message: "닉네임을 입력해 주세요." };
   if (v.length < 2) return { ok: false as const, message: "닉네임은 2자 이상이어야 합니다." };
   if (v.length > 20) return { ok: false as const, message: "닉네임은 20자 이하로 입력해 주세요." };
-  if (!/^[\p{L}\p{N}_\-\s]+$/u.test(v)) return { ok: false as const, message: "닉네임에 사용할 수 없는 문자가 포함되어 있어요." };
+  if (!/^[\p{L}\p{N}_\-\s]+$/u.test(v))
+    return { ok: false as const, message: "닉네임에 사용할 수 없는 문자가 포함되어 있어요." };
   return { ok: true as const, value: v };
 }
 
@@ -99,13 +106,22 @@ function FieldRow({
   return (
     <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
       <View style={styles.cardHeader}>
-        <View style={[styles.iconWrap, { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.16 : 0.1) }]}>
+        <View
+          style={[
+            styles.iconWrap,
+            { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.16 : 0.1) },
+          ]}
+        >
           <Ionicons name={icon} size={18} color={t.colors.icon.default} />
         </View>
-        <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]} numberOfLines={1}>
+        <Text
+          style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]}
+          numberOfLines={1}
+        >
           {label}
         </Text>
       </View>
+
       <TextInput
         value={value}
         placeholder={placeholder}
@@ -128,46 +144,157 @@ function FieldRow({
           },
         ]}
       />
+
       <View style={styles.metaRow}>
         <View style={{ flex: 1, minWidth: 0 }}>
           {errorText ? (
-            <Text style={[t.typography.bodySmall, { color: t.colors.error }]} numberOfLines={2}>{errorText}</Text>
+            <Text style={[t.typography.bodySmall, { color: t.colors.error }]} numberOfLines={2}>
+              {errorText}
+            </Text>
           ) : helperText ? (
-            <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={2}>{helperText}</Text>
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={2}>
+              {helperText}
+            </Text>
           ) : null}
         </View>
-        <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{value.length}/{maxLength}</Text>
+        <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+          {value.length}/{maxLength}
+        </Text>
       </View>
     </View>
   );
 }
 
-// SegmentedGender 컴포넌트
-function SegmentedGender({ value, onChange, disabled }: { value: Gender | "none"; onChange: (v: Gender | "none") => void; disabled?: boolean; }) {
+// ✅ 읽기 전용 Row (아이디 표시용) - "비활성화" 느낌 + 포커스/수정 불가
+function ReadOnlyRow({ icon, label, value }: ReadOnlyRowProps) {
   const t = useAppTheme();
-  const btnBase = { flex: 1, height: 48, borderRadius: 12, borderWidth: 1, alignItems: "center" as const, justifyContent: "center" as const };
-  const mkStyle = (active: boolean) => ({ ...btnBase, borderColor: active ? t.colors.primary : t.colors.border, backgroundColor: active ? withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12) : t.colors.background });
-  const mkText = (active: boolean) => ({ color: active ? t.colors.primary : t.colors.textSub, fontWeight: active ? ("800" as const) : ("500" as const) });
+  const disabledBg = withAlpha(t.colors.textSub, t.mode === "dark" ? 0.14 : 0.08);
 
   return (
     <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
       <View style={styles.cardHeader}>
-        <View style={[styles.iconWrap, { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.16 : 0.1) }]}>
+        <View
+          style={[
+            styles.iconWrap,
+            { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.16 : 0.1) },
+          ]}
+        >
+          <Ionicons name={icon} size={18} color={t.colors.icon.default} />
+        </View>
+        <Text
+          style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+      </View>
+
+      <TextInput
+        value={value || "-"}
+        editable={false}
+        focusable={false} // Android 포커스 방지
+        selectTextOnFocus={false}
+        caretHidden
+        style={[
+          styles.input,
+          t.typography.bodyLarge,
+          {
+            color: t.colors.textSub,
+            borderColor: t.colors.border,
+            backgroundColor: disabledBg,
+            opacity: 0.85,
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+// SegmentedGender 컴포넌트
+function SegmentedGender({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: Gender | "none";
+  onChange: (v: Gender | "none") => void;
+  disabled?: boolean;
+}) {
+  const t = useAppTheme();
+  const btnBase = {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  };
+  const mkStyle = (active: boolean) => ({
+    ...btnBase,
+    borderColor: active ? t.colors.primary : t.colors.border,
+    backgroundColor: active
+      ? withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12)
+      : t.colors.background,
+  });
+  const mkText = (active: boolean) => ({
+    color: active ? t.colors.primary : t.colors.textSub,
+    fontWeight: active ? ("800" as const) : ("500" as const),
+  });
+
+  return (
+    <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+      <View style={styles.cardHeader}>
+        <View
+          style={[
+            styles.iconWrap,
+            { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.16 : 0.1) },
+          ]}
+        >
           <Ionicons name="male-female-outline" size={18} color={t.colors.icon.default} />
         </View>
-        <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]} numberOfLines={1}>성별</Text>
+        <Text
+          style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]}
+          numberOfLines={1}
+        >
+          성별
+        </Text>
       </View>
+
       <View style={{ flexDirection: "row", gap: 10 }}>
-        <Pressable disabled={disabled} onPress={() => onChange("male")} style={({ pressed }) => [mkStyle(value === "male"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}>
+        <Pressable
+          disabled={disabled}
+          onPress={() => onChange("male")}
+          style={({ pressed }) => [
+            mkStyle(value === "male"),
+            { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 },
+          ]}
+        >
           <Text style={[t.typography.bodyMedium, mkText(value === "male")]}>남성</Text>
         </Pressable>
-        <Pressable disabled={disabled} onPress={() => onChange("female")} style={({ pressed }) => [mkStyle(value === "female"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}>
+
+        <Pressable
+          disabled={disabled}
+          onPress={() => onChange("female")}
+          style={({ pressed }) => [
+            mkStyle(value === "female"),
+            { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 },
+          ]}
+        >
           <Text style={[t.typography.bodyMedium, mkText(value === "female")]}>여성</Text>
         </Pressable>
-        <Pressable disabled={disabled} onPress={() => onChange("none")} style={({ pressed }) => [mkStyle(value === "none"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}>
+
+        <Pressable
+          disabled={disabled}
+          onPress={() => onChange("none")}
+          style={({ pressed }) => [
+            mkStyle(value === "none"),
+            { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 },
+          ]}
+        >
           <Text style={[t.typography.bodyMedium, mkText(value === "none")]}>선택 안 함</Text>
         </Pressable>
       </View>
+
       <View style={styles.metaRow}>
         <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>현재: {genderLabel(value)}</Text>
       </View>
@@ -181,17 +308,21 @@ export default function ProfileSettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // ✅ Store에서 타입 안전하게 가져오기 (as any 제거)
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const updateProfile = useAuthStore((s) => s.updateProfile);
 
-  // 초기값 설정
+  // ✅ 아이디(읽기 전용 표시용)
+  const loginId = useMemo(() => {
+    const u: any = user ?? {};
+    return String(u.email ?? u.loginId ?? u.username ?? u.id ?? "").trim();
+  }, [user]);
+
   const initial = useMemo(() => {
     return {
       nickname: user?.nickname ?? "",
       birthDate: user?.birthDate ?? "",
-      gender: (user?.gender === "male" || user?.gender === "female") ? user.gender : "none",
+      gender: user?.gender === "male" || user?.gender === "female" ? user.gender : "none",
       avatarUrl: user?.avatarUrl ?? null,
     } as const;
   }, [user]);
@@ -199,12 +330,14 @@ export default function ProfileSettingsScreen() {
   const [nickname, setNickname] = useState<string>(initial.nickname);
   const [birthDate, setBirthDate] = useState<string>(initial.birthDate);
   const [gender, setGender] = useState<Gender | "none">(initial.gender);
-  const [avatarUrl, setavatarUrl] = useState<string | null>(initial.avatarUrl);
-  
-  const [saving, setSaving] = useState(false);
-  const [touched, setTouched] = useState<Record<FieldKey, boolean>>({ nickname: false, birthDate: false });
+  const [avatarUrl, setAvatar] = useState<string | null>(initial.avatarUrl);
 
-  // 유효성 검사 로직
+  const [saving, setSaving] = useState(false);
+  const [touched, setTouched] = useState<Record<FieldKey, boolean>>({
+    nickname: false,
+    birthDate: false,
+  });
+
   const normalizedNick = useMemo(() => normalizeNickname(nickname), [nickname]);
   const normalizedBirth = useMemo(() => normalizeBirthForSave(birthDate), [birthDate]);
 
@@ -215,22 +348,24 @@ export default function ProfileSettingsScreen() {
     return isValidBirth(v);
   }, [birthDate]);
 
-  // 변경 여부 확인
   const isDirty = useMemo(() => {
     const aNick = normalizeNickname(initial.nickname);
     const aBirth = normalizeBirthForSave(initial.birthDate);
-    const avatarUrlChanged = initial.avatarUrl !== avatarUrl;
-    
-    return aNick !== normalizedNick || aBirth !== normalizedBirth || initial.gender !== gender || avatarUrlChanged;
+    const avatarChanged = initial.avatarUrl !== avatarUrl;
+
+    return (
+      aNick !== normalizedNick ||
+      aBirth !== normalizedBirth ||
+      initial.gender !== gender ||
+      avatarChanged
+    );
   }, [initial, normalizedNick, normalizedBirth, gender, avatarUrl]);
 
   const canSave = useMemo(() => {
     return !saving && isDirty && nickValidation.ok && birthOk;
   }, [saving, isDirty, nickValidation.ok, birthOk]);
 
-  // 이미지 선택 핸들러
-// 이미지 선택 핸들러
-  const onPickavatarUrl = useCallback(async () => {
+  const onPickAvatar = useCallback(async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (permissionResult.granted === false) {
       Alert.alert("권한 필요", "사진을 선택하려면 갤러리 접근 권한이 필요합니다.");
@@ -238,7 +373,6 @@ export default function ProfileSettingsScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      // ✅ 다시 원래대로 MediaTypeOptions 사용 (현재 버전 호환용)
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
@@ -246,13 +380,12 @@ export default function ProfileSettingsScreen() {
     });
 
     if (!result.canceled) {
-      setavatarUrl(result.assets[0].uri);
+      setAvatar(result.assets[0].uri);
     }
   }, []);
 
-  // ✅ 저장 핸들러 (타입 안전성 확보)
   const onSave = useCallback(async () => {
-    if (saving || !user) return; // user가 없으면 진행 불가
+    if (saving || !user) return;
 
     setTouched({ nickname: true, birthDate: true });
 
@@ -272,10 +405,8 @@ export default function ProfileSettingsScreen() {
       return;
     }
 
-    // ✅ [핵심] "none"을 undefined로 변환하여 User 타입과 일치시킴
     const safeGender: Gender | undefined = gender === "none" ? undefined : gender;
 
-    // ✅ [핵심] Store에 보낼 Partial<User> 객체 생성
     const patchData: Partial<User> = {
       nickname: v.value,
       birthDate: bd,
@@ -283,7 +414,6 @@ export default function ProfileSettingsScreen() {
       avatarUrl: avatarUrl,
     };
 
-    // ✅ [핵심] setUser용 전체 객체 (즉시 UI 반영을 위해 필요하다면)
     const optimisticUser: User = {
       ...user,
       ...patchData,
@@ -291,11 +421,8 @@ export default function ProfileSettingsScreen() {
 
     try {
       setSaving(true);
-      
-      // 1. UI 즉시 반영
-      await setUser(optimisticUser);
 
-      // 2. API 호출 (실제 저장)
+      await setUser(optimisticUser);
       await updateProfile(patchData);
 
       Alert.alert("완료", "프로필이 저장되었습니다.", [{ text: "확인", onPress: () => router.back() }]);
@@ -307,7 +434,6 @@ export default function ProfileSettingsScreen() {
     }
   }, [saving, nickname, birthDate, gender, avatarUrl, isDirty, user, setUser, updateProfile, router]);
 
-  // 뒤로가기 핸들러
   const onPressBack = useCallback(() => {
     if (!isDirty) {
       router.back();
@@ -319,7 +445,6 @@ export default function ProfileSettingsScreen() {
     ]);
   }, [isDirty, router]);
 
-  // 에러 메시지
   const nickError = useMemo(() => {
     if (!touched.nickname) return undefined;
     return nickValidation.ok ? undefined : nickValidation.message;
@@ -345,16 +470,19 @@ export default function ProfileSettingsScreen() {
           }}
         >
           {/* 아바타 카드 */}
-          <View style={[styles.avatarUrlCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
-            <View style={styles.avatarUrlLeft}>
+          <View style={[styles.avatarCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+            <View style={styles.avatarLeft}>
               <View
                 style={[
-                  styles.avatarUrlCircle,
-                  { backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12), overflow: 'hidden' },
+                  styles.avatarCircle,
+                  {
+                    backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12),
+                    overflow: "hidden",
+                  },
                 ]}
               >
                 {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                  <Image source={{ uri: avatarUrl }} style={{ width: "100%", height: "100%" }} />
                 ) : (
                   <Ionicons name="person" size={26} color={t.colors.icon.default} />
                 )}
@@ -371,7 +499,7 @@ export default function ProfileSettingsScreen() {
             </View>
 
             <Pressable
-              onPress={onPickavatarUrl}
+              onPress={onPickAvatar}
               style={({ pressed }) => [
                 styles.ghostBtn,
                 {
@@ -385,9 +513,15 @@ export default function ProfileSettingsScreen() {
             </Pressable>
           </View>
 
+          {/* ✅ 기본 정보 타이틀 */}
           <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>
             기본 정보
           </Text>
+
+          {/* ✅ 아이디: 기본 정보 아래로 이동 */}
+          <ReadOnlyRow icon="key-outline" label="아이디" value={loginId} />
+
+          <View style={{ height: 12 }} />
 
           <FieldRow
             icon="at-outline"
@@ -448,8 +582,17 @@ const styles = StyleSheet.create({
   iconWrap: { width: 34, height: 34, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
   metaRow: { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  avatarUrlCard: { borderWidth: 1, borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  avatarUrlLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 },
-  avatarUrlCircle: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+
+  avatarCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  avatarLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 },
+  avatarCircle: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   ghostBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
 });

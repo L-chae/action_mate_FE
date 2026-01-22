@@ -97,8 +97,8 @@ export default function MyScreen() {
   // 이렇게 하면 서버 업로드가 늦어도 사용자는 바뀐 사진을 바로 볼 수 있습니다.
   const displayavatarUrl = useMemo(() => {
     if (useravatarUrl) return useravatarUrl;
-    return profile.avatarUrlUrl;
-  }, [useravatarUrl, profile.avatarUrlUrl]);
+    return profile.avatarUrl;
+  }, [useravatarUrl, profile.avatarUrl]);
 
   const genderRaw: any = user?.gender ?? (profile as any)?.gender;
   const birthRaw: string =
@@ -162,7 +162,7 @@ export default function MyScreen() {
 
   const checkHasNoti = useCallback(async () => {
     try {
-      const all = await meetingApi.listMeetings(undefined);
+      const all = await meetingApi.listMeetings({});
 
       const hostMeetings = all.filter((m: MeetingPost) => {
         const hostId = (m as any)?.host?.id;

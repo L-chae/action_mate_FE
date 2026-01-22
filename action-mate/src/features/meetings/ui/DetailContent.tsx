@@ -1,4 +1,3 @@
-// src/features/meetings/ui/DetailContent.tsx
 import React, { useMemo } from "react";
 import type { ReactNode } from "react";
 import {
@@ -52,20 +51,13 @@ type Theme = ReturnType<typeof useAppTheme>;
 
 function toneColor(t: Theme, tone?: string) {
   switch (tone) {
-    case "point":
-      return t.colors.point;
-    case "info":
-      return t.colors.info;
-    case "success":
-      return t.colors.success;
-    case "warning":
-      return t.colors.warning;
-    case "error":
-      return t.colors.error;
-    case "primary":
-      return t.colors.primary;
-    default:
-      return t.colors.textSub;
+    case "point": return t.colors.point;
+    case "info": return t.colors.info;
+    case "success": return t.colors.success;
+    case "warning": return t.colors.warning;
+    case "error": return t.colors.error;
+    case "primary": return t.colors.primary;
+    default: return t.colors.textSub;
   }
 }
 
@@ -78,42 +70,23 @@ function getDurationLabel(mins?: number | null) {
   return `${m}분`;
 }
 
-// ✅ [수정] 댓글에서 아바타 URL 추출 로직 개선 (User 모델의 avatarUrl 우선)
-function pickavatarUrlUrlFromComment(item: Comment, post: MeetingPost): string | undefined {
+// ✅ 댓글에서 아바타 URL 추출 로직 개선
+function pickavatarUrlFromComment(item: Comment, post: MeetingPost): string | undefined {
   const anyItem = item as any;
-
-  // 1. Comment 객체 안에 author 객체가 있고 그 안에 avatarUrl가 있는 경우 (Best)
   if (anyItem.author?.avatarUrl) return anyItem.author.avatarUrl;
-
-  // 2. Comment 객체에 평탄화(Flatten)된 필드로 있는 경우
   if (anyItem.authoravatarUrl) return anyItem.authoravatarUrl;
   if (anyItem.avatarUrl) return anyItem.avatarUrl;
 
-  // 3. (Fallback) 호스트가 쓴 댓글이면 게시글의 호스트 정보를 사용
   if (item.authorId && post?.host?.id && String(item.authorId) === String(post.host.id)) {
-    // post.host는 User 타입이므로 avatarUrl 필드 사용
     return post.host.avatarUrl || undefined; 
   }
-
   return undefined;
 }
 
 // -------------------------------------------------------------------------
 // Sub Components
 // -------------------------------------------------------------------------
-function InfoRow({
-  icon,
-  text,
-  subText,
-  t,
-  iconColor,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  text: string;
-  subText: string;
-  t: Theme;
-  iconColor: string;
-}) {
+function InfoRow({ icon, text, subText, t, iconColor }: { icon: keyof typeof Ionicons.glyphMap; text: string; subText: string; t: Theme; iconColor: string; }) {
   return (
     <View style={styles.infoRow}>
       <Ionicons name={icon} size={20} color={iconColor} />
@@ -125,17 +98,7 @@ function InfoRow({
   );
 }
 
-function MetaLine({
-  t,
-  iconName,
-  label,
-  tone,
-}: {
-  t: Theme;
-  iconName?: keyof typeof Ionicons.glyphMap;
-  label: string;
-  tone?: string;
-}) {
+function MetaLine({ t, iconName, label, tone }: { t: Theme; iconName?: keyof typeof Ionicons.glyphMap; label: string; tone?: string; }) {
   return (
     <View style={styles.metaLine}>
       {iconName ? (
@@ -154,33 +117,23 @@ type DetailContentProps = {
   post: MeetingPost;
   comments: Comment[];
   currentUserId: string;
-
   headerComponent?: ReactNode;
-
   scrollViewRef: React.RefObject<ScrollView | null>;
   bottomPadding: number;
-
   onPressHostProfile: () => void;
-
-  // 댓글 작성자(프로필) 클릭
-  onPressCommentAuthor?: (payload: { id: string; nickname: string; avatarUrlUrl?: string }) => void;
-
+  onPressCommentAuthor?: (payload: { id: string; nickname: string; avatarUrl?: string }) => void;
   onReply: (c: Comment) => void;
   onEditComment: (c: Comment) => void;
   onDeleteComment: (id: string) => void;
-
   onContentHeightChange: (h: number) => void;
   onScrollViewHeightChange: (h: number) => void;
   onScroll: (e: any) => void;
-
   commentText: string;
   setCommentText: (v: string) => void;
   inputRef: React.RefObject<TextInput | null>;
-
   replyTarget: Comment | null;
   editingComment: Comment | null;
   onCancelInputMode: () => void;
-
   onSubmitComment: () => void;
   onFocusComposer: () => void;
 };
@@ -212,7 +165,6 @@ export function DetailContent({
 }: DetailContentProps) {
   const isDark = t.mode === "dark";
 
-  // ✅ 공용 색상 토큰
   const pageBg = t.colors.background;
   const surface = t.colors.surface;
   const border = t.colors.border;
@@ -223,37 +175,37 @@ export function DetailContent({
   const mutedIcon = t.colors.icon?.muted ?? t.colors.textSub;
   const iconMain = t.colors.icon?.default ?? t.colors.textMain;
 
-  // ✅ Colors
   const hostPillBg = withAlpha(t.colors.primary, isDark ? 0.24 : 0.14);
   const hostPillFg = t.colors.primary;
   const bubbleBg = withAlpha(t.colors.primary, isDark ? 0.18 : 0.12);
   const inputBg = isDark ? subtleBg2 : subtleBg;
 
-  // ✅ 승인 조건 박스 색상
   const conditionBg = withAlpha(t.colors.point ?? "#FF5722", 0.08);
   const conditionText = t.colors.point ?? "#FF5722";
 
-  // ✅ 상태 토큰
   const { meta, right } = useMemo(() => getMeetingStatusTokens(post), [post]);
   const metaToken = meta[0];
   const rightToken = right[0];
 
-  // ✅ 시간 라벨
   const timeLabel = useMemo(() => {
+    // ✅ ISO String 변환
     const iso = post.meetingTime || (post as any).meetingTimeIso;
     return iso ? meetingTimeTextFromIso(iso) : "";
   }, [post.meetingTime]);
 
-  // ✅ 지도 좌표
+  // ✅ 지도 좌표 (객체 접근 수정)
   const map = useMemo(() => {
-    const lat = Number((post as any).locationLat);
-    const lng = Number((post as any).locationLng);
+    const lat = Number(post.location?.lat);
+    const lng = Number(post.location?.lng);
     const ok = Number.isFinite(lat) && Number.isFinite(lng);
     return { lat, lng, ok };
   }, [post]);
 
-  // ✅ [수정] 호스트 아바타 URL 추출 (User 모델의 avatarUrl 사용)
-  const hostavatarUrlUrl = post.host?.avatarUrl || null;
+  const hostavatarUrl = post.host?.avatarUrl || null;
+
+  // ✅ 인원 정보 안전 접근
+  const capacityCurrent = post.capacity?.current ?? 0;
+  const capacityTotal = post.capacity?.total ?? 0;
 
   return (
     <ScrollView
@@ -307,9 +259,8 @@ export function DetailContent({
           ]}
         >
           <View style={[styles.hostavatarUrl, { backgroundColor: subtleBg }]}>
-            {/* ✅ [수정] hostavatarUrlUrl 사용 */}
-            {hostavatarUrlUrl ? (
-              <Image source={{ uri: hostavatarUrlUrl }} style={styles.avatarUrlImg} />
+            {hostavatarUrl ? (
+              <Image source={{ uri: hostavatarUrl }} style={styles.avatarUrlImg} />
             ) : (
               <Ionicons name="person" size={20} color={mutedIcon} />
             )}
@@ -357,7 +308,8 @@ export function DetailContent({
 
           <InfoRow
             icon="location-outline"
-            text={post.locationText || "위치 정보 없음"}
+            // ✅ location 객체 접근 수정
+            text={post.location?.name || "위치 정보 없음"}
             subText={post.distanceText || ""}
             t={t}
             iconColor={iconMain}
@@ -366,8 +318,9 @@ export function DetailContent({
 
           <InfoRow
             icon="people-outline"
-            text={`${post.capacityJoined} / ${post.capacityTotal}명 참여 중`}
-            subText={post.capacityTotal - post.capacityJoined <= 1 ? "마감 임박!" : "자리 있음"}
+            // ✅ capacity 객체 접근 수정
+            text={`${capacityCurrent} / ${capacityTotal}명 참여 중`}
+            subText={capacityTotal - capacityCurrent <= 1 ? "마감 임박!" : "자리 있음"}
             t={t}
             iconColor={iconMain}
           />
@@ -420,17 +373,14 @@ export function DetailContent({
               renderItem={({ item }) => {
                 const reply = parseReplyPrefix(item.content);
                 const isReply = !!reply;
-
-                // ✅ [수정] 개선된 헬퍼 함수 사용
-                const avatarUrlUrl = pickavatarUrlUrlFromComment(item, post);
+                const avatarUrl = pickavatarUrlFromComment(item, post);
 
                 const onPressAuthor = () => {
                   if (!onPressCommentAuthor) return;
                   const id = String((item as any)?.authorId ?? "");
                   const nickname = String((item as any)?.authorNickname ?? "");
                   if (!id || !nickname) return;
-                  // avatarUrlUrl 전달
-                  onPressCommentAuthor({ id, nickname, avatarUrlUrl });
+                  onPressCommentAuthor({ id, nickname, avatarUrl });
                 };
 
                 return (
@@ -443,7 +393,6 @@ export function DetailContent({
                     ]}
                   >
                     <View style={styles.commentRow}>
-                      {/* ✅ 작성자 영역: 누르면 프로필 오픈 */}
                       <Pressable
                         onPress={onPressCommentAuthor ? onPressAuthor : undefined}
                         disabled={!onPressCommentAuthor}
@@ -454,8 +403,8 @@ export function DetailContent({
                         ]}
                       >
                         <View style={[styles.commentavatarUrl, { backgroundColor: subtleBg }]}>
-                          {avatarUrlUrl ? (
-                            <Image source={{ uri: avatarUrlUrl }} style={styles.commentavatarUrlImg} />
+                          {avatarUrl ? (
+                            <Image source={{ uri: avatarUrl }} style={styles.commentavatarUrlImg} />
                           ) : (
                             <Ionicons name="person" size={14} color={mutedIcon} />
                           )}
@@ -582,133 +531,39 @@ export function DetailContent({
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-
-  mapContainer: {
-    position: "relative",
-    height: 200,
-    width: "100%",
-    overflow: "hidden",
-  },
-  centerPin: {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    transform: [{ translateX: -16 }, { translateY: -32 }],
-  },
-
+  mapContainer: { position: "relative", height: 200, width: "100%", overflow: "hidden" },
+  centerPin: { position: "absolute", left: "50%", top: "50%", transform: [{ translateX: -16 }, { translateY: -32 }] },
   rowCenter: { flexDirection: "row", alignItems: "center" },
-
-  hostRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 24,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  hostavatarUrl: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-    overflow: "hidden",
-  },
+  hostRow: { flexDirection: "row", alignItems: "center", marginBottom: 24, padding: 12, borderRadius: 12, borderWidth: 1 },
+  hostavatarUrl: { width: 40, height: 40, borderRadius: 20, justifyContent: "center", alignItems: "center", marginRight: 12, overflow: "hidden" },
   avatarUrlImg: { width: 40, height: 40, borderRadius: 20 },
   hostBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   hostBadgeText: { fontSize: 10, fontWeight: "800" },
-
   headerSection: { marginBottom: 24 },
   headerMetaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
   metaLine: { flexDirection: "row", alignItems: "center", marginLeft: 10 },
   metaIcon: { marginRight: 6, marginTop: 1 },
-
   infoBox: { borderWidth: 1, borderRadius: 16, padding: 20, marginBottom: 32 },
   infoRow: { flexDirection: "row", alignItems: "center" },
   infoTextCtx: { marginLeft: 14 },
   divider: { height: 1, marginVertical: 16, marginLeft: 34 },
-
-  conditionBox: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 32,
-  },
-
+  conditionBox: { padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 32 },
   section: { marginBottom: 32 },
   bubble: { padding: 20, borderRadius: 16, borderBottomLeftRadius: 6, borderWidth: 1 },
-  bubbleTail: {
-    position: "absolute",
-    bottom: -10,
-    left: 18,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderTopWidth: 10,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-  },
-
+  bubbleTail: { position: "absolute", bottom: -10, left: 18, width: 0, height: 0, borderLeftWidth: 10, borderRightWidth: 10, borderTopWidth: 10, borderLeftColor: "transparent", borderRightColor: "transparent" },
   emptyComments: { padding: 20, alignItems: "center", borderRadius: 12 },
-
   commentCard: { borderWidth: 1, borderRadius: 12, padding: 12 },
   replyCard: { marginLeft: 14, borderLeftWidth: 3, paddingLeft: 10 },
-
   commentRow: { flexDirection: "row" },
   authorPressable: { flexDirection: "row", alignItems: "center", marginRight: 10, flex: 1, minWidth: 0 },
-
-  commentavatarUrl: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 2,
-    overflow: "hidden",
-    marginRight: 10,
-  },
+  commentavatarUrl: { width: 28, height: 28, borderRadius: 14, justifyContent: "center", alignItems: "center", marginTop: 2, overflow: "hidden", marginRight: 10 },
   commentavatarUrlImg: { width: 28, height: 28, borderRadius: 14 },
-
   authorLine: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
-
-  replyMeta: {
-    marginTop: 6,
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-
+  replyMeta: { marginTop: 6, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
   commentActions: { flexDirection: "row", marginTop: 8 },
-  
   composerWrap: { marginTop: 14, borderWidth: 1, borderRadius: 14, overflow: "hidden" },
-  composerStatus: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  composerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  composerInput: {
-    flex: 1,
-    minHeight: 40,
-    maxHeight: 110,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    marginRight: 8,
-  },
+  composerStatus: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  composerRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10 },
+  composerInput: { flex: 1, minHeight: 40, maxHeight: 110, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, marginRight: 8 },
   sendBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: "center", alignItems: "center" },
 });

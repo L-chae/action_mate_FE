@@ -74,12 +74,13 @@ function toClientGender(g?: string): Gender {
 // Server Profile -> Client User 변환
 function mapProfileToUser(profile: ServerProfile): User {
   return {
-    id: profile.id, // DB PK가 따로 없다면 loginId 사용
-    loginId: profile.id,
-    // 서버에 닉네임 필드가 없다면 loginId로 대체하거나, 있다면 사용
-    nickname: profile.nickname || profile.id,
+    id: profile.id, 
+    loginId: profile.id, 
+    // 서버가 닉네임을 안 주면 ID를 대신 보여줌 (에러 방지)
+    nickname: profile.nickname || profile.id, 
     gender: toClientGender(profile.gender),
-    birthDate: profile.birth || "1900-01-01",
+    birthDate: profile.birth || "2000-01-01",
+    avatarUrl: null, // ✅ User 타입에 있는 필드는 반드시 채워야 함
   };
 }
 
@@ -107,15 +108,16 @@ const remoteApi: AuthApi = {
   /**
    * ✅ 회원가입
    */
+/**
+   * ✅ [수정 2] 회원가입 Body에서 nickname 제거
+   */
   async signup(input: SignupInput): Promise<User> {
     const body = {
       id: input.loginId,
       password: input.password,
-      // 서버 명세가 nickname을 지원하지 않는다면 전송해도 무시될 수 있음.
-      // 일단 보낸다고 가정 (혹은 제외)
-      nickname: input.nickname,
       birth: input.birthDate,
       gender: toServerGender(input.gender),
+      // nickname: input.nickname, // ❌ 서버 명세에 없으므로 주석 처리
     };
 
     try {

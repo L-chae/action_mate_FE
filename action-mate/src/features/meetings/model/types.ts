@@ -7,7 +7,7 @@ export type JoinMode = "INSTANT" | "APPROVAL";
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
 export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED" | "REJECTED";
 
-// --- SUB TYPES (개선됨) ---
+// --- SUB TYPES ---
 
 // ✅ UserSummary + Reputation + 자기소개
 export type HostSummary = UserSummary & UserReputation & {
@@ -15,7 +15,7 @@ export type HostSummary = UserSummary & UserReputation & {
 };
 
 // ✅ UserSummary + 참여 상태 정보
-// 기존 userId -> id로 통일 (UserSummary 상속 때문)
+// UserSummary를 상속받으므로 id, nickname, avatarUrl이 포함됨
 export type Participant = UserSummary & {
   status: MembershipStatus;
   appliedAt: string; 
@@ -27,7 +27,7 @@ export type MyState = {
   reason?: string;
 };
 
-// --- MAIN ENTITY ---
+// --- MAIN ENTITY (구조 개선됨) ---
 export type MeetingPost = {
   id: string;
   category: CategoryKey;
@@ -35,20 +35,24 @@ export type MeetingPost = {
   content?: string; 
 
   // Time
-  meetingTimeText?: string;
-  meetingTime?: string;     
-  durationHours?: number;   
+  meetingTime: string;      // ISO String (필수)
+  meetingTimeText?: string; // UI 표시용 (옵션)
+  durationHours?: number;   
   durationMinutes?: number; 
 
-  // Location
-  locationText: string;
-  locationLat?: number;
-  locationLng?: number;
-  distanceText?: string;
+  // ✅ Location: 객체로 그룹화 (api.local.ts 에러 해결)
+  location: {
+    name: string; // 기존 locationText
+    lat: number;  // 기존 locationLat
+    lng: number;  // 기존 locationLng
+  };
+  distanceText?: string; // UI용 거리 텍스트 ("1.2km")
 
-  // Capacity
-  capacityJoined: number;
-  capacityTotal: number;
+  // ✅ Capacity: 객체로 그룹화 (api.local.ts 에러 해결)
+  capacity: {
+    current: number; // 기존 capacityJoined
+    total: number;   // 기존 capacityTotal
+  };
 
   // Settings
   joinMode: JoinMode;
@@ -57,18 +61,21 @@ export type MeetingPost = {
 
   // Meta
   items?: string;
-  host?: HostSummary;   
+  host?: HostSummary;   
   myState?: MyState;
 };
 
-// --- API DTOs (입력/응답) ---
+// --- API DTOs (입력용 Params는 입력 편의상 Flat 유지) ---
 export type MeetingParams = {
   title: string;
   category: CategoryKey;
   meetingTimeIso: string;
+  
+  // 입력 시에는 Flat하게 받는 게 Form 관리하기 편함
   locationText: string;
-  locationLat?: number;
-  locationLng?: number;
+  locationLat: number;
+  locationLng: number;
+  
   capacityTotal: number;
   content: string;
   joinMode: JoinMode;
@@ -112,3 +119,23 @@ export interface MeetingApi {
   approveParticipant(meetingId: string, userId: string): Promise<Participant[]>;
   rejectParticipant(meetingId: string, userId: string): Promise<Participant[]>;
 }
+
+// 댓글 타입 정의
+export type Comment = {
+  id: string;
+  authorId: string;
+  authorNickname: string;
+  authorAvatarUrl?: string; // 작성자 프로필 이미지
+  content: string;
+  createdAt: string; // ISO String
+  
+  // (옵션) 대댓글 구조 등을 위해 parentId 등을 추가할 수 있음
+  parentId?: string;
+  
+  // UI용: 작성자 객체 (DetailContent에서 사용)
+  author?: {
+    id: string;
+    nickname: string;
+    avatarUrl?: string;
+  };
+};

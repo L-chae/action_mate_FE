@@ -322,8 +322,8 @@ export default function ManageParticipantsScreen() {
         <View style={{ paddingHorizontal: 16 }}>
           <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
             <View style={styles.cardLeft}>
-              {item.avatarUrlUrl ? (
-                <Image source={{ uri: item.avatarUrlUrl }} style={styles.avatarUrl} />
+              {item.avatarUrl ? (
+                <Image source={{ uri: item.avatarUrl }} style={styles.avatarUrl} />
               ) : (
                 <View style={[styles.avatarUrlPlaceholder, { backgroundColor: t.colors.neutral[100] }]}>
                   <Ionicons name="person" size={18} color={t.colors.icon.muted} />

@@ -5,7 +5,7 @@ export type MySummary = UserReputation;
 
 export type MyProfile = {
   nickname: string;
-  avatarUrlUrl?: string; // avatarUrlUrl -> avatarUrlUrl 통일
+  avatarUrl?: string; // avatarUrl -> avatarUrl 통일
 };
 
 export type MyMeetingItem = {

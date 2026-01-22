@@ -7,7 +7,7 @@ export type User = UserSummary & {
   loginId: string;   // 로그인 아이디
   gender: Gender;
   birthDate: string; // "YYYY-MM-DD"
-  // id, nickname, avatarUrlUrl은 UserSummary에서 옴
+  // id, nickname, avatarUrl은 UserSummary에서 옴
 };
 
 export type SignupInput = {

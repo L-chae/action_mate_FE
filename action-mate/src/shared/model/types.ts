@@ -1,22 +1,22 @@
 // src/shared/model/types.ts
 
-/**
- * 모든 도메인에서 공통으로 사용하는 기본 사용자 정보입니다.
- * - id: 고유 식별자
- * - nickname: 닉네임
- * - avatarUrlUrl: 프로필 이미지 경로 (기존 avatarUrl, avatarUrlUrl 통합)
- */
 export type UserSummary = {
   id: string;
   nickname: string;
-  avatarUrlUrl?: string | null; 
+  avatarUrl?: string | null; 
 };
 
-/**
- * 사용자의 매너 점수 및 칭찬 정보입니다.
- * - meeting, profile 등에서 공통 사용
- */
 export type UserReputation = {
-  mannerTemperatureerature: number; // 기존 mannerTemperature, temperature 통합
-  praiseCount: number;       // 기존 praiseCount, praiseCount 통합
+  // ✅ 여기서 변수명을 확정합니다.
+  mannerTemperature: number; 
+  praiseCount: number;
+};
+
+// 백엔드 명세(UserProfile) 호환용 (필요하다면 유지)
+export type UserProfile = {
+  id: string;
+  birth: string;
+  gender: "남" | "여";
+  avgRate: number; // 백엔드는 이걸 주더라도, 프론트는 mannerTemperature로 매핑해서 씀
+  orgTime: number;
 };

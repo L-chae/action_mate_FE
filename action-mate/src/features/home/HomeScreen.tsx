@@ -34,29 +34,47 @@ export default function HomeScreen() {
   const t = useAppTheme();
   const router = useRouter();
 
-  // ✅ 로그인 유저 닉네임
+  // ✅ 로그인 유저 닉네임 (없으면 '회원'으로 표시)
   const nickname = useAuthStore((s) => s.user?.nickname);
-  // ✅ 수정 1: 닉네임 로직 간결화
   const displayName = `${nickname?.trim() || "회원"}님`;
 
   const [cat, setCat] = useState<CategoryKey | "ALL">("ALL");
   const [items, setItems] = useState<MeetingPost[]>([]);
   const [hotItems, setHotItems] = useState<HotMeetingItem[]>([]);
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(
     async (isRefresh = false) => {
       if (!isRefresh) setLoading(true);
+      
       try {
-        const [data, hot] = await Promise.all([
-          meetingApi.listMeetings(cat === "ALL" ? undefined : { category: cat }),
-          meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 }),
-        ]);
+        // ✅ [수정] 서버가 불안정하므로 각각 try-catch로 감싸서 하나가 터져도 나머지는 살림
+        
+        // 1. 일반 목록 조회
+        let data: MeetingPost[] = [];
+        try {
+          data = await meetingApi.listMeetings(cat === "ALL" ? undefined : { category: cat });
+        } catch (err) {
+          console.warn("게시글 목록 로드 실패 (서버 500 예상):", err);
+          data = []; // 에러 나면 빈 배열로 처리
+        }
+
+        // 2. 핫한 모임 조회
+        let hot: HotMeetingItem[] = [];
+        try {
+          hot = await meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 });
+        } catch (err) {
+          console.warn("핫한 모임 로드 실패:", err);
+          hot = [];
+        }
+
         setItems(data);
         setHotItems(hot);
+
       } catch (e) {
-        console.error(e);
+        console.error("HomeScreen 전체 로드 에러:", e);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -116,8 +134,8 @@ export default function HomeScreen() {
             data={hotItems}
             horizontal
             showsHorizontalScrollIndicator={false}
-           // ✅ 수정 2: id가 있으면 id, 없으면 meetingId 사용 (안전장치)
-            keyExtractor={(it) => String(it.id || it.meetingId)}
+            // ✅ 수정: keyExtractor 안전하게 처리
+            keyExtractor={(it) => String(it.id || it.meetingId || Math.random())}
             nestedScrollEnabled
             contentContainerStyle={{
               paddingHorizontal: t.spacing.pagePaddingH,
@@ -125,8 +143,9 @@ export default function HomeScreen() {
             }}
             renderItem={({ item }) => {
               const progress = item.capacityJoined / item.capacityTotal;
-               // ✅ 수정 3: 상세 페이지 이동 시 id 사용 통일
-              const targetId = item.id || item.meetingId;
+              // ✅ 수정: 상세 페이지 ID 처리
+              const targetId = item.meetingId || item.id;
+              
               return (
                  <Card 
                   onPress={() => router.push(`/meetings/${targetId}`)} 
@@ -168,7 +187,7 @@ export default function HomeScreen() {
           />
         )}
 
-        {/* 3) Sticky Header */}
+        {/* 3) Sticky Header (카테고리) */}
         <View
           style={[
             styles.stickyHeader,
@@ -198,7 +217,14 @@ export default function HomeScreen() {
             </View>
           ) : (
             <View style={{ marginTop: 60 }}>
-              <EmptyView title="이런, 모임이 없네요" description={"근처에 열린 모임이 없어요. 첫 번째 호스트가 되어보세요!"} />
+              <EmptyView 
+                title="이런, 모임이 없네요" 
+                description={
+                  cat === "ALL" 
+                  ? "현재 서버 연결 상태가 좋지 않거나,\n등록된 모임이 없습니다." 
+                  : "이 카테고리에는 아직 모임이 없어요."
+                } 
+              />
             </View>
           )}
         </View>

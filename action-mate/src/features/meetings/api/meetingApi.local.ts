@@ -1,34 +1,13 @@
 import { MOCK_MEETINGS_SEED, HOST_USERS } from "../mocks/meetingMockData";
 import type { HomeSort, MeetingApi, MeetingPost, Participant } from "../model/types";
 
-// ✅ Local State Deep Copy (원본 보호)
+// ✅ Local State Deep Copy
+// (주의: MOCK_MEETINGS_SEED가 구버전 데이터라면 여기서 매핑이 필요할 수 있습니다. 
+//  일단 타입 단언으로 넘어가고, 아래 로직들은 새 구조를 따릅니다.)
 let _DATA: MeetingPost[] = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
 
 // ✅ 참여자 더미 데이터 저장소
 const _PARTICIPANTS: Record<string, Participant[]> = {};
-
-// ----------------------------------------------------------------------
-// ✅ Mock Data Debug Helpers
-// - myApi 등 다른 mock layer에서 "현재 모임 seed"를 조회/리셋/주입할 때 사용.
-// - export 가 있어야 번들에서 meetingApiLocal.__getMockDataUnsafe 로 접근 가능.
-// ----------------------------------------------------------------------
-
-/** ⚠️ 개발/목업용: 현재 _DATA 참조를 그대로 반환(외부 mutate 가능) */
-export function __getMockDataUnsafe(): MeetingPost[] {
-  return _DATA;
-}
-
-/** 개발/목업용: _DATA를 seed 상태로 리셋 */
-export function __resetMockData(): void {
-  _DATA = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
-  for (const k of Object.keys(_PARTICIPANTS)) delete _PARTICIPANTS[k];
-}
-
-/** 개발/목업용: _DATA를 외부에서 주입(주입 시 deep copy로 원본 보호) */
-export function __setMockData(next: MeetingPost[]): void {
-  _DATA = JSON.parse(JSON.stringify(next));
-  for (const k of Object.keys(_PARTICIPANTS)) delete _PARTICIPANTS[k];
-}
 
 // --- Helpers ---
 const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -38,15 +17,16 @@ const ensureParticipants = (meetingId: string) => {
   if (!_PARTICIPANTS[meetingId]) {
     _PARTICIPANTS[meetingId] = [
       {
-        userId: "u_test_1",
+        id: "u_test_1",
         nickname: "테니스왕",
-        avatarUrl: "https://i.pravatarUrl.cc/150?u=test1",
+        avatarUrl: "https://i.pravatar.cc/150?u=test1",
         status: "PENDING",
         appliedAt: new Date(Date.now() - 3600000).toISOString(),
       },
       {
-        userId: "u_test_2",
+        id: "u_test_2",
         nickname: "초보에요",
+        avatarUrl: null,
         status: "MEMBER",
         appliedAt: new Date(Date.now() - 7200000).toISOString(),
       },
@@ -76,10 +56,11 @@ function parseDistance(text?: string) {
 function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: number) {
   return [...list].sort((a, b) => {
     if (sort === "NEAR") {
-      if (lat && lng && a.locationLat && b.locationLat) {
+      // ✅ 수정됨: location 객체 내부 접근
+      if (lat && lng && a.location.lat && b.location.lat) {
         return (
-          haversineKm(lat, lng, a.locationLat, a.locationLng!) -
-          haversineKm(lat, lng, b.locationLat, b.locationLng!)
+          haversineKm(lat, lng, a.location.lat, a.location.lng) -
+          haversineKm(lat, lng, b.location.lat, b.location.lng)
         );
       }
       return parseDistance(a.distanceText) - parseDistance(b.distanceText);
@@ -87,7 +68,7 @@ function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: numbe
     if (sort === "SOON") {
       return toTimeMs(a.meetingTime) - toTimeMs(b.meetingTime);
     }
-    // LATEST (ID 역순)
+    // LATEST
     return String(b.id).localeCompare(String(a.id));
   });
 }
@@ -99,7 +80,7 @@ export const meetingApiLocal: MeetingApi = {
     await delay();
     const now = Date.now();
     return _DATA
-      .filter((m) => m.status === "OPEN")
+      .filter((m) => m.status === "OPEN") // ✅ state -> status
       .map((m) => ({ m, min: (toTimeMs(m.meetingTime) - now) / 60000 }))
       .filter(({ min }) => min >= 0 && min <= withinMinutes)
       .sort((a, b) => a.min - b.min)
@@ -109,9 +90,9 @@ export const meetingApiLocal: MeetingApi = {
         meetingId: m.id,
         badge: min < 60 ? `${Math.floor(min)}분 남음` : `${Math.floor(min / 60)}시간 남음`,
         title: m.title,
-        place: m.locationText || "위치 정보 없음",
-        capacityJoined: m.capacityJoined,
-        capacityTotal: m.capacityTotal,
+        place: m.location.name,      // ✅ location.name
+        capacityJoined: m.capacity.current, // ✅ capacity.current
+        capacityTotal: m.capacity.total,    // ✅ capacity.total
       }));
   },
 
@@ -125,13 +106,13 @@ export const meetingApiLocal: MeetingApi = {
   // 3. Around
   async listMeetingsAround(lat, lng, { radiusKm = 3, category = "ALL", sort = "NEAR" } = {}) {
     await delay();
-    let candidates = _DATA.filter((m) => m.locationLat && m.locationLng);
+    let candidates = _DATA.filter((m) => m.location.lat && m.location.lng);
     if (category !== "ALL") candidates = candidates.filter((m) => m.category === category);
 
     const within = candidates
       .map((m) => ({
         m,
-        dist: haversineKm(lat, lng, m.locationLat!, m.locationLng!),
+        dist: haversineKm(lat, lng, m.location.lat, m.location.lng),
       }))
       .filter(({ dist }) => dist <= radiusKm);
 
@@ -153,16 +134,34 @@ export const meetingApiLocal: MeetingApi = {
   async createMeeting(data) {
     await delay(800);
     const newId = String(Date.now());
+    
+    // ✅ 새 타입에 맞춰 객체 생성
     const newPost: MeetingPost = {
-      ...data,
       id: newId,
-      status: "OPEN",
-      capacityJoined: 1,
+      category: data.category,
+      title: data.title,
+      content: data.content,
+      meetingTime: data.meetingTimeIso,
+      
+      location: {
+        name: data.locationText,
+        lat: data.locationLat || 0,
+        lng: data.locationLng || 0,
+      },
+      
+      capacity: {
+        total: data.capacityTotal,
+        current: 1,
+      },
+      
+      status: "OPEN", // ✅ state -> status
+      joinMode: data.joinMode,
       distanceText: "0km",
-      meetingTime: (data as any).meetingTimeIso || new Date().toISOString(),
+      
       myState: { membershipStatus: "HOST", canJoin: false },
-      host: HOST_USERS.me,
+      host: HOST_USERS.me, 
     };
+    
     _DATA.unshift(newPost);
     return newPost;
   },
@@ -172,11 +171,18 @@ export const meetingApiLocal: MeetingApi = {
     const idx = _DATA.findIndex((m) => m.id === id);
     if (idx === -1) throw new Error("Meeting not found");
 
+    const prev = _DATA[idx];
     _DATA[idx] = {
-      ..._DATA[idx],
+      ...prev,
       ...data,
-      meetingTime: (data as any).meetingTimeIso || _DATA[idx].meetingTime,
-    };
+      meetingTime: data.meetingTimeIso || prev.meetingTime,
+      location: {
+        name: data.locationText || prev.location.name,
+        lat: data.locationLat ?? prev.location.lat,
+        lng: data.locationLng ?? prev.location.lng,
+      },
+      capacity: prev.capacity // capacity 정보 유지
+    } as MeetingPost;
     return { ..._DATA[idx] };
   },
 
@@ -187,6 +193,7 @@ export const meetingApiLocal: MeetingApi = {
 
     const target = _DATA[idx];
     _DATA.splice(idx, 1);
+    // ✅ state -> status
     return { post: { ...target, status: "CANCELED" } };
   },
 
@@ -196,15 +203,18 @@ export const meetingApiLocal: MeetingApi = {
     if (idx < 0) throw new Error("Meeting not found");
 
     const target = _DATA[idx];
-    if (target.capacityJoined >= target.capacityTotal) throw new Error("Full");
+    if (target.capacity.current >= target.capacity.total) throw new Error("Full");
 
     const isApproval = target.joinMode === "APPROVAL";
     const newStatus = isApproval ? "PENDING" : "MEMBER";
-    const newCount = isApproval ? target.capacityJoined : target.capacityJoined + 1;
+    const newCount = isApproval ? target.capacity.current : target.capacity.current + 1;
 
     _DATA[idx] = {
       ...target,
-      capacityJoined: newCount,
+      capacity: {
+        ...target.capacity,
+        current: newCount,
+      },
       myState: { membershipStatus: newStatus, canJoin: false },
     };
 
@@ -221,7 +231,10 @@ export const meetingApiLocal: MeetingApi = {
 
     _DATA[idx] = {
       ...target,
-      capacityJoined: isMember ? Math.max(0, target.capacityJoined - 1) : target.capacityJoined,
+      capacity: {
+        ...target.capacity,
+        current: isMember ? Math.max(0, target.capacity.current - 1) : target.capacity.current
+      },
       myState: { membershipStatus: "NONE", canJoin: true },
     };
 
@@ -239,12 +252,12 @@ export const meetingApiLocal: MeetingApi = {
     ensureParticipants(meetingId);
 
     const list = _PARTICIPANTS[meetingId];
-    const target = list.find((p) => p.userId === userId);
+    const target = list.find((p) => p.id === userId);
     if (target) {
       target.status = "MEMBER";
-      // 승인 시 인원 증가
+      // 승인 시 인원 증가 (capacity.current)
       const mIdx = _DATA.findIndex((m) => m.id === meetingId);
-      if (mIdx > -1) _DATA[mIdx].capacityJoined++;
+      if (mIdx > -1) _DATA[mIdx].capacity.current++;
     }
     return [...list];
   },
@@ -254,11 +267,13 @@ export const meetingApiLocal: MeetingApi = {
     ensureParticipants(meetingId);
 
     const list = _PARTICIPANTS[meetingId];
-    const target = list.find((p) => p.userId === userId);
+    const target = list.find((p) => p.id === userId);
     if (target) target.status = "REJECTED";
     return [...list];
   },
 };
 
-// (선택) default export도 같이 제공하면 import 형태가 섞여도 안전해집니다.
-export default meetingApiLocal;
+export default {
+  ...meetingApiLocal,
+  __getMockDataUnsafe: () => _DATA, 
+};
