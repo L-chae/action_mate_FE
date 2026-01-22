@@ -13,7 +13,7 @@ import {
   EmitterSubscription,
   LayoutChangeEvent,
 } from "react-native";
-import { Stack, useLocalSearchParams, router } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -30,7 +30,14 @@ import type { DMMessage, DMThread } from "./model/types";
 export default function DMThreadScreen() {
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
-  const { threadId } = useLocalSearchParams<{ threadId: string }>();
+  const expoRouter = useRouter();
+
+  const params = useLocalSearchParams<{ threadId?: string | string[] }>();
+  const threadId = useMemo(() => {
+    const raw = params.threadId;
+    const v = Array.isArray(raw) ? raw[0] : raw;
+    return String(v ?? "").trim();
+  }, [params.threadId]);
 
   const [thread, setThread] = useState<DMThread | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>([]);
@@ -51,21 +58,27 @@ export default function DMThreadScreen() {
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
   }, []);
 
-  // 1. 데이터 로드 (Local API 호출)
+  // 1) 데이터 로드
   useEffect(() => {
+    if (!threadId) return;
+
     let mounted = true;
     const load = async () => {
       try {
         setLoading(true);
+
         const [th, msgs] = await Promise.all([
           getDMThread(threadId),
           getDMMessages(threadId),
         ]);
 
         if (!mounted) return;
+
         setThread(th);
         setMessages(msgs);
-        await markDMThreadRead(threadId);
+
+        // 읽음 처리 실패는 화면 동작과 분리 (UX 안정)
+        markDMThreadRead(threadId).catch(() => {});
       } catch (e) {
         console.error(e);
       } finally {
@@ -75,11 +88,14 @@ export default function DMThreadScreen() {
         }
       }
     };
+
     load();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [threadId, scrollToBottom]);
 
-  // 2. 키보드 핸들링
+  // 2) 키보드 핸들링
   useEffect(() => {
     let showSub: EmitterSubscription | undefined;
     let hideSub: EmitterSubscription | undefined;
@@ -91,11 +107,13 @@ export default function DMThreadScreen() {
       const h = e.endCoordinates?.height ?? 0;
       const lift = Platform.OS === "ios" ? Math.max(0, h - insets.bottom) : h;
       setKeyboardLift(lift);
+
       Animated.timing(translateY, {
         toValue: -lift,
         duration: Platform.OS === "ios" ? 220 : 160,
         useNativeDriver: true,
       }).start();
+
       scrollToBottom(true);
     });
 
@@ -115,7 +133,9 @@ export default function DMThreadScreen() {
   }, [insets.bottom, translateY, scrollToBottom]);
 
   const handleSend = useCallback(async () => {
+    if (!threadId) return;
     if (!text.trim() || sending) return;
+
     const content = text.trim();
     setText("");
     setSending(true);
@@ -130,7 +150,7 @@ export default function DMThreadScreen() {
     } finally {
       setSending(false);
     }
-  }, [text, sending, threadId, scrollToBottom]);
+  }, [threadId, text, sending, scrollToBottom]);
 
   const renderMessage = useCallback(({ item }: { item: DMMessage }) => {
     return <ChatBubble message={item} />;
@@ -141,36 +161,38 @@ export default function DMThreadScreen() {
     if (h !== composerHeight) setComposerHeight(h);
   };
 
-  const listContentStyle = useMemo(() => ({
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: composerHeight + bottomSafe + 12 + keyboardLift,
-  }), [composerHeight, bottomSafe, keyboardLift]);
+  const listContentStyle = useMemo(
+    () => ({
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: composerHeight + bottomSafe + 12 + keyboardLift,
+    }),
+    [composerHeight, bottomSafe, keyboardLift]
+  );
 
   const relatedMeetingId = thread?.relatedMeetingId;
-  const relatedMeetingTitle = thread?.relatedMeetingTitle;
+  const relatedMeetingTitle = (thread as any)?.relatedMeetingTitle;
 
   const goMeeting = useCallback(() => {
     if (!relatedMeetingId) return;
-    router.push(`/meetings/${relatedMeetingId}`);
-  }, [relatedMeetingId]);
+
+    // ✅ 문자열/숫자 혼합, 특수문자 대비
+    const id = encodeURIComponent(String(relatedMeetingId));
+    expoRouter.push(`/meetings/${id}` as any);
+  }, [expoRouter, relatedMeetingId]);
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <AppLayout padded={false}>
         <View style={{ flex: 1, backgroundColor: t.colors.background }}>
-          <TopBar
-            title={title}
-            showBorder
-            showBack
-            onPressBack={() => router.back()}
-          />
+          <TopBar title={title} showBorder showBack onPressBack={() => expoRouter.back()} />
 
           {/* 연결된 모임 카드 */}
           {relatedMeetingId ? (
             <Pressable
               onPress={goMeeting}
+              hitSlop={10}
               style={({ pressed }) => [
                 styles.meetingCard,
                 {
@@ -181,10 +203,11 @@ export default function DMThreadScreen() {
               ]}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                  연결된 모임글
-                </Text>
-                <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 2 }]} numberOfLines={1}>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>연결된 모임글</Text>
+                <Text
+                  style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 2 }]}
+                  numberOfLines={1}
+                >
                   {relatedMeetingTitle ?? "모임 상세로 이동"}
                 </Text>
               </View>
@@ -201,7 +224,7 @@ export default function DMThreadScreen() {
               ref={listRef}
               data={messages}
               renderItem={renderMessage}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item) => String(item.id)}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={listContentStyle}
               onContentSizeChange={() => scrollToBottom(false)}

@@ -1,8 +1,15 @@
 import { MOCK_MEETINGS_SEED, HOST_USERS } from "../mocks/meetingMockData";
-import type { HomeSort, MeetingApi, MeetingPost, Participant } from "../model/types";
+import type {
+  HomeSort,
+  MeetingApi,
+  MeetingPost,
+  Participant,
+  MeetingUpsert,
+  HotMeetingItem,
+} from "../model/types";
 
-// ✅ Local State Deep Copy
-let _DATA: MeetingPost[] = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
+// ✅ Local State Deep Copy (seed가 구버전 shape여도 아래 normalize가 흡수)
+let _DATA: MeetingPost[] = (JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED)) as any[]).map(normalizeSeedToPost);
 
 // ✅ 참여자 더미 데이터 저장소
 const _PARTICIPANTS: Record<string, Participant[]> = {};
@@ -15,10 +22,7 @@ const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 const toTimeMs = (iso?: string) => (iso ? new Date(iso).getTime() : Number.MAX_SAFE_INTEGER);
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
-// 별점 -> 온도 변환 로직 (Mock용 단순 계산)
-const starsToTemp = (stars: number) => {
-  return 36.5 + (stars - 3) * 2; // 3점=36.5도, 5점=40.5도
-};
+const starsToTemp = (stars: number) => 36.5 + (stars - 3) * 2;
 
 const ensureParticipants = (meetingId: string) => {
   if (!_PARTICIPANTS[meetingId]) {
@@ -63,28 +67,81 @@ function parseDistance(text?: string) {
 function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: number) {
   return [...list].sort((a, b) => {
     if (sort === "NEAR") {
-      if (lat && lng && a.location.lat && b.location.lat) {
+      const hasBase = typeof lat === "number" && typeof lng === "number";
+      const hasA = typeof a.location?.lat === "number" && typeof a.location?.lng === "number";
+      const hasB = typeof b.location?.lat === "number" && typeof b.location?.lng === "number";
+
+      if (hasBase && hasA && hasB) {
         return (
-          haversineKm(lat, lng, a.location.lat, a.location.lng) -
-          haversineKm(lat, lng, b.location.lat, b.location.lng)
+          haversineKm(lat!, lng!, a.location.lat, a.location.lng) -
+          haversineKm(lat!, lng!, b.location.lat, b.location.lng)
         );
       }
       return parseDistance(a.distanceText) - parseDistance(b.distanceText);
     }
+
     if (sort === "SOON") {
       return toTimeMs(a.meetingTime) - toTimeMs(b.meetingTime);
     }
+
     // LATEST
     return String(b.id).localeCompare(String(a.id));
   });
 }
 
+/**
+ * ✅ seed가 옛날 Flat 구조여도 런타임에서 새 shape로 정규화
+ * - mockData 전부를 당장 고치지 않아도 서비스는 동작
+ * - 이후 여유 있을 때 mockData를 새 shape로 바꾸면 이 함수는 제거 가능
+ */
+function normalizeSeedToPost(raw: any): MeetingPost {
+  const meetingTime = raw?.meetingTime ?? raw?.meetingTimeIso ?? new Date().toISOString();
+
+  const location =
+    raw?.location && typeof raw.location === "object"
+      ? {
+          name: raw.location.name ?? raw.locationText ?? raw.place ?? "",
+          lat: Number(raw.location.lat ?? raw.locationLat ?? 0),
+          lng: Number(raw.location.lng ?? raw.locationLng ?? 0),
+        }
+      : {
+          name: raw?.locationText ?? raw?.place ?? "",
+          lat: Number(raw?.locationLat ?? 0),
+          lng: Number(raw?.locationLng ?? 0),
+        };
+
+  const total = Number(raw?.capacity?.total ?? raw?.capacityTotal ?? 0);
+  const current = Number(raw?.capacity?.current ?? raw?.capacityJoined ?? 0);
+
+  return {
+    id: String(raw?.id ?? `m_${Date.now()}`),
+    category: raw?.category ?? "ETC",
+    title: raw?.title ?? "",
+    content: raw?.content ?? undefined,
+    meetingTime,
+    durationMinutes: raw?.durationMinutes ?? undefined,
+    location,
+    capacity: {
+      total: total > 0 ? total : 4,
+      current: current >= 0 ? current : 0,
+    },
+    joinMode: raw?.joinMode ?? "INSTANT",
+    conditions: raw?.conditions ?? undefined,
+    items: raw?.items ?? undefined,
+    status: raw?.status ?? "OPEN",
+    distanceText: raw?.distanceText ?? undefined,
+    meetingTimeText: raw?.meetingTimeText ?? undefined,
+    host: raw?.host ?? undefined,
+    myState: raw?.myState ?? undefined,
+  };
+}
+
 // ✅ Mock Implementation
 export const meetingApiLocal: MeetingApi = {
-  // 1. Hot Items
-  async listHotMeetings({ limit = 6, withinMinutes = 180 } = {}) {
+  async listHotMeetings({ limit = 6, withinMinutes = 180 } = {}): Promise<HotMeetingItem[]> {
     await delay();
     const now = Date.now();
+
     return _DATA
       .filter((m) => m.status === "OPEN")
       .map((m) => ({ m, min: (toTimeMs(m.meetingTime) - now) / 60000 }))
@@ -96,23 +153,20 @@ export const meetingApiLocal: MeetingApi = {
         meetingId: m.id,
         badge: min < 60 ? `${Math.floor(min)}분 남음` : `${Math.floor(min / 60)}시간 남음`,
         title: m.title,
-        place: m.location.name,
-        capacityJoined: m.capacity.current,
-        capacityTotal: m.capacity.total,
+        location: { ...m.location },
+        capacity: { ...m.capacity },
       }));
   },
 
-  // 2. List
   async listMeetings({ category = "ALL", sort = "LATEST" } = {}) {
     await delay();
     const list = category === "ALL" ? _DATA : _DATA.filter((m) => m.category === category);
     return sortList(list, sort);
   },
 
-  // 3. Around
   async listMeetingsAround(lat, lng, { radiusKm = 3, category = "ALL", sort = "NEAR" } = {}) {
     await delay();
-    let candidates = _DATA.filter((m) => m.location.lat && m.location.lng);
+    let candidates = _DATA;
     if (category !== "ALL") candidates = candidates.filter((m) => m.category === category);
 
     const within = candidates
@@ -137,58 +191,66 @@ export const meetingApiLocal: MeetingApi = {
     return { ...found };
   },
 
-  async createMeeting(data) {
+  async createMeeting(data: MeetingUpsert) {
     await delay(800);
     const newId = String(Date.now());
-    
+
+    const total = Math.max(1, Number(data.capacity.total));
+    const current = 1; // 호스트 포함(실무에서 보통 1부터 시작)
+
     const newPost: MeetingPost = {
       id: newId,
       category: data.category,
       title: data.title,
       content: data.content,
-      meetingTime: data.meetingTimeIso,
-      
-      location: {
-        name: data.locationText,
-        lat: data.locationLat || 0,
-        lng: data.locationLng || 0,
-      },
-      
-      capacity: {
-        total: data.capacityTotal,
-        current: 1,
-      },
-      
+      meetingTime: data.meetingTime,
+      durationMinutes: data.durationMinutes,
+      location: { ...data.location },
+      capacity: { total, current },
       status: "OPEN",
       joinMode: data.joinMode,
+      conditions: data.conditions,
+      items: data.items,
       distanceText: "0km",
-      
       myState: { membershipStatus: "HOST", canJoin: false },
       host: HOST_USERS.me,
     };
-    
+
     _DATA.unshift(newPost);
     return newPost;
   },
 
-  async updateMeeting(id, data) {
+  async updateMeeting(id, patch: Partial<MeetingUpsert>) {
     await delay(800);
     const idx = _DATA.findIndex((m) => m.id === id);
     if (idx === -1) throw new Error("Meeting not found");
 
     const prev = _DATA[idx];
-    _DATA[idx] = {
+
+    const nextLocation = patch.location
+      ? { ...prev.location, ...patch.location }
+      : prev.location;
+
+    const nextTotal =
+      typeof patch.capacity?.total === "number"
+        ? Math.max(1, patch.capacity.total)
+        : prev.capacity.total;
+
+    const nextCurrent = Math.min(prev.capacity.current, nextTotal);
+
+    const next: MeetingPost = {
       ...prev,
-      ...data,
-      meetingTime: data.meetingTimeIso || prev.meetingTime,
-      location: {
-        name: data.locationText || prev.location.name,
-        lat: data.locationLat ?? prev.location.lat,
-        lng: data.locationLng ?? prev.location.lng,
+      ...patch,
+      meetingTime: patch.meetingTime ?? prev.meetingTime,
+      location: nextLocation,
+      capacity: {
+        total: nextTotal,
+        current: nextCurrent,
       },
-      capacity: prev.capacity
-    } as MeetingPost;
-    return { ..._DATA[idx] };
+    };
+
+    _DATA[idx] = next;
+    return { ...next };
   },
 
   async cancelMeeting(id) {
@@ -237,7 +299,7 @@ export const meetingApiLocal: MeetingApi = {
       ...target,
       capacity: {
         ...target.capacity,
-        current: isMember ? Math.max(0, target.capacity.current - 1) : target.capacity.current
+        current: isMember ? Math.max(0, target.capacity.current - 1) : target.capacity.current,
       },
       myState: { membershipStatus: "NONE", canJoin: true },
     };
@@ -260,7 +322,11 @@ export const meetingApiLocal: MeetingApi = {
     if (target) {
       target.status = "MEMBER";
       const mIdx = _DATA.findIndex((m) => m.id === meetingId);
-      if (mIdx > -1) _DATA[mIdx].capacity.current++;
+      if (mIdx > -1) {
+        const m = _DATA[mIdx];
+        const next = Math.min(m.capacity.total, m.capacity.current + 1);
+        _DATA[mIdx] = { ...m, capacity: { ...m.capacity, current: next } };
+      }
     }
     return [...list];
   },
@@ -275,7 +341,6 @@ export const meetingApiLocal: MeetingApi = {
     return [...list];
   },
 
-  // ✅ [수정 완료] 객체 내부에 위치시킴 + 타입 any 우회 (interface에 없을 경우 대비)
   async submitMeetingRating(req: { meetingId: string; stars: number }): Promise<any> {
     await delay(500);
 
@@ -287,13 +352,12 @@ export const meetingApiLocal: MeetingApi = {
 
     _MEETING_LAST_STARS[meetingId] = stars;
 
-    // 호스트 매너온도 업데이트 시늉
     const hostTemperature = starsToTemp(stars);
 
     if (_DATA[idx] && (_DATA[idx] as any).host) {
       (_DATA[idx] as any).host = {
         ...(_DATA[idx] as any).host,
-        mannerTemperature: hostTemperature, // mannerTemperature로 필드명 통일
+        mannerTemperature: hostTemperature,
       };
     }
 
@@ -306,5 +370,5 @@ export const meetingApiLocal: MeetingApi = {
 
 export default {
   ...meetingApiLocal,
-  __getMockDataUnsafe: () => _DATA, 
+  __getMockDataUnsafe: () => _DATA,
 };

@@ -1,3 +1,4 @@
+//src/shared/api/endpoints.ts
 export const endpoints = {
   auth: {
     login: "/auth/login",

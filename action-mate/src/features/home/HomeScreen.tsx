@@ -34,34 +34,31 @@ export default function HomeScreen() {
   const t = useAppTheme();
   const router = useRouter();
 
-  // ✅ 로그인 유저 닉네임 (없으면 '회원'으로 표시)
   const nickname = useAuthStore((s) => s.user?.nickname);
   const displayName = `${nickname?.trim() || "회원"}님`;
 
   const [cat, setCat] = useState<CategoryKey | "ALL">("ALL");
   const [items, setItems] = useState<MeetingPost[]>([]);
   const [hotItems, setHotItems] = useState<HotMeetingItem[]>([]);
-  
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(
     async (isRefresh = false) => {
       if (!isRefresh) setLoading(true);
-      
+
       try {
-        // ✅ [수정] 서버가 불안정하므로 각각 try-catch로 감싸서 하나가 터져도 나머지는 살림
-        
-        // 1. 일반 목록 조회
+        // 1) 일반 목록 조회
         let data: MeetingPost[] = [];
         try {
           data = await meetingApi.listMeetings(cat === "ALL" ? undefined : { category: cat });
         } catch (err) {
-          console.warn("게시글 목록 로드 실패 (서버 500 예상):", err);
-          data = []; // 에러 나면 빈 배열로 처리
+          console.warn("게시글 목록 로드 실패:", err);
+          data = [];
         }
 
-        // 2. 핫한 모임 조회
+        // 2) 핫한 모임 조회
         let hot: HotMeetingItem[] = [];
         try {
           hot = await meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 });
@@ -72,7 +69,6 @@ export default function HomeScreen() {
 
         setItems(data);
         setHotItems(hot);
-
       } catch (e) {
         console.error("HomeScreen 전체 로드 에러:", e);
       } finally {
@@ -104,17 +100,14 @@ export default function HomeScreen() {
         showNoti
         showNotiDot
         onPressNoti={() => router.push("/notifications" as any)}
-        showMenu
         showBorder
       />
 
-       <ScrollView
-        stickyHeaderIndices={[2]} // ✅ 0:헤드라인, 1:HotList, 2:Category(Sticky)
+      <ScrollView
+        stickyHeaderIndices={[2]} // 0:헤드라인, 1:HotList, 2:Category(Sticky)
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {/* 1) 헤드라인 */}
         <View style={{ paddingHorizontal: t.spacing.pagePaddingH, marginBottom: 16, marginTop: 4 }}>
@@ -134,44 +127,47 @@ export default function HomeScreen() {
             data={hotItems}
             horizontal
             showsHorizontalScrollIndicator={false}
-            // ✅ 수정: keyExtractor 안전하게 처리
-            keyExtractor={(it) => String(it.id || it.meetingId || Math.random())}
+            keyExtractor={(it) => String(it.id || it.meetingId)}
             nestedScrollEnabled
             contentContainerStyle={{
               paddingHorizontal: t.spacing.pagePaddingH,
               paddingBottom: 24,
             }}
             renderItem={({ item }) => {
-              const progress = item.capacityJoined / item.capacityTotal;
-              // ✅ 수정: 상세 페이지 ID 처리
+              // ✅ 통일 shape: capacity / location
+              const total = Math.max(1, item.capacity?.total ?? 1);
+              const current = Math.max(0, item.capacity?.current ?? 0);
+              const progress = Math.min(1, current / total);
+
               const targetId = item.meetingId || item.id;
-              
+
               return (
-                 <Card 
-                  onPress={() => router.push(`/meetings/${targetId}`)} 
-                  style={styles.hotCard} 
-                  padded
-                >
+                <Card onPress={() => router.push(`/meetings/${targetId}`)} style={styles.hotCard} padded>
                   <Badge label={item.badge} tone="error" size="sm" style={{ marginBottom: 12 }} />
+
                   <View style={{ gap: 4, marginBottom: 16 }}>
                     <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
                       {item.title}
                     </Text>
+
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Ionicons name="location-outline" size={14} color={t.colors.textSub} />
                       <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
-                        {item.place}
+                        {item.location?.name ?? ""}
                       </Text>
                     </View>
                   </View>
+
                   <View style={{ flex: 1 }} />
+
                   <View>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
                       <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>참여 인원</Text>
                       <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>
-                        {item.capacityJoined}/{item.capacityTotal}
+                        {current}/{total}
                       </Text>
                     </View>
+
                     <View style={[styles.track, { backgroundColor: trackBg }]}>
                       <View
                         style={[
@@ -217,13 +213,13 @@ export default function HomeScreen() {
             </View>
           ) : (
             <View style={{ marginTop: 60 }}>
-              <EmptyView 
-                title="이런, 모임이 없네요" 
+              <EmptyView
+                title="이런, 모임이 없네요"
                 description={
-                  cat === "ALL" 
-                  ? "현재 서버 연결 상태가 좋지 않거나,\n등록된 모임이 없습니다." 
-                  : "이 카테고리에는 아직 모임이 없어요."
-                } 
+                  cat === "ALL"
+                    ? "현재 서버 연결 상태가 좋지 않거나,\n등록된 모임이 없습니다."
+                    : "이 카테고리에는 아직 모임이 없어요."
+                }
               />
             </View>
           )}

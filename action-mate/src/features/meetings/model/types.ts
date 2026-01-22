@@ -1,4 +1,13 @@
-import { UserSummary, UserReputation } from "@/shared/model/types";
+// src/features/meetings/model/types.ts
+import type {
+  Capacity,
+  CapacityInput,
+  ISODateTimeString,
+  Id,
+  Location,
+  UserReputation,
+  UserSummary,
+} from "@/shared/model/types";
 
 // --- ENUMS & KEYS ---
 export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
@@ -9,16 +18,16 @@ export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELE
 
 // --- SUB TYPES ---
 
-// ✅ UserSummary + Reputation + 자기소개
-export type HostSummary = UserSummary & UserReputation & {
-  intro?: string;
-};
+// HostSummary: UserSummary + Reputation + intro
+export type HostSummary = UserSummary &
+  UserReputation & {
+    intro?: string;
+  };
 
-// ✅ UserSummary + 참여 상태 정보
-// UserSummary를 상속받으므로 id, nickname, avatarUrl이 포함됨
+// Participant: UserSummary + 참여 상태
 export type Participant = UserSummary & {
   status: MembershipStatus;
-  appliedAt: string; 
+  appliedAt: ISODateTimeString;
 };
 
 export type MyState = {
@@ -27,118 +36,127 @@ export type MyState = {
   reason?: string;
 };
 
-// --- MAIN ENTITY (구조 개선됨) ---
-export type MeetingPost = {
-  id: string;
+/**
+ * ✅ 핵심: "도메인 공통 Shape"를 분리
+ * - 폼 바인딩 / API 전송 / 화면 렌더링에서 동일한 구조를 쓰게 해 변환을 최소화합니다.
+ * - 서버가 관리하는 값(id, status, capacity.current 등)은 MeetingPost에서만 확장합니다.
+ */
+export type MeetingShape = {
   category: CategoryKey;
   title: string;
-  content?: string; 
+  content?: string;
 
-  // Time
-  meetingTime: string;      // ISO String (필수)
-  meetingTimeText?: string; // UI 표시용 (옵션)
-  durationHours?: number;   
-  durationMinutes?: number; 
+  // Time: ISO String을 공통 키(meetingTime)로 통일
+  meetingTime: ISODateTimeString;
 
-  // ✅ Location: 객체로 그룹화
-  location: {
-    name: string; // 기존 locationText
-    lat: number;  // 기존 locationLat
-    lng: number;  // 기존 locationLng
-  };
-  distanceText?: string; // UI용 거리 텍스트 ("1.2km")
+  /**
+   * duration은 form에서 가장 다루기 쉬운 단위(분) 하나로 통일하는 게 실무에서 실수(시간/분) 줄이는데 유리합니다.
+   * - 기존 durationHours/durationMinutes는 UI 파생 값으로 처리 권장
+   */
+  durationMinutes?: number;
 
-  // ✅ Capacity: 객체로 그룹화
-  capacity: {
-    current: number; // 기존 capacityJoined
-    total: number;   // 기존 capacityTotal
-  };
+  // Location: 객체로 통일
+  location: Location;
+
+  // Capacity: 객체로 통일 (Upsert에서는 current 선택값)
+  capacity: CapacityInput;
 
   // Settings
   joinMode: JoinMode;
   conditions?: string;
-  status: PostStatus;
 
   // Meta
   items?: string;
-  host?: HostSummary;   
+};
+
+/**
+ * ✅ 서버에서 내려오는 “읽기 모델”
+ * - MeetingShape를 그대로 포함 + 서버가 확정하는 필드를 확장
+ * - capacity.current를 필수로 고정(서버가 항상 결정)
+ */
+export type MeetingPost = MeetingShape & {
+  id: Id;
+  status: PostStatus;
+
+  // UI 표시용(서버가 주면 쓰고, 없으면 프론트에서 파생)
+  meetingTimeText?: string;
+  distanceText?: string;
+
+  // Post에서는 current가 반드시 있어야 함
+  capacity: Capacity;
+
+  host?: HostSummary;
   myState?: MyState;
 };
 
-// --- API DTOs (입력용 Params는 입력 편의상 Flat 유지) ---
-export type MeetingParams = {
-  title: string;
-  category: CategoryKey;
-  meetingTimeIso: string;
-  
-  // 입력 시에는 Flat하게 받는 게 Form 관리하기 편함
-  locationText: string;
-  locationLat: number;
-  locationLng: number;
-  
-  capacityTotal: number;
-  content: string;
-  joinMode: JoinMode;
-  conditions?: string;
-  durationMinutes: number;
-  items?: string;
-};
+/**
+ * ✅ 서버로 보내는 “쓰기 모델”
+ * - MeetingShape와 동일한 구조를 그대로 사용
+ * - create/update 모두 같은 shape를 쓰고,
+ *   update는 Partial<MeetingUpsert>로 처리
+ */
+export type MeetingUpsert = MeetingShape;
 
+// 조회 옵션
 export type AroundMeetingsOptions = {
   radiusKm?: number;
   category?: CategoryKey | "ALL";
   sort?: HomeSort;
 };
 
+/**
+ * HotMeetingItem도 location/capacity shape를 MeetingPost와 맞춰
+ * 리스트/상세/폼 간 이동 시 변환을 최소화합니다.
+ */
 export type HotMeetingItem = {
-  id: string;
-  meetingId: string;
+  id: Id;
+  meetingId: Id;
   badge: string;
+
+  // 동일 키/구조 유지
   title: string;
-  place: string;
-  capacityJoined: number;
-  capacityTotal: number;
+  location: Location;
+  capacity: Capacity;
 };
 
-// --- API Interface ---
+/**
+ * --- API Interface ---
+ * - create/update가 MeetingUpsert 기반
+ * - 서버 응답은 MeetingPost 기반
+ */
 export interface MeetingApi {
   listHotMeetings(opts?: { limit?: number; withinMinutes?: number }): Promise<HotMeetingItem[]>;
   listMeetings(opts?: { category?: CategoryKey | "ALL"; sort?: HomeSort }): Promise<MeetingPost[]>;
   listMeetingsAround(lat: number, lng: number, opts?: AroundMeetingsOptions): Promise<MeetingPost[]>;
-  getMeeting(id: string): Promise<MeetingPost>;
+  getMeeting(id: Id): Promise<MeetingPost>;
 
-  createMeeting(data: MeetingParams): Promise<MeetingPost>;
-  updateMeeting(id: string, data: Partial<MeetingParams>): Promise<MeetingPost>;
-  
-  joinMeeting(id: string): Promise<{ post: MeetingPost; membershipStatus: MembershipStatus }>;
-  cancelJoin(id: string): Promise<{ post: MeetingPost }>;
-  cancelMeeting(id: string): Promise<{ post: MeetingPost }>;
+  createMeeting(data: MeetingUpsert): Promise<MeetingPost>;
+  updateMeeting(id: Id, data: Partial<MeetingUpsert>): Promise<MeetingPost>;
+
+  joinMeeting(id: Id): Promise<{ post: MeetingPost; membershipStatus: MembershipStatus }>;
+  cancelJoin(id: Id): Promise<{ post: MeetingPost }>;
+  cancelMeeting(id: Id): Promise<{ post: MeetingPost }>;
 
   // 참여자 관리
-  getParticipants(meetingId: string): Promise<Participant[]>;
-  approveParticipant(meetingId: string, userId: string): Promise<Participant[]>;
-  rejectParticipant(meetingId: string, userId: string): Promise<Participant[]>;
+  getParticipants(meetingId: Id): Promise<Participant[]>;
+  approveParticipant(meetingId: Id, userId: Id): Promise<Participant[]>;
+  rejectParticipant(meetingId: Id, userId: Id): Promise<Participant[]>;
 
-  // ✅ [NEW] 별점 평가 (이 부분이 누락되어 에러가 발생했었습니다)
-  submitMeetingRating(req: { meetingId: string; stars: number }): Promise<any>;
+  // 별점 평가
+  submitMeetingRating(req: { meetingId: Id; stars: number }): Promise<unknown>;
 }
 
-// 댓글 타입 정의
+/**
+ * 댓글 타입도 author를 UserSummary로 통일하면
+ * authorId/닉네임/avatarUrl의 중복 필드를 유지하지 않아도 되어 관리가 단순해집니다.
+ */
 export type Comment = {
-  id: string;
-  authorId: string;
-  authorNickname: string;
-  authorAvatarUrl?: string; // 작성자 프로필 이미지
+  id: Id;
   content: string;
-  createdAt: string; // ISO String
-  
-  // (옵션) 대댓글 구조 등을 위해 parentId 등을 추가할 수 있음
-  parentId?: string;
-  
-  // UI용: 작성자 객체 (DetailContent에서 사용)
-  author?: {
-    id: string;
-    nickname: string;
-    avatarUrl?: string;
-  };
+  createdAt: ISODateTimeString;
+
+  parentId?: Id;
+
+  // ✅ 통일된 author shape
+  author: UserSummary;
 };

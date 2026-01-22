@@ -1,31 +1,44 @@
-import { UserSummary } from "@/shared/model/types";
+// src/features/dm/model/types.ts
+import type { ISODateTimeString, Id, UserSummary } from "@/shared/model/types";
 
-// DMMessage 타입
+/**
+ * DMMessage 타입
+ */
 export type DMMessage = {
-  id: string;
-  threadId?: string;
+  id: Id;
+  threadId?: Id;
   type?: "TEXT" | "SYSTEM";
   text: string;
-  senderId: "me" | string;
-  createdAt: string; 
+
+  /**
+   * 기존 로직("me")을 유지하면서도, 실제 서버 id 기반으로도 동작 가능하게 합니다.
+   * - 실무에서는 senderId === myId로 판별하는 편이 더 자연스럽지만
+   *   기존 구현을 깨지 않기 위해 유니온을 유지합니다.
+   */
+  senderId: "me" | Id;
+
+  createdAt: ISODateTimeString;
   isRead: boolean;
 };
 
-// DMThread 타입
+/**
+ * DMThread 타입
+ */
 export type DMThread = {
-  id: string;
-  
-  // ✅ 공통 타입 사용 (기존에 정의했던 UserSummary와 동일)
-  otherUser: UserSummary; 
+  id: Id;
+
+  // 공통 UserSummary 사용
+  otherUser: UserSummary;
 
   lastMessage: DMMessage;
   unreadCount: number;
-  updatedAt: string;
-  createdAt?: string;
-  relatedMeetingId?: string;
+  updatedAt: ISODateTimeString;
+  createdAt?: ISODateTimeString;
+
+  relatedMeetingId?: Id;
   relatedMeetingTitle?: string;
   relatedMeeting?: {
-    id: string;
+    id: Id;
     title: string;
   };
 };

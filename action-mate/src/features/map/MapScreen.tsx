@@ -1,19 +1,8 @@
+// 📂 (예시) src/features/map/MapScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  ActivityIndicator,
-  Alert,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View, ActivityIndicator, Alert } from "react-native";
 import { useRouter } from "expo-router";
-import MapView, {
-  Circle,
-  PROVIDER_GOOGLE,
-  Region,
-  MarkerPressEvent,
-} from "react-native-maps";
+import MapView, { Circle, PROVIDER_GOOGLE, Region, MarkerPressEvent } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
@@ -22,7 +11,7 @@ import BottomSheet, { BottomSheetFlatList } from "@gorhom/bottom-sheet";
 // ✅ Shared Components & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
 import { Card } from "@/shared/ui/Card";
-import CategoryChips from "@/shared/ui/CategoryChips"; // 🔹 교체된 컴포넌트 Import
+import CategoryChips from "@/shared/ui/CategoryChips";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 // ✅ Features & API
@@ -37,13 +26,25 @@ const MAP_STYLE = [
 ];
 
 const INITIAL_REGION: Region = {
-  latitude: 37.498095, longitude: 127.02761, latitudeDelta: 0.015, longitudeDelta: 0.015,
+  latitude: 37.498095,
+  longitude: 127.02761,
+  latitudeDelta: 0.015,
+  longitudeDelta: 0.015,
 };
+
+const DEFAULT_FOCUS_DELTA = { latitudeDelta: 0.006, longitudeDelta: 0.006 };
+
+function getLatLng(m?: MeetingPost) {
+  const lat = Number((m as any)?.location?.lat);
+  const lng = Number((m as any)?.location?.lng);
+  const ok = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+  return ok ? { lat, lng } : null;
+}
 
 export default function MapScreen() {
   const t = useAppTheme();
   const router = useRouter();
-  
+
   // Refs
   const mapRef = useRef<MapView>(null);
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -68,7 +69,9 @@ export default function MapScreen() {
       if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
       setShowLoading(false);
     }
-    return () => { if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current); };
+    return () => {
+      if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
+    };
   }, [loading]);
 
   // 📡 데이터 로드
@@ -94,22 +97,28 @@ export default function MapScreen() {
           return;
         }
         setLocationPermission(true);
+
         const location = await Location.getCurrentPositionAsync({});
-        const currentRegion: Region = { 
-          latitude: location.coords.latitude, 
-          longitude: location.coords.longitude, 
-          latitudeDelta: 0.015, 
-          longitudeDelta: 0.015 
+        const currentRegion: Region = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.015,
+          longitudeDelta: 0.015,
         };
+
         regionRef.current = currentRegion;
         mapRef.current?.animateToRegion(currentRegion, 800);
         loadMeetings(currentRegion.latitude, currentRegion.longitude);
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     })();
   }, [loadMeetings]);
 
   // 🗺️ 지도 조작 핸들러
-  const onRegionChangeComplete = useCallback((r: Region) => { regionRef.current = r; }, []);
+  const onRegionChangeComplete = useCallback((r: Region) => {
+    regionRef.current = r;
+  }, []);
 
   const handleResearch = useCallback(() => {
     if (loading) return;
@@ -120,69 +129,107 @@ export default function MapScreen() {
   }, [loading, loadMeetings]);
 
   const moveToMyLocation = useCallback(async () => {
-    if (!locationPermission) { Alert.alert("권한 필요", "위치 권한 설정이 필요합니다."); return; }
+    if (!locationPermission) {
+      Alert.alert("권한 필요", "위치 권한 설정이 필요합니다.");
+      return;
+    }
     try {
       const location = await Location.getCurrentPositionAsync({});
-      const newRegion: Region = { 
-        latitude: location.coords.latitude, 
-        longitude: location.coords.longitude, 
-        latitudeDelta: 0.015, 
-        longitudeDelta: 0.015 
+      const newRegion: Region = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.015,
+        longitudeDelta: 0.015,
       };
       regionRef.current = newRegion;
       mapRef.current?.animateToRegion(newRegion, 700);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }, [locationPermission]);
 
-  // 🔍 데이터 필터링 및 선택 로직
+  // 🔍 데이터 맵핑/선택 로직
   const meetingsById = useMemo(() => {
     const map = new Map<string, MeetingPost>();
     for (const m of list) map.set(m.id, m);
     return map;
   }, [list]);
 
-  const selectedMeeting = useMemo(() => (!selectedId ? undefined : meetingsById.get(selectedId)), [meetingsById, selectedId]);
+  const selectedMeeting = useMemo(
+    () => (!selectedId ? undefined : meetingsById.get(selectedId)),
+    [meetingsById, selectedId]
+  );
 
-  const filteredList = useMemo(() => (
-    categoryFilter === "ALL" 
-      ? list 
-      : list.filter((m: MeetingPost) => m.category === categoryFilter)
-  ), [list, categoryFilter]);
+  const filteredList = useMemo(() => {
+    if (categoryFilter === "ALL") return list;
+    return list.filter((m) => m.category === categoryFilter);
+  }, [list, categoryFilter]);
+
+  // ✅ 마커도 필터 적용 (선택된 모임은 필터 밖이어도 유지)
+  const markerList = useMemo(() => {
+    if (categoryFilter === "ALL") return list;
+    const base = filteredList;
+    if (selectedMeeting && !base.some((m) => m.id === selectedMeeting.id)) {
+      return [selectedMeeting, ...base];
+    }
+    return base;
+  }, [list, filteredList, categoryFilter, selectedMeeting]);
 
   const listData = useMemo(() => (selectedMeeting ? [selectedMeeting] : filteredList), [selectedMeeting, filteredList]);
 
-  // 👆 인터랙션 핸들러
-  const goToDetail = useCallback((id: string) => { router.push(`/meetings/${id}`); }, [router]);
+  // 👆 인터랙션
+  const goToDetail = useCallback((id: string) => {
+    router.push(`/meetings/${id}`);
+  }, [router]);
 
-  const onMarkerPress = useCallback((e: MarkerPressEvent) => {
-    const native = e.nativeEvent as any;
-    const id: string | undefined = native?.id ?? native?.identifier;
-    if (!id) return;
-    setSelectedId(id);
-    Haptics.selectionAsync().catch(() => {});
-    const target = meetingsById.get(id);
-    if (!target?.locationLat || !target?.locationLng) return;
-    mapRef.current?.animateToRegion({ latitude: target.locationLat, longitude: target.locationLng, latitudeDelta: 0.006, longitudeDelta: 0.006 }, 450);
-    bottomSheetRef.current?.snapToIndex(1);
-  }, [meetingsById]);
+  const onMarkerPress = useCallback(
+    (e: MarkerPressEvent) => {
+      const native = e.nativeEvent as any;
+      const id: string | undefined = native?.id ?? native?.identifier;
+      if (!id) return;
 
-  const onMapPress = useCallback(() => { setSelectedId(null); bottomSheetRef.current?.snapToIndex(0); }, []);
+      setSelectedId(id);
+      Haptics.selectionAsync().catch(() => {});
+
+      const target = meetingsById.get(id);
+      const pos = getLatLng(target);
+      if (!pos) return;
+
+      mapRef.current?.animateToRegion(
+        { latitude: pos.lat, longitude: pos.lng, ...DEFAULT_FOCUS_DELTA },
+        450
+      );
+      bottomSheetRef.current?.snapToIndex(1);
+    },
+    [meetingsById]
+  );
+
+  const onMapPress = useCallback(() => {
+    setSelectedId(null);
+    bottomSheetRef.current?.snapToIndex(0);
+  }, []);
 
   const onSelectFromList = useCallback((m: MeetingPost) => {
     setSelectedId(m.id);
-    if (m.locationLat && m.locationLng) {
-      mapRef.current?.animateToRegion({ latitude: m.locationLat, longitude: m.locationLng, latitudeDelta: 0.006, longitudeDelta: 0.006 }, 450);
-    }
+    const pos = getLatLng(m);
+    if (!pos) return;
+    mapRef.current?.animateToRegion({ latitude: pos.lat, longitude: pos.lng, ...DEFAULT_FOCUS_DELTA }, 450);
   }, []);
 
   // 🎨 선택된 마커 하이라이트 원
   const selectedCircle = useMemo(() => {
-    if (!selectedMeeting?.locationLat || !selectedMeeting?.locationLng) return null;
+    const pos = getLatLng(selectedMeeting);
+    if (!pos || !selectedMeeting) return null;
+
     const meta = getCategoryMeta(selectedMeeting.category);
     return (
       <Circle
-        center={{ latitude: selectedMeeting.locationLat, longitude: selectedMeeting.locationLng }}
-        radius={70} strokeWidth={2} strokeColor={meta.color} fillColor={`${meta.color}33`} zIndex={998}
+        center={{ latitude: pos.lat, longitude: pos.lng }}
+        radius={70}
+        strokeWidth={2}
+        strokeColor={meta.color}
+        fillColor={`${meta.color}33`}
+        zIndex={998}
       />
     );
   }, [selectedMeeting]);
@@ -192,28 +239,36 @@ export default function MapScreen() {
       <View style={styles.container}>
         {/* 🗺️ 지도 뷰 */}
         <MapView
-          ref={mapRef} 
-          provider={PROVIDER_GOOGLE} 
-          style={styles.map} 
-          initialRegion={INITIAL_REGION} 
+          ref={mapRef}
+          provider={PROVIDER_GOOGLE}
+          style={styles.map}
+          initialRegion={INITIAL_REGION}
           customMapStyle={MAP_STYLE}
-          onRegionChangeComplete={onRegionChangeComplete} 
-          onPress={onMapPress} 
-          showsUserLocation 
+          onRegionChangeComplete={onRegionChangeComplete}
+          onPress={onMapPress}
+          showsUserLocation
           showsMyLocationButton={false}
-          mapPadding={{ top: 20, right: 0, bottom: 160, left: 0 }} 
+          mapPadding={{ top: 20, right: 0, bottom: 160, left: 0 }}
           moveOnMarkerPress={false}
         >
           {selectedCircle}
-          {list.map((m: MeetingPost) => (
+          {markerList.map((m) => (
             <MapMarker key={m.id} meeting={m} selected={selectedId === m.id} onPress={onMarkerPress} />
           ))}
         </MapView>
 
         {/* 🔄 재검색 버튼 */}
         <View style={styles.topContainer}>
-          <Pressable onPress={handleResearch} style={({ pressed }) => [styles.pillBtn, { backgroundColor: t.colors.surface, opacity: pressed ? 0.9 : 1 }]}>
-            {showLoading ? <ActivityIndicator size="small" color={t.colors.primary} /> : (
+          <Pressable
+            onPress={handleResearch}
+            style={({ pressed }) => [
+              styles.pillBtn,
+              { backgroundColor: t.colors.surface, opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            {showLoading ? (
+              <ActivityIndicator size="small" color={t.colors.primary} />
+            ) : (
               <View style={styles.rowCenter}>
                 <Ionicons name="refresh" size={16} color={t.colors.primary} />
                 <Text style={[t.typography.labelMedium, { color: t.colors.primary }]}>이 지역 재검색</Text>
@@ -229,27 +284,25 @@ export default function MapScreen() {
           </Pressable>
         </View>
 
-        {/* 📜 바텀 시트 (리스트) */}
-        <BottomSheet 
-          ref={bottomSheetRef} 
-          index={0} 
-          snapPoints={snapPoints} 
-          enablePanDownToClose={false} 
-          backgroundStyle={{ backgroundColor: t.colors.surface }} 
+        {/* 📜 바텀 시트 */}
+        <BottomSheet
+          ref={bottomSheetRef}
+          index={0}
+          snapPoints={snapPoints}
+          enablePanDownToClose={false}
+          backgroundStyle={{ backgroundColor: t.colors.surface }}
           handleIndicatorStyle={{ backgroundColor: t.colors.overlay[12] }}
         >
-          {/* 🔹 1. 카테고리 칩 (교체됨) */}
+          {/* 1) 카테고리 칩 */}
           <CategoryChips value={categoryFilter} onChange={setCategoryFilter} />
 
-          {/* 🔹 2. 선택된 모임 헤더 (조건부 렌더링) */}
+          {/* 2) 선택 헤더 */}
           {selectedMeeting && (
             <View style={[styles.selectedInfoBar, { borderBottomColor: t.colors.border }]}>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                선택한 모임 1개 표시 중
-              </Text>
-              <Pressable 
-                onPress={() => setSelectedId(null)} 
-                hitSlop={10} 
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>선택한 모임 1개 표시 중</Text>
+              <Pressable
+                onPress={() => setSelectedId(null)}
+                hitSlop={10}
                 style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
               >
                 <Text style={[t.typography.labelSmall, { color: t.colors.primary, fontWeight: "800" }]}>
@@ -259,15 +312,15 @@ export default function MapScreen() {
             </View>
           )}
 
-          {/* 🔹 3. 모임 리스트 */}
+          {/* 3) 리스트 */}
           <BottomSheetFlatList
-            data={listData} 
-            keyExtractor={(m: any) => m.id} 
+            data={listData}
+            keyExtractor={(m: any) => String(m.id)}
             contentContainerStyle={{ paddingVertical: 12 }}
             renderItem={({ item }: { item: MeetingPost }) => (
-              <Pressable 
-                onPress={() => goToDetail(item.id)} 
-                onLongPress={() => onSelectFromList(item)} 
+              <Pressable
+                onPress={() => goToDetail(item.id)}
+                onLongPress={() => onSelectFromList(item)}
                 style={({ pressed }) => [{ opacity: pressed ? 0.92 : 1 }]}
               >
                 <MapListRow t={t} item={item} selected={item.id === selectedId} />
@@ -275,7 +328,7 @@ export default function MapScreen() {
             )}
             ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
             ListEmptyComponent={
-              <View style={{ padding: 20, alignItems: 'center' }}>
+              <View style={{ padding: 20, alignItems: "center" }}>
                 <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>
                   주변에 조건에 맞는 모임이 없어요.
                 </Text>
@@ -289,19 +342,35 @@ export default function MapScreen() {
 }
 
 // ✅ 하위 컴포넌트 (MapListRow)
-function MapListRow({ t, item, selected }: { t: ReturnType<typeof useAppTheme>; item: MeetingPost; selected: boolean; }) {
+function MapListRow({
+  t,
+  item,
+  selected,
+}: {
+  t: ReturnType<typeof useAppTheme>;
+  item: MeetingPost;
+  selected: boolean;
+}) {
   const meta = getCategoryMeta(item.category);
   return (
     <Card style={[styles.rowCard, { borderColor: selected ? meta.color : t.colors.border, backgroundColor: t.colors.surface }]}>
       <View style={styles.rowTop}>
         <Ionicons name={meta.icon} size={14} color={meta.color} />
         <Text style={[t.typography.labelSmall, { color: meta.color, fontWeight: "800" }]}>{meta.label}</Text>
-        {item.distanceText ? <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>· {item.distanceText}</Text> : null}
+        {item.distanceText ? (
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>· {item.distanceText}</Text>
+        ) : null}
       </View>
-      <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>{item.title}</Text>
+
+      <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
+        {item.title}
+      </Text>
+
       <View style={styles.rowLoc}>
         <Ionicons name="location-outline" size={14} color={t.colors.textSub} />
-        <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>{item.locationText}</Text>
+        <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
+          {item.location?.name ?? ""}
+        </Text>
       </View>
     </Card>
   );
@@ -309,31 +378,45 @@ function MapListRow({ t, item, selected }: { t: ReturnType<typeof useAppTheme>; 
 
 // 🎨 Styles
 const styles = StyleSheet.create({
-  container: { flex: 1 }, 
-  map: { width: "100%", height: "100%" }, 
+  container: { flex: 1 },
+  map: { width: "100%", height: "100%" },
   rowCenter: { flexDirection: "row", alignItems: "center", gap: 6 },
-  
+
   // Floating Buttons
   topContainer: { position: "absolute", top: 60, alignSelf: "center", zIndex: 30 },
-  pillBtn: { 
-    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, 
-    elevation: 6, shadowColor: "#000", shadowOpacity: 0.15, 
-    shadowRadius: 4, shadowOffset: { width: 0, height: 2 } 
+  pillBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
   myLocationWrapper: { position: "absolute", right: 16, top: 120, zIndex: 30 },
-  iconBtn: { 
-    width: 44, height: 44, borderRadius: 22, 
-    alignItems: "center", justifyContent: "center", 
-    elevation: 5, shadowColor: "#000", shadowOpacity: 0.2, 
-    shadowRadius: 4 
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
 
   // BottomSheet Inner Styles
-  selectedInfoBar: { 
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1 
+  selectedInfoBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
   },
-  
+
   // List Row
   rowCard: { marginHorizontal: 16, padding: 14, borderRadius: 16, borderWidth: 1 },
   rowTop: { flexDirection: "row", alignItems: "center", gap: 6 },
