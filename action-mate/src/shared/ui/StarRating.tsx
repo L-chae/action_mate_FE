@@ -19,10 +19,15 @@ export default function StarRating({
   const t = useAppTheme();
   const stars = useMemo(() => [1, 2, 3, 4, 5], []);
 
+  const filledColor = t.colors.primary;
+  const emptyColor = t.colors.icon.muted;
+  const disabledOpacity = 0.45;
+
   return (
     <View style={styles.row}>
       {stars.map((s) => {
         const filled = s <= value;
+
         return (
           <Pressable
             key={s}
@@ -30,14 +35,14 @@ export default function StarRating({
             onPress={() => onChange(s)}
             style={({ pressed }) => [
               styles.starHit,
-              { opacity: disabled ? 0.5 : pressed ? 0.7 : 1 },
+              { opacity: disabled ? disabledOpacity : pressed ? 0.7 : 1 },
             ]}
             hitSlop={10}
           >
             <Ionicons
               name={filled ? "star" : "star-outline"}
               size={size}
-              color={filled ? t.colors.primary : t.colors.icon.muted}
+              color={filled ? filledColor : emptyColor}
             />
           </Pressable>
         );
@@ -48,5 +53,5 @@ export default function StarRating({
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center" },
-  starHit: { paddingHorizontal: 2, paddingVertical: 4 },
+  starHit: { paddingHorizontal: 3, paddingVertical: 4 },
 });

@@ -56,6 +56,42 @@ const ensureParticipants = (meetingId: string) => {
         status: "MEMBER",
         appliedAt: new Date(Date.now() - 7200000).toISOString(),
       },
+      {
+        id: "u_wait_3",
+        nickname: "카페러버",
+        avatarUrl: "https://i.pravatar.cc/150?u=wait3",
+        status: "PENDING",
+        appliedAt: new Date(Date.now() - 8200000).toISOString(),
+      },
+      {
+        id: "u_wait_4",
+        nickname: "집중모드ON",
+        avatarUrl: "https://i.pravatar.cc/150?u=wait4",
+        status: "PENDING",
+        appliedAt: new Date(Date.now() - 6300000).toISOString(),
+      },
+      {
+        id: "u_wait_5",
+        nickname: "야근러",
+        avatarUrl: "https://i.pravatar.cc/150?u=wait5",
+        status: "PENDING",
+        appliedAt: new Date(Date.now() - 1120000).toISOString(),
+      },
+      {
+        id: "u_wait_6",
+        nickname: "알고리즘덕후",
+        avatarUrl: "https://i.pravatar.cc/150?u=wait6",
+        status: "PENDING",
+        appliedAt: new Date(Date.now() - 5200000).toISOString(),
+      },
+      {
+        id: "u_wait_7",
+        nickname: "버그사냥꾼",
+        avatarUrl: "https://i.pravatar.cc/150?u=wait7",
+        status: "PENDING",
+        appliedAt: new Date(Date.now() - 3200000).toISOString(),
+      },
+      
     ];
   }
 };
