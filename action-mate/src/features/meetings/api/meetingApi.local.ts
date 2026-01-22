@@ -7,50 +7,36 @@ import type {
   SubmitMeetingRatingRes,
 } from "./meetingApi";
 
-// ✅ Local State Deep Copy (원본 보호)
 let _DATA: MeetingPost[] = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
 
-// ✅ 참여자 더미 데이터 저장소
 const _PARTICIPANTS: Record<string, Participant[]> = {};
 
-// ✅ 평가 더미 저장소(모임별 마지막 별점)
-// - 실제 서버에서는 (meetingId, userId)로 1회 평가 + 집계
 const _MEETING_LAST_STARS: Record<string, number> = {};
 
-// ----------------------------------------------------------------------
-// ✅ Mock Data Debug Helpers
-// - myApi 등 다른 mock layer에서 "현재 모임 seed"를 조회/리셋/주입할 때 사용.
-// - export 가 있어야 번들에서 meetingApiLocal.__getMockDataUnsafe 로 접근 가능.
-// ----------------------------------------------------------------------
-
-/** ⚠️ 개발/목업용: 현재 _DATA 참조를 그대로 반환(외부 mutate 가능) */
 export function __getMockDataUnsafe(): MeetingPost[] {
   return _DATA;
 }
 
-/** 개발/목업용: _DATA를 seed 상태로 리셋 */
 export function __resetMockData(): void {
   _DATA = JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED));
   for (const k of Object.keys(_PARTICIPANTS)) delete _PARTICIPANTS[k];
   for (const k of Object.keys(_MEETING_LAST_STARS)) delete _MEETING_LAST_STARS[k];
 }
 
-/** 개발/목업용: _DATA를 외부에서 주입(주입 시 deep copy로 원본 보호) */
 export function __setMockData(next: MeetingPost[]): void {
   _DATA = JSON.parse(JSON.stringify(next));
   for (const k of Object.keys(_PARTICIPANTS)) delete _PARTICIPANTS[k];
   for (const k of Object.keys(_MEETING_LAST_STARS)) delete _MEETING_LAST_STARS[k];
 }
 
-// --- Helpers ---
 const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 const toTimeMs = (iso?: string) => (iso ? new Date(iso).getTime() : Number.MAX_SAFE_INTEGER);
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
 const starsToTemp = (stars: number) => {
-  // 0~5 → 32~42 (총 10도)
-  const s = clamp(stars, 0, 5);
+
+ const s = clamp(stars, 0, 5);
   return 32 + (s / 5) * 10;
 };
 
@@ -110,14 +96,12 @@ function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: numbe
     if (sort === "SOON") {
       return toTimeMs(a.meetingTime) - toTimeMs(b.meetingTime);
     }
-    // LATEST (ID 역순)
+
     return String(b.id).localeCompare(String(a.id));
   });
 }
 
-// ✅ Mock Implementation
 export const meetingApiLocal: MeetingApi = {
-  // 1. Hot Items
   async listHotMeetings({ limit = 6, withinMinutes = 180 } = {}) {
     await delay();
     const now = Date.now();
@@ -137,15 +121,11 @@ export const meetingApiLocal: MeetingApi = {
         capacityTotal: m.capacityTotal,
       }));
   },
-
-  // 2. List
   async listMeetings({ category = "ALL", sort = "LATEST" } = {}) {
     await delay();
     const list = category === "ALL" ? _DATA : _DATA.filter((m) => m.category === category);
     return sortList(list, sort);
   },
-
-  // 3. Around
   async listMeetingsAround(lat, lng, { radiusKm = 3, category = "ALL", sort = "NEAR" } = {}) {
     await delay();
     let candidates = _DATA.filter((m) => m.locationLat && m.locationLng);
@@ -265,7 +245,6 @@ export const meetingApiLocal: MeetingApi = {
     const target = list.find((p) => p.userId === userId);
     if (target) {
       target.status = "MEMBER";
-      // 승인 시 인원 증가
       const mIdx = _DATA.findIndex((m) => m.id === meetingId);
       if (mIdx > -1) _DATA[mIdx].capacityJoined++;
     }
@@ -281,8 +260,6 @@ export const meetingApiLocal: MeetingApi = {
     if (target) target.status = "REJECTED";
     return [...list];
   },
-
-  // ✅ 모임 평가(별점) 추가
   async submitMeetingRating(req: SubmitMeetingRatingReq): Promise<SubmitMeetingRatingRes> {
     await delay(500);
 
@@ -294,14 +271,12 @@ export const meetingApiLocal: MeetingApi = {
 
     _MEETING_LAST_STARS[meetingId] = stars;
 
-    // hostUserId 안전 추출
     const hostAny = (_DATA[idx] as any).host;
     const hostUserId =
       String(hostAny?.userId ?? hostAny?.id ?? hostAny?.memberId ?? "host");
 
     const hostTemperature = starsToTemp(stars);
 
-    // (선택) mock에서 host 온도를 같이 업데이트해두면 화면에서 바로 반영 가능
     if (_DATA[idx] && (_DATA[idx] as any).host) {
       (_DATA[idx] as any).host = {
         ...(_DATA[idx] as any).host,
@@ -316,6 +291,4 @@ export const meetingApiLocal: MeetingApi = {
     };
   },
 };
-
-// (선택) default export도 같이 제공하면 import 형태가 섞여도 안전해집니다.
 export default meetingApiLocal;

@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -47,8 +47,11 @@ type RatingSheetState =
 
 export default function NotificationsScreen() {
   const t = useAppTheme();
+  const s = t.spacing;
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  const styles = useMemo(() => makeStyles(t), [t]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -56,7 +59,7 @@ export default function NotificationsScreen() {
   // ✅ 섹션 1: 호스트 참여 신청
   const [hostItems, setHostItems] = useState<HostNotiItem[]>([]);
 
-  // ✅ 섹션 2: 참여자 모임 평가(제목만)
+  // ✅ 섹션 2: 참여자 모임 평가
   const [ratingItems, setRatingItems] = useState<RatingNotiItem[]>([]);
 
   // ✅ 평가 모달 상태
@@ -68,7 +71,6 @@ export default function NotificationsScreen() {
     () => hostItems.reduce((sum, it) => sum + it.pendingCount, 0),
     [hostItems]
   );
-
   const totalRating = useMemo(() => ratingItems.length, [ratingItems]);
 
   const closeSheet = useCallback(() => {
@@ -122,9 +124,7 @@ export default function NotificationsScreen() {
 
       // =========================
       // 2) 모임 평가(참여자용)
-      // - 리스트: 제목만
-      // - 누르면 "가운데 모달"로 평가
-      // 조건: ENDED + 내가 MEMBER + 아직 평가 안함
+      // - ENDED + MEMBER + 아직 평가 안함
       // =========================
       const candidates = all.filter((m: MeetingPost) => {
         const statusAny = (m as any).status;
@@ -141,7 +141,7 @@ export default function NotificationsScreen() {
           return {
             meetingId,
             title: m.title,
-            subtitle: m.locationText || undefined,
+            subtitle: (m as any).locationText || undefined,
           } as RatingNotiItem;
         })
       );
@@ -185,24 +185,25 @@ export default function NotificationsScreen() {
       setRatingLoading(true);
 
       await meetingApi.submitMeetingRating({ meetingId: sheet.meetingId, stars });
-
       await AsyncStorage.setItem(ratingDoneKey(sheet.meetingId), "1");
 
       setRatingItems((prev) => prev.filter((it) => it.meetingId !== sheet.meetingId));
 
-      setRatingLoading(false);
       setSheet({ open: false });
       setStars(0);
 
       Alert.alert("평가 완료", "소중한 평가가 반영됐어요!");
     } catch (e: any) {
-      setRatingLoading(false);
       Alert.alert("평가 실패", e?.message ?? "잠시 후 다시 시도해 주세요.");
+    } finally {
+      setRatingLoading(false);
     }
   }, [sheet, stars]);
 
   return (
     <AppLayout padded={false}>
+      <Stack.Screen options={{ headerShown: false }} />
+
       <TopBar
         title="알림"
         showBack
@@ -210,7 +211,7 @@ export default function NotificationsScreen() {
         showBorder
         showNoti={false}
         renderRight={() => (
-          <Pressable onPress={onRefresh} hitSlop={10} style={{ padding: 4 }}>
+          <Pressable onPress={onRefresh} hitSlop={10} style={{ padding: s.space[1] }}>
             <Ionicons name="refresh" size={22} color={t.colors.textMain} />
           </Pressable>
         )}
@@ -219,8 +220,9 @@ export default function NotificationsScreen() {
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={{
-          padding: 16,
-          paddingBottom: Math.max(16, insets.bottom),
+          paddingHorizontal: s.pagePaddingH,
+          paddingTop: s.space[4], // 기존 16 유지(토큰)
+          paddingBottom: Math.max(s.space[4], insets.bottom),
           flexGrow: 1,
         }}
       >
@@ -231,15 +233,10 @@ export default function NotificationsScreen() {
         ) : empty ? (
           <View style={[styles.emptyBox, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
             <Ionicons name="checkmark-circle-outline" size={28} color={t.colors.textSub} />
-            <Text style={[t.typography.titleSmall, { marginTop: 10, color: t.colors.textMain }]}>
+            <Text style={[t.typography.titleSmall, { marginTop: s.space[2], color: t.colors.textMain }]}>
               지금 확인할 알림이 없어요
             </Text>
-            <Text
-              style={[
-                t.typography.bodySmall,
-                { marginTop: 6, color: t.colors.textSub, textAlign: "center" },
-              ]}
-            >
+            <Text style={[t.typography.bodySmall, { marginTop: s.space[1], color: t.colors.textSub, textAlign: "center" }]}>
               새 참여 신청이나 평가 요청이 들어오면 여기에 표시됩니다.
             </Text>
           </View>
@@ -253,24 +250,29 @@ export default function NotificationsScreen() {
                     styles.summary,
                     {
                       backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.08),
-                      borderColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.30 : 0.22),
+                      borderColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.3 : 0.22),
                     },
                   ]}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Ionicons name="notifications-outline" size={18} color={t.colors.primary} style={{ marginRight: 8 }} />
+                    <Ionicons
+                      name="notifications-outline"
+                      size={18}
+                      color={t.colors.primary}
+                      style={{ marginRight: s.space[2] }}
+                    />
                     <Text style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]} numberOfLines={1}>
                       참여 신청
                     </Text>
                   </View>
 
-                  <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 8 }]}>
+                  <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: s.space[2] }]}>
                     대기 중 신청 {totalPending}건
                   </Text>
                 </View>
 
-                <View style={{ marginTop: 12, gap: 10 }}>
-                  {hostItems.map((it) => (
+                <View style={{ marginTop: s.space[3] }}>
+                  {hostItems.map((it, idx) => (
                     <Pressable
                       key={it.meetingId}
                       onPress={() =>
@@ -285,6 +287,7 @@ export default function NotificationsScreen() {
                           backgroundColor: t.colors.surface,
                           borderColor: t.colors.border,
                           opacity: pressed ? 0.9 : 1,
+                          marginBottom: idx === hostItems.length - 1 ? 0 : s.space[2],
                         },
                       ]}
                     >
@@ -292,23 +295,23 @@ export default function NotificationsScreen() {
                         <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
                           {it.title}
                         </Text>
-                        <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
+                        <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: s.space[1] }]}>
                           대기 {it.pendingCount}명
                         </Text>
                       </View>
 
                       <View style={[styles.badge, { backgroundColor: t.colors.error }]}>
-                        <Text style={{ color: "white", fontSize: 12, fontWeight: "900" }}>
+                        <Text style={[t.typography.labelSmall, { color: t.colors.neutral[50], fontWeight: "900" }]}>
                           {it.pendingCount > 99 ? "99+" : it.pendingCount}
                         </Text>
                       </View>
 
-                      <Ionicons name="chevron-forward" size={20} color={t.colors.textSub} style={{ marginLeft: 8 }} />
+                      <Ionicons name="chevron-forward" size={20} color={t.colors.textSub} style={{ marginLeft: s.space[2] }} />
                     </Pressable>
                   ))}
                 </View>
 
-                <View style={{ height: 18 }} />
+                <View style={{ height: s.space[4] }} />
               </>
             )}
 
@@ -318,18 +321,18 @@ export default function NotificationsScreen() {
                 styles.summary,
                 {
                   backgroundColor: withAlpha(t.colors.success, t.mode === "dark" ? 0.18 : 0.08),
-                  borderColor: withAlpha(t.colors.success, t.mode === "dark" ? 0.30 : 0.22),
+                  borderColor: withAlpha(t.colors.success, t.mode === "dark" ? 0.3 : 0.22),
                 },
               ]}
             >
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Ionicons name="star-outline" size={18} color={t.colors.success} style={{ marginRight: 8 }} />
+                <Ionicons name="star-outline" size={18} color={t.colors.success} style={{ marginRight: s.space[2] }} />
                 <Text style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]} numberOfLines={1}>
                   모임 평가
                 </Text>
               </View>
 
-              <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 8 }]}>
+              <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: s.space[2] }]}>
                 평가할 모임 {totalRating}건
               </Text>
             </View>
@@ -339,8 +342,8 @@ export default function NotificationsScreen() {
                 <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>평가할 모임이 없어요.</Text>
               </View>
             ) : (
-              <View style={{ marginTop: 12, gap: 10 }}>
-                {ratingItems.map((it) => (
+              <View style={{ marginTop: s.space[3] }}>
+                {ratingItems.map((it, idx) => (
                   <Pressable
                     key={it.meetingId}
                     onPress={() => openRatingSheet(it)}
@@ -350,6 +353,7 @@ export default function NotificationsScreen() {
                         backgroundColor: t.colors.surface,
                         borderColor: t.colors.border,
                         opacity: pressed ? 0.9 : 1,
+                        marginBottom: idx === ratingItems.length - 1 ? 0 : s.space[2],
                       },
                     ]}
                   >
@@ -357,12 +361,12 @@ export default function NotificationsScreen() {
                       <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
                         {it.title}
                       </Text>
-                      <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
+                      <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: s.space[1] }]}>
                         눌러서 평가하기
                       </Text>
                     </View>
 
-                    <Ionicons name="chevron-forward" size={20} color={t.colors.textSub} style={{ marginLeft: 8 }} />
+                    <Ionicons name="chevron-forward" size={20} color={t.colors.textSub} style={{ marginLeft: s.space[2] }} />
                   </Pressable>
                 ))}
               </View>
@@ -371,61 +375,36 @@ export default function NotificationsScreen() {
         )}
       </ScrollView>
 
-      {/* =======================================================
-          ✅ 평가 모달: 가운데 카드 (스샷처럼)
-         ======================================================= */}
+      {/* ✅ 평가 모달: 가운데 카드 */}
       <Modal transparent visible={sheet.open} animationType="fade" onRequestClose={closeSheet}>
         <View style={styles.modalWrap}>
-          {/* backdrop */}
-          <Pressable
-            style={[
-              styles.backdrop,
-              { backgroundColor: withAlpha("#000", t.mode === "dark" ? 0.65 : 0.45) as any },
-            ]}
-            onPress={closeSheet}
-          />
+          <Pressable style={[styles.backdrop, { backgroundColor: t.colors.scrim }]} onPress={closeSheet} />
 
-          {/* dialog */}
-          <View
-            style={[
-              styles.dialog,
-              {
-                backgroundColor: t.colors.surface,
-                borderColor: t.colors.border,
-              },
-            ]}
-          >
-            {/* close */}
+          <View style={[styles.dialog, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
             <Pressable onPress={closeSheet} hitSlop={10} style={styles.dialogClose}>
               <Ionicons name="close" size={20} color={t.colors.textMain} />
             </Pressable>
 
-            {/* title row */}
-            <View style={styles.dialogTitleRow}>
-              <Ionicons name="notifications" size={14} color={t.colors.textSub} style={{ marginRight: 6 }} />
+            <View style={[styles.dialogTitleRow, { paddingHorizontal: s.space[6] }]}>
+              <Ionicons name="notifications" size={14} color={t.colors.textSub} style={{ marginRight: s.space[1] }} />
               <Text style={[t.typography.labelMedium, { color: t.colors.textSub }]} numberOfLines={1}>
                 {sheet.open ? sheet.title : ""}
               </Text>
             </View>
 
-            <Text style={[t.typography.titleMedium, { color: t.colors.textMain, textAlign: "center", marginTop: 6 }]}>
+            <Text style={[t.typography.titleMedium, { color: t.colors.textMain, textAlign: "center", marginTop: s.space[2] }]}>
               오늘 모임 어떠셨나요?
             </Text>
 
-            <Text
-              style={[
-                t.typography.bodySmall,
-                { color: t.colors.textSub, textAlign: "center", marginTop: 8 },
-              ]}
-            >
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, textAlign: "center", marginTop: s.space[2] }]}>
               별점으로 모임을 평가해 주세요.
             </Text>
 
-            <View style={{ marginTop: 12, alignItems: "center" }}>
+            <View style={{ marginTop: s.space[3], alignItems: "center" }}>
               <StarRating value={stars} onChange={setStars} size={30} disabled={ratingLoading} />
             </View>
 
-            <View style={{ marginTop: 14 }}>
+            <View style={{ marginTop: s.space[3] }}>
               <Button
                 title={ratingLoading ? "전송 중..." : "평가 완료"}
                 onPress={onSubmitRating}
@@ -440,85 +419,87 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  centerGrow: { flex: 1, justifyContent: "center", alignItems: "center" },
+function makeStyles(t: ReturnType<typeof useAppTheme>) {
+  const s = t.spacing;
 
-  summary: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-  },
+  return StyleSheet.create({
+    centerGrow: { flex: 1, justifyContent: "center", alignItems: "center" },
 
-  emptyBox: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 22,
-    paddingHorizontal: 16,
-    alignItems: "center",
-  },
+    summary: {
+      borderWidth: s.borderWidth,
+      borderRadius: s.radiusLg,
+      padding: s.space[3], // 12 (토큰)
+    },
 
-  sectionEmpty: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    alignItems: "center",
-  },
+    emptyBox: {
+      marginTop: s.space[3],
+      borderWidth: s.borderWidth,
+      borderRadius: s.radiusLg,
+      paddingVertical: s.space[6], // 24
+      paddingHorizontal: s.pagePaddingH,
+      alignItems: "center",
+    },
 
-  cardRow: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    flexDirection: "row",
-    alignItems: "center",
-  },
+    sectionEmpty: {
+      marginTop: s.space[3],
+      borderWidth: s.borderWidth,
+      borderRadius: s.radiusLg,
+      paddingVertical: s.space[3],
+      paddingHorizontal: s.space[3],
+      alignItems: "center",
+    },
 
-  badge: {
-    minWidth: 28,
-    height: 28,
-    paddingHorizontal: 8,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 10,
-  },
+    cardRow: {
+      borderWidth: s.borderWidth,
+      borderRadius: s.radiusLg,
+      paddingHorizontal: s.space[3],
+      paddingVertical: s.space[3],
+      flexDirection: "row",
+      alignItems: "center",
+    },
 
-  // ===== Modal (Centered dialog) =====
-  modalWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+    badge: {
+      minWidth: s.space[7], // 28
+      height: s.space[7],
+      paddingHorizontal: s.space[2],
+      borderRadius: 999,
+      alignItems: "center",
+      justifyContent: "center",
+      marginLeft: s.space[2],
+    },
 
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
+    modalWrap: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+    },
 
-  dialog: {
-    width: "86%",
-    maxWidth: 420,
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 14,
-  },
+    backdrop: {
+      ...StyleSheet.absoluteFillObject,
+    },
 
-  dialogClose: {
-    position: "absolute",
-    right: 10,
-    top: 10,
-    padding: 6,
-    zIndex: 10,
-  },
+    dialog: {
+      width: "86%",
+      maxWidth: 420,
+      borderWidth: s.borderWidth,
+      borderRadius: s.radiusXl,
+      paddingHorizontal: s.pagePaddingH,
+      paddingTop: s.space[3],
+      paddingBottom: s.space[3],
+    },
 
-  dialogTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-});
+    dialogClose: {
+      position: "absolute",
+      right: s.space[2],
+      top: s.space[2],
+      padding: s.space[1],
+      zIndex: 10,
+    },
+
+    dialogTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+  });
+}
