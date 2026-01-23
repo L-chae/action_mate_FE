@@ -1,5 +1,4 @@
 // 📂 src/features/map/ui/MapMarker.tsx
-
 import React, { useMemo } from "react";
 import { Marker, MarkerPressEvent } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,7 +11,10 @@ const CATEGORY_META = {
   MEAL: { color: "#FF9F43", icon: "restaurant" as const, label: "식사" },
   STUDY: { color: "#2ECC71", icon: "book" as const, label: "스터디" },
   ETC: { color: "#95A5A6", icon: "ellipsis-horizontal" as const, label: "기타" },
-} satisfies Record<CategoryKey, { color: string; icon: keyof typeof Ionicons.glyphMap; label: string }>;
+} satisfies Record<
+  CategoryKey,
+  { color: string; icon: keyof typeof Ionicons.glyphMap; label: string }
+>;
 
 export function getCategoryMeta(key: CategoryKey) {
   return CATEGORY_META[key] ?? CATEGORY_META.ETC;
@@ -24,13 +26,25 @@ type Props = {
   onPress: (e: MarkerPressEvent) => void;
 };
 
+// ✅ 통일 Shape 대응: meeting.location.{lat,lng}
+const DEFAULT_COORD = { latitude: 37.5665, longitude: 126.978 };
+
+function toCoord(m: MeetingPost) {
+  const latRaw = (m as any)?.location?.lat;
+  const lngRaw = (m as any)?.location?.lng;
+
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+
+  // 0/NaN/Infinity 등은 지도에서 튀는 포인트가 될 수 있어 기본값으로 방어
+  const isValid = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+
+  return isValid ? { latitude: lat, longitude: lng } : DEFAULT_COORD;
+}
+
 // ✅ 메모이제이션된 마커 컴포넌트
 export const MapMarker = React.memo(function MapMarker({ meeting: m, selected, onPress }: Props) {
-  const coordinate = useMemo(() => ({
-    latitude: m.locationLat ?? 37.5665, // Default fallback
-    longitude: m.locationLng ?? 126.9780,
-  }), [m.locationLat, m.locationLng]);
-
+  const coordinate = useMemo(() => toCoord(m), [m]);
   const meta = getCategoryMeta(m.category);
 
   return (

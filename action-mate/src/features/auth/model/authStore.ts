@@ -43,51 +43,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
 
   hydrateFromStorage: async () => {
-    // 1. 개발 모드: 시드 데이터 확인 (필요시)
-    if (__DEV__) {
-      await seedMockUsers(); 
-    }
-
     try {
-      // 2. 토큰 존재 확인
       const token = await getAccessToken();
-      
-      // 토큰이 없으면
-      if (!token) {
-        if (USE_MOCK) {
-          await tryAutoMockLogin(set);
-        } else {
-          set({ hasHydrated: true, isLoggedIn: false, user: null });
-        }
+      const lastLoginId = await authApi.getCurrentLoginId();
+
+      // 토큰이나 ID가 하나라도 없으면 => 비로그인 상태로 시작 (에러 아님)
+      if (!token || !lastLoginId) {
+        set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
       }
 
-      // 3. 마지막 로그인 ID 확인
-      const lastLoginId = await authApi.getCurrentLoginId();
-      if (!lastLoginId) {
-        // 토큰은 있는데 ID를 모르면 로그아웃 처리
-        throw new Error("No saved login ID");
-      }
-
-      // 4. 유저 정보 최신화 (서버/로컬 조회)
+      // 서버에서 유저 정보 조회 시도
       const user = await authApi.getUserByLoginId(lastLoginId);
+      
       if (!user) {
-        throw new Error("User not found");
+        // 토큰은 있는데 유저 정보가 안 긁히면 => 만료된 것으로 간주하고 로그아웃
+        console.warn("User info not found, clearing session.");
+        await clearAuthTokens(); // 토큰 삭제
+        set({ hasHydrated: true, isLoggedIn: false, user: null });
+        return;
       }
 
-      // 5. 성공: 상태 복구
+      // 성공
       set({ hasHydrated: true, isLoggedIn: true, user });
 
     } catch (e) {
-      console.log("⚠️ 세션 복구 실패:", e);
-      // 복구 실패 시
-      if (USE_MOCK) {
-        await tryAutoMockLogin(set);
-      } else {
-        await clearAuthTokens();
-        await authApi.clearCurrentLoginId();
-        set({ hasHydrated: true, isLoggedIn: false, user: null });
-      }
+      console.log("⚠️ 세션 복구 중 에러 (로그아웃 처리됨):", e);
+      await clearAuthTokens();
+      set({ hasHydrated: true, isLoggedIn: false, user: null });
     }
   },
 

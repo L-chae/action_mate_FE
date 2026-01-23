@@ -1,62 +1,87 @@
-import React, { useEffect, useState, useCallback } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
+  Platform,
   RefreshControl,
-  ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   View,
-  ActivityIndicator,
-  Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 
-import TopBar from "@/shared/ui/TopBar";
-import AppLayout from "@/shared/ui/AppLayout";
-import { Card } from "@/shared/ui/Card";
-import { Badge } from "@/shared/ui/Badge";
-import { Fab } from "@/shared/ui/Fab";
-import EmptyView from "@/shared/ui/EmptyView";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
-
+import AppLayout from "@/shared/ui/AppLayout";
+import { Badge } from "@/shared/ui/Badge";
+import { Card } from "@/shared/ui/Card";
+import EmptyView from "@/shared/ui/EmptyView";
+import { Fab } from "@/shared/ui/Fab";
+import TopBar from "@/shared/ui/TopBar";
 import CategoryChips from "@/shared/ui/CategoryChips";
+
 import { MeetingCard } from "@/features/meetings/ui/MeetingCard";
-
-// ✅ meeting API
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type { CategoryKey, MeetingPost, HotMeetingItem } from "@/features/meetings/model/types";
+import type { CategoryKey, HotMeetingItem, MeetingPost } from "@/features/meetings/model/types";
 
-// ✅ 닉네임 가져오기
 import { useAuthStore } from "@/features/auth/model/authStore";
+
+/**
+ * Home 하단 리스트에서 숨길 상태
+ * - 요구사항: 참여 종료(ENDED) / 정원 마감(FULL) 은 보이면 안 됨
+ */
+function shouldHideInHomeList(status: MeetingPost["status"] | undefined) {
+  if (!status) return false;
+  return status === "FULL" || status === "ENDED";
+  // 취소도 숨기려면:
+  // return status === "FULL" || status === "ENDED" || status === "CANCELED";
+}
 
 export default function HomeScreen() {
   const t = useAppTheme();
   const router = useRouter();
 
-  // ✅ 로그인 유저 닉네임
   const nickname = useAuthStore((s) => s.user?.nickname);
-  // ✅ 수정 1: 닉네임 로직 간결화
   const displayName = `${nickname?.trim() || "회원"}님`;
 
   const [cat, setCat] = useState<CategoryKey | "ALL">("ALL");
   const [items, setItems] = useState<MeetingPost[]>([]);
   const [hotItems, setHotItems] = useState<HotMeetingItem[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(
     async (isRefresh = false) => {
       if (!isRefresh) setLoading(true);
+
       try {
-        const [data, hot] = await Promise.all([
-          meetingApi.listMeetings(cat === "ALL" ? undefined : { category: cat }),
-          meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 }),
-        ]);
-        setItems(data);
+        // 1) 일반 목록
+        let data: MeetingPost[] = [];
+        try {
+          data = await meetingApi.listMeetings(cat === "ALL" ? undefined : { category: cat });
+        } catch (err) {
+          console.warn("게시글 목록 로드 실패:", err);
+          data = [];
+        }
+
+        // ✅ FULL/ENDED 숨김 (서버가 섞어서 내려줘도 UI에서 차단)
+        const visibleData = data.filter((m) => !shouldHideInHomeList(m.status));
+        setItems(visibleData);
+
+        // 2) 핫한 모임
+        let hot: HotMeetingItem[] = [];
+        try {
+          hot = await meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 });
+        } catch (err) {
+          console.warn("핫한 모임 로드 실패:", err);
+          hot = [];
+        }
         setHotItems(hot);
       } catch (e) {
-        console.error(e);
+        console.error("HomeScreen 전체 로드 에러:", e);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -65,9 +90,25 @@ export default function HomeScreen() {
     [cat]
   );
 
+  // 최초 로드 + 카테고리 변경 시 로드
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ✅ “상세 -> 뒤로가기”로 돌아올 때 즉시 갱신 (포커스 기반)
+  // - 의도: Home은 이미 마운트되어 있으므로 focus 시점에 서버 상태(참여/정원 등)를 다시 동기화
+  // - 과도한 중복 호출 방지를 위해 짧은 디바운스(예: 800ms) 적용
+  const lastFocusFetchAtRef = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      const now = Date.now();
+      if (now - lastFocusFetchAtRef.current < 800) return;
+      lastFocusFetchAtRef.current = now;
+
+      // “조용한” 갱신: 전체 로딩 스피너 대신 isRefresh=true로 처리
+      fetchData(true);
+    }, [fetchData])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -79,25 +120,13 @@ export default function HomeScreen() {
   const trackBg = t.colors.border;
   const stickyBg = t.colors.background;
 
-  return (
-    <AppLayout padded={false}>
-      <TopBar
-        logo={{ leftText: "Action", rightText: "Mate", iconName: "flash" }}
-        showNoti
-        showNotiDot
-        onPressNoti={() => router.push("/notifications" as any)}
-        showMenu
-        showBorder
-      />
+  const sections = useMemo(() => {
+    return [{ key: "meetings", title: "meetings", data: items }];
+  }, [items]);
 
-       <ScrollView
-        stickyHeaderIndices={[2]} // ✅ 0:헤드라인, 1:HotList, 2:Category(Sticky)
-        contentContainerStyle={{ paddingBottom: 100 }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
+  const ListHeader = useMemo(() => {
+    return (
+      <View>
         {/* 1) 헤드라인 */}
         <View style={{ paddingHorizontal: t.spacing.pagePaddingH, marginBottom: 16, marginTop: 4 }}>
           <Text style={[t.typography.headlineSmall, { color: t.colors.textMain }]}>
@@ -116,43 +145,45 @@ export default function HomeScreen() {
             data={hotItems}
             horizontal
             showsHorizontalScrollIndicator={false}
-           // ✅ 수정 2: id가 있으면 id, 없으면 meetingId 사용 (안전장치)
             keyExtractor={(it) => String(it.id || it.meetingId)}
-            nestedScrollEnabled
+            nestedScrollEnabled={false}
             contentContainerStyle={{
               paddingHorizontal: t.spacing.pagePaddingH,
               paddingBottom: 24,
             }}
             renderItem={({ item }) => {
-              const progress = item.capacityJoined / item.capacityTotal;
-               // ✅ 수정 3: 상세 페이지 이동 시 id 사용 통일
-              const targetId = item.id || item.meetingId;
+              const total = Math.max(1, item.capacity?.total ?? 1);
+              const current = Math.max(0, item.capacity?.current ?? 0);
+              const progress = Math.min(1, current / total);
+              const targetId = item.meetingId || item.id;
+
               return (
-                 <Card 
-                  onPress={() => router.push(`/meetings/${targetId}`)} 
-                  style={styles.hotCard} 
-                  padded
-                >
+                <Card onPress={() => router.push(`/meetings/${targetId}`)} style={styles.hotCard} padded>
                   <Badge label={item.badge} tone="error" size="sm" style={{ marginBottom: 12 }} />
+
                   <View style={{ gap: 4, marginBottom: 16 }}>
                     <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
                       {item.title}
                     </Text>
+
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Ionicons name="location-outline" size={14} color={t.colors.textSub} />
                       <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
-                        {item.place}
+                        {item.location?.name ?? ""}
                       </Text>
                     </View>
                   </View>
+
                   <View style={{ flex: 1 }} />
+
                   <View>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
                       <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>참여 인원</Text>
                       <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>
-                        {item.capacityJoined}/{item.capacityTotal}
+                        {current}/{total}
                       </Text>
                     </View>
+
                     <View style={[styles.track, { backgroundColor: trackBg }]}>
                       <View
                         style={[
@@ -167,42 +198,74 @@ export default function HomeScreen() {
             }}
           />
         )}
+      </View>
+    );
+  }, [t, displayName, hotItems, router, trackBg]);
 
-        {/* 3) Sticky Header */}
-        <View
-          style={[
-            styles.stickyHeader,
-            {
-              backgroundColor: stickyBg,
-              borderBottomColor: dividerColor,
-              ...(Platform.OS === "ios"
-                ? { shadowColor: isDark ? "transparent" : "#000", shadowOpacity: isDark ? 0 : 0.03 }
-                : {}),
-            },
-          ]}
-        >
-          <CategoryChips value={cat} onChange={setCat} />
-        </View>
+  const SectionHeader = useMemo(() => {
+    return (
+      <View
+        style={[
+          styles.stickyHeader,
+          {
+            backgroundColor: stickyBg,
+            borderBottomColor: dividerColor,
+            paddingHorizontal: t.spacing.pagePaddingH,
+            ...(Platform.OS === "ios"
+              ? { shadowColor: isDark ? "transparent" : "#000", shadowOpacity: isDark ? 0 : 0.03 }
+              : {}),
+          },
+        ]}
+      >
+        <CategoryChips value={cat} onChange={setCat} />
+      </View>
+    );
+  }, [stickyBg, dividerColor, t.spacing.pagePaddingH, isDark, cat]);
 
-        {/* 4) 메인 리스트 */}
-        <View style={{ paddingHorizontal: t.spacing.pagePaddingH, minHeight: 300 }}>
-          {loading && !refreshing ? (
+  return (
+    <AppLayout padded={false}>
+      <TopBar
+        logo={{ leftText: "Action", rightText: "Mate", iconName: "flash" }}
+        showNoti
+        showNotiDot
+        onPressNoti={() => router.push("/notifications" as any)}
+        showBorder
+      />
+
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={({ item }) => (
+          <View style={{ paddingHorizontal: t.spacing.pagePaddingH }}>
+            <MeetingCard item={item} />
+          </View>
+        )}
+        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        renderSectionHeader={() => SectionHeader}
+        stickySectionHeadersEnabled
+        ListHeaderComponent={ListHeader}
+        ListEmptyComponent={
+          loading && !refreshing ? (
             <View style={{ marginTop: 40 }}>
               <ActivityIndicator size="large" color={t.colors.primary} />
             </View>
-          ) : items.length > 0 ? (
-            <View style={{ gap: 12, paddingTop: 16 }}>
-              {items.map((m) => (
-                <MeetingCard key={m.id} item={m} />
-              ))}
-            </View>
           ) : (
-            <View style={{ marginTop: 60 }}>
-              <EmptyView title="이런, 모임이 없네요" description={"근처에 열린 모임이 없어요. 첫 번째 호스트가 되어보세요!"} />
+            <View style={{ marginTop: 60, paddingHorizontal: t.spacing.pagePaddingH, minHeight: 300 }}>
+              <EmptyView
+                title="이런, 모임이 없네요"
+                description={
+                  cat === "ALL"
+                    ? "현재 서버 연결 상태가 좋지 않거나,\n등록된 모임이 없습니다."
+                    : "이 카테고리에는 아직 모임이 없어요."
+                }
+              />
             </View>
-          )}
-        </View>
-      </ScrollView>
+          )
+        }
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      />
 
       <Fab onPress={() => router.push("/meetings/create")} iconName="add" />
     </AppLayout>
@@ -216,12 +279,10 @@ const styles = StyleSheet.create({
   stickyHeader: {
     paddingVertical: 0,
     borderBottomWidth: 1,
-    // iOS
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.03,
     shadowRadius: 1,
-    // Android
     elevation: 1,
   },
 });

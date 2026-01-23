@@ -30,6 +30,19 @@ async function writeJSON(key: string, value: unknown) {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
 
+// id 또는 loginId로 유저 찾기(실무에서 흔히 섞여 들어와도 안 깨지게)
+function findUserIndexByIdOrLoginId(users: StoredUser[], idOrLoginId: string): number {
+  const key = normId(idOrLoginId);
+  if (!key) return -1;
+
+  // 1) id 우선
+  const byId = users.findIndex((u) => normId(u.id) === key);
+  if (byId !== -1) return byId;
+
+  // 2) loginId
+  return users.findIndex((u) => u.loginId && normId(u.loginId) === key);
+}
+
 // ----------------------------------------------------------------------
 // ✅ 1. 시드 데이터 (개발용 계정) + 데이터 마이그레이션
 // ----------------------------------------------------------------------
@@ -38,7 +51,7 @@ export async function seedMockUsers(): Promise<void> {
   let users = await readJSON<StoredUser[]>(KEY_USERS, []);
 
   // 🚨 데이터 정합성 체크
-  const isCorrupted = users.some((u) => !u.loginId); 
+  const isCorrupted = users.some((u) => !u.loginId);
 
   if (users.length === 0 || isCorrupted) {
     if (isCorrupted) {
@@ -48,11 +61,12 @@ export async function seedMockUsers(): Promise<void> {
     const demo: StoredUser[] = [
       {
         id: "u_seed_01",
-        loginId: "user01", // 아이디
+        loginId: "user01",
         nickname: "테니스왕",
         password: "1234",
         gender: "male",
         birthDate: "1995-06-15",
+        avatarUrl: null,
       },
       {
         id: "u_seed_02",
@@ -61,6 +75,7 @@ export async function seedMockUsers(): Promise<void> {
         password: "1234",
         gender: "female",
         birthDate: "1999-12-25",
+        avatarUrl: null,
       },
     ];
 
@@ -79,8 +94,7 @@ const authApi: AuthApi = {
   async getUserByLoginId(loginId: string): Promise<User | null> {
     const targetId = normId(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    
-    // loginId가 있는 데이터만 안전하게 필터링해서 비교
+
     const found = users.find((u) => u.loginId && normId(u.loginId) === targetId);
 
     if (!found) return null;
@@ -102,8 +116,7 @@ const authApi: AuthApi = {
     if (!input.birthDate) throw new Error("생년월일을 입력해주세요.");
 
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    
-    // 중복 검사 (안전하게)
+
     if (users.some((u) => u.loginId && normId(u.loginId) === loginId)) {
       throw new Error("이미 사용 중인 아이디예요.");
     }
@@ -114,6 +127,7 @@ const authApi: AuthApi = {
       nickname,
       gender: input.gender,
       birthDate: input.birthDate,
+      avatarUrl: null,
     };
 
     await writeJSON(KEY_USERS, [...users, { ...newUser, password: input.password }]);
@@ -124,13 +138,9 @@ const authApi: AuthApi = {
    * ✅ 로그인
    */
   async login(input: LoginInput): Promise<User> {
-    // 1. 입력값 정규화
-    const targetId = normId(input.loginId); 
-    
-    // 2. 저장된 유저 불러오기
+    const targetId = normId(input.loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
 
-    // 3. 찾기 (u.loginId가 없을 수 있는 상황 대비)
     const found = users.find((u) => u.loginId && normId(u.loginId) === targetId);
 
     if (!found) throw new Error("존재하지 않는 아이디예요.");
@@ -140,7 +150,6 @@ const authApi: AuthApi = {
 
     const { password: _pw, ...user } = found;
 
-    // 4. 세션 설정
     await setAccessToken(`mock_token_${Date.now()}`);
     await authApi.setCurrentLoginId(user.loginId);
 
@@ -148,44 +157,43 @@ const authApi: AuthApi = {
   },
 
   /**
-   * ✅ [NEW] 유저 정보 수정 (프로필 변경 등)
-   * 이 부분이 추가되어야 에러가 사라지고 프로필 저장이 작동합니다.
+   * ✅ 유저 정보 수정
+   * - 실무에서 호출자가 id/loginId를 섞어 보내도 동작하도록 방어적으로 구현합니다.
    */
-  async updateUser(loginId: string, patch: Partial<User>): Promise<User> {
-    const targetId = normId(loginId);
+  async updateUser(id: string, patch: Partial<User>): Promise<User> {
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    
-    // 유저 인덱스 찾기
-    const idx = users.findIndex((u) => u.loginId && normId(u.loginId) === targetId);
-    
+    const idx = findUserIndexByIdOrLoginId(users, id);
+
     if (idx === -1) {
       throw new Error("사용자를 찾을 수 없습니다.");
     }
 
-    // 기존 유저 정보 + 수정된 정보 병합 (password는 기존 것 유지)
-    const existingUser = users[idx];
-    const updatedUser: StoredUser = {
-      ...existingUser,
-      ...patch, // 닉네임, 생일, 성별, 아바타 등이 덮어씌워짐
+    const existing = users[idx];
+
+    // loginId / id 같은 식별자는 실수로 덮어쓰지 않게 제한(원하면 풀어도 됨)
+    const { id: _id, loginId: _loginId, password: _pw, ...rest } = patch as any;
+
+    const updated: StoredUser = {
+      ...existing,
+      ...rest,
+      password: existing.password,
+      id: existing.id,
+      loginId: existing.loginId,
     };
 
-    // 저장소에 업데이트된 리스트 저장
-    users[idx] = updatedUser;
+    users[idx] = updated;
     await writeJSON(KEY_USERS, users);
 
-    // 반환 시에는 비밀번호 제외하고 반환
-    const { password: _pw, ...safeUser } = updatedUser;
+    const { password: __pw, ...safeUser } = updated;
     return safeUser;
   },
 
   async updatePassword(loginId: string, newPassword: string): Promise<void> {
-    const targetId = normId(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    
-    const index = users.findIndex((u) => u.loginId && normId(u.loginId) === targetId);
-    if (index === -1) throw new Error("사용자를 찾을 수 없습니다.");
+    const idx = findUserIndexByIdOrLoginId(users, loginId);
+    if (idx === -1) throw new Error("사용자를 찾을 수 없습니다.");
 
-    users[index].password = newPassword;
+    users[idx].password = newPassword;
     await writeJSON(KEY_USERS, users);
   },
 
@@ -195,11 +203,11 @@ const authApi: AuthApi = {
     return { code: "123456" };
   },
 
-  async verifyPasswordResetCode(loginId: string, code: string): Promise<void> {
+  async verifyPasswordResetCode(_loginId: string, code: string): Promise<void> {
     if (code !== "123456") throw new Error("인증 코드가 올바르지 않습니다.");
   },
 
-  async consumePasswordResetCode(loginId: string): Promise<void> {
+  async consumePasswordResetCode(_loginId: string): Promise<void> {
     return;
   },
 
@@ -221,6 +229,5 @@ const authApi: AuthApi = {
   },
 };
 
-// named export와 default export 둘 다 지원하도록 설정
 export { authApi };
 export default authApi;

@@ -1,4 +1,5 @@
-// src/features/meetings/ui/DetailContent.tsx
+// 📂 src/features/meetings/ui/DetailContent.tsx
+
 import React, { useMemo } from "react";
 import type { ReactNode } from "react";
 import {
@@ -78,23 +79,52 @@ function getDurationLabel(mins?: number | null) {
   return `${m}분`;
 }
 
-// ✅ [수정] 댓글에서 아바타 URL 추출 로직 개선 (User 모델의 avatar 우선)
-function pickAvatarUrlFromComment(item: Comment, post: MeetingPost): string | undefined {
+function isValidLatLng(lat: unknown, lng: unknown) {
+  const a = Number(lat);
+  const b = Number(lng);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  // 0,0은 대부분 "없음"으로 취급하는 게 UX에 유리
+  if (a === 0 && b === 0) return false;
+  return true;
+}
+
+/**
+ * ✅ Comment.author(UserSummary)로 통일되었지만,
+ * 과거/목업 데이터가 섞여도 화면이 죽지 않게 "읽기"만 방어합니다.
+ */
+function getCommentAuthor(item: Comment): { id: string; nickname: string; avatarUrl?: string } {
   const anyItem = item as any;
 
-  // 1. Comment 객체 안에 author 객체가 있고 그 안에 avatar가 있는 경우 (Best)
-  if (anyItem.author?.avatar) return anyItem.author.avatar;
+  // 1) 최신 스키마: author: UserSummary
+  const author = (item as any)?.author;
+  if (author) {
+    const id = String(author.id ?? "");
+    const nickname = String(author.nickname ?? "");
+    const avatarUrl =
+      author.avatarUrl ??
+      author.profileImageUrl ??
+      author.imageUrl ??
+      author.photoUrl ??
+      undefined;
 
-  // 2. Comment 객체에 평탄화(Flatten)된 필드로 있는 경우
-  if (anyItem.authorAvatar) return anyItem.authorAvatar;
-  if (anyItem.avatar) return anyItem.avatar;
-
-  // 3. (Fallback) 호스트가 쓴 댓글이면 게시글의 호스트 정보를 사용
-  if (item.authorId && post?.host?.id && String(item.authorId) === String(post.host.id)) {
-    // post.host는 User 타입이므로 avatar 필드 사용
-    return post.host.avatar || undefined; 
+    return { id, nickname, avatarUrl: avatarUrl ?? undefined };
   }
 
+  // 2) 레거시 방어 (가능하면 제거)
+  const id = String(anyItem?.authorId ?? "");
+  const nickname = String(anyItem?.authorNickname ?? "");
+  const avatarUrl = anyItem?.authorAvatarUrl ?? anyItem?.avatarUrl ?? undefined;
+  return { id, nickname, avatarUrl };
+}
+
+// ✅ 댓글 아바타 URL 결정: comment.author 우선, 없으면 호스트 매칭 시 host avatar
+function pickAvatarUrlFromComment(item: Comment, post: MeetingPost): string | undefined {
+  const { id, avatarUrl } = getCommentAuthor(item);
+  if (avatarUrl) return avatarUrl;
+
+  if (id && post?.host?.id && String(id) === String(post.host.id)) {
+    return post.host.avatarUrl || undefined;
+  }
   return undefined;
 }
 
@@ -154,33 +184,23 @@ type DetailContentProps = {
   post: MeetingPost;
   comments: Comment[];
   currentUserId: string;
-
   headerComponent?: ReactNode;
-
   scrollViewRef: React.RefObject<ScrollView | null>;
   bottomPadding: number;
-
   onPressHostProfile: () => void;
-
-  // 댓글 작성자(프로필) 클릭
   onPressCommentAuthor?: (payload: { id: string; nickname: string; avatarUrl?: string }) => void;
-
   onReply: (c: Comment) => void;
   onEditComment: (c: Comment) => void;
   onDeleteComment: (id: string) => void;
-
   onContentHeightChange: (h: number) => void;
   onScrollViewHeightChange: (h: number) => void;
   onScroll: (e: any) => void;
-
   commentText: string;
   setCommentText: (v: string) => void;
   inputRef: React.RefObject<TextInput | null>;
-
   replyTarget: Comment | null;
   editingComment: Comment | null;
   onCancelInputMode: () => void;
-
   onSubmitComment: () => void;
   onFocusComposer: () => void;
 };
@@ -212,7 +232,6 @@ export function DetailContent({
 }: DetailContentProps) {
   const isDark = t.mode === "dark";
 
-  // ✅ 공용 색상 토큰
   const pageBg = t.colors.background;
   const surface = t.colors.surface;
   const border = t.colors.border;
@@ -223,37 +242,40 @@ export function DetailContent({
   const mutedIcon = t.colors.icon?.muted ?? t.colors.textSub;
   const iconMain = t.colors.icon?.default ?? t.colors.textMain;
 
-  // ✅ Colors
   const hostPillBg = withAlpha(t.colors.primary, isDark ? 0.24 : 0.14);
   const hostPillFg = t.colors.primary;
   const bubbleBg = withAlpha(t.colors.primary, isDark ? 0.18 : 0.12);
   const inputBg = isDark ? subtleBg2 : subtleBg;
 
-  // ✅ 승인 조건 박스 색상
   const conditionBg = withAlpha(t.colors.point ?? "#FF5722", 0.08);
   const conditionText = t.colors.point ?? "#FF5722";
 
-  // ✅ 상태 토큰
   const { meta, right } = useMemo(() => getMeetingStatusTokens(post), [post]);
   const metaToken = meta[0];
   const rightToken = right[0];
 
-  // ✅ 시간 라벨
   const timeLabel = useMemo(() => {
-    const iso = post.meetingTime || (post as any).meetingTimeIso;
-    return iso ? meetingTimeTextFromIso(iso) : "";
+    return post.meetingTime ? meetingTimeTextFromIso(post.meetingTime) : "";
   }, [post.meetingTime]);
 
-  // ✅ 지도 좌표
+  // ✅ 지도 좌표 (MeetingPost.location 기반)
   const map = useMemo(() => {
-    const lat = Number((post as any).locationLat);
-    const lng = Number((post as any).locationLng);
-    const ok = Number.isFinite(lat) && Number.isFinite(lng);
-    return { lat, lng, ok };
-  }, [post]);
+    const lat = post.location?.lat;
+    const lng = post.location?.lng;
+    const ok = isValidLatLng(lat, lng);
+    return { lat: Number(lat), lng: Number(lng), ok };
+  }, [post.location?.lat, post.location?.lng]);
 
-  // ✅ [수정] 호스트 아바타 URL 추출 (User 모델의 avatar 사용)
-  const hostAvatarUrl = post.host?.avatar || null;
+  const hostAvatarUrl = post.host?.avatarUrl || null;
+
+  // ✅ 인원 정보 (MeetingPost.capacity 기반)
+  const capacityCurrent = post.capacity?.current ?? 0;
+  const capacityTotal = post.capacity?.total ?? 0;
+  const remaining = Math.max(0, capacityTotal - capacityCurrent);
+
+  // ✅ reply/edit 표기용 닉네임 (Comment.author 기반)
+  const replyNickname = replyTarget ? getCommentAuthor(replyTarget).nickname : "";
+  const editingLabel = editingComment ? "댓글 수정 중" : "";
 
   return (
     <ScrollView
@@ -284,6 +306,8 @@ export function DetailContent({
               }}
               scrollEnabled={false}
               zoomEnabled={false}
+              rotateEnabled={false}
+              pitchEnabled={false}
             />
             <View style={styles.centerPin}>
               <Ionicons name="location-sharp" size={32} color={t.colors.primary} />
@@ -307,9 +331,8 @@ export function DetailContent({
           ]}
         >
           <View style={[styles.hostAvatar, { backgroundColor: subtleBg }]}>
-            {/* ✅ [수정] hostAvatarUrl 사용 */}
             {hostAvatarUrl ? (
-              <Image source={{ uri: hostAvatarUrl }} style={styles.avatarImg} />
+              <Image source={{ uri: hostAvatarUrl }} style={styles.hostAvatarImg} />
             ) : (
               <Ionicons name="person" size={20} color={mutedIcon} />
             )}
@@ -317,13 +340,17 @@ export function DetailContent({
 
           <View style={{ flex: 1 }}>
             <View style={styles.rowCenter}>
-              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>{post.host?.nickname}</Text>
+              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>
+                {post.host?.nickname ?? "호스트"}
+              </Text>
               <View style={[styles.hostBadge, { backgroundColor: hostPillBg, marginLeft: 6 }]}>
                 <Text style={[styles.hostBadgeText, { color: hostPillFg }]}>HOST</Text>
               </View>
             </View>
 
-            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>매너 {post.host?.mannerTemp ?? 36.5}°C</Text>
+            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+              매너 {post.host?.mannerTemperature ?? 36.5}°C
+            </Text>
           </View>
 
           <Ionicons name="chevron-forward" size={20} color={mutedIcon} />
@@ -341,7 +368,9 @@ export function DetailContent({
             ) : null}
           </View>
 
-          <Text style={[t.typography.headlineMedium, { marginTop: 12, color: t.colors.textMain }]}>{post.title}</Text>
+          <Text style={[t.typography.headlineMedium, { marginTop: 12, color: t.colors.textMain }]}>
+            {post.title}
+          </Text>
         </View>
 
         {/* 4. 정보 박스 (시간, 장소, 인원) */}
@@ -357,7 +386,7 @@ export function DetailContent({
 
           <InfoRow
             icon="location-outline"
-            text={post.locationText || "위치 정보 없음"}
+            text={post.location?.name || "위치 정보 없음"}
             subText={post.distanceText || ""}
             t={t}
             iconColor={iconMain}
@@ -366,8 +395,8 @@ export function DetailContent({
 
           <InfoRow
             icon="people-outline"
-            text={`${post.capacityJoined} / ${post.capacityTotal}명 참여 중`}
-            subText={post.capacityTotal - post.capacityJoined <= 1 ? "마감 임박!" : "자리 있음"}
+            text={capacityTotal > 0 ? `${capacityCurrent} / ${capacityTotal}명 참여 중` : `${capacityCurrent}명 참여 중`}
+            subText={capacityTotal > 0 ? (remaining <= 1 ? "마감 임박!" : "자리 있음") : "정원 정보 없음"}
             t={t}
             iconColor={iconMain}
           />
@@ -377,12 +406,7 @@ export function DetailContent({
         {post.joinMode === "APPROVAL" ? (
           <View style={[styles.conditionBox, { backgroundColor: conditionBg, borderColor: "transparent" }]}>
             <View style={styles.rowCenter}>
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={18}
-                color={conditionText}
-                style={{ marginRight: 6 }}
-              />
+              <Ionicons name="checkmark-circle-outline" size={18} color={conditionText} style={{ marginRight: 6 }} />
               <Text style={[t.typography.labelLarge, { color: conditionText }]}>참여 승인 조건</Text>
             </View>
             <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22, marginTop: 6 }]}>
@@ -393,7 +417,9 @@ export function DetailContent({
 
         {/* 6. 호스트의 한마디 */}
         <View style={styles.section}>
-          <Text style={[t.typography.titleMedium, { marginBottom: 12, color: t.colors.textMain }]}>호스트의 한마디</Text>
+          <Text style={[t.typography.titleMedium, { marginBottom: 12, color: t.colors.textMain }]}>
+            호스트의 한마디
+          </Text>
           <View style={[styles.bubble, { backgroundColor: bubbleBg, borderColor: border }]}>
             <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
               {post.content || "편하게 오세요!"}
@@ -414,24 +440,23 @@ export function DetailContent({
             <FlatList
               style={{ marginTop: 12 }}
               data={comments}
-              keyExtractor={(c) => c.id}
+              keyExtractor={(c) => String(c.id)}
               scrollEnabled={false}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               renderItem={({ item }) => {
                 const reply = parseReplyPrefix(item.content);
                 const isReply = !!reply;
 
-                // ✅ [수정] 개선된 헬퍼 함수 사용
+                const author = getCommentAuthor(item);
                 const avatarUrl = pickAvatarUrlFromComment(item, post);
 
                 const onPressAuthor = () => {
                   if (!onPressCommentAuthor) return;
-                  const id = String((item as any)?.authorId ?? "");
-                  const nickname = String((item as any)?.authorNickname ?? "");
-                  if (!id || !nickname) return;
-                  // avatarUrl 전달
-                  onPressCommentAuthor({ id, nickname, avatarUrl });
+                  if (!author.id || !author.nickname) return;
+                  onPressCommentAuthor({ id: author.id, nickname: author.nickname, avatarUrl });
                 };
+
+                const isMine = String(author.id) === String(currentUserId);
 
                 return (
                   <View
@@ -443,15 +468,11 @@ export function DetailContent({
                     ]}
                   >
                     <View style={styles.commentRow}>
-                      {/* ✅ 작성자 영역: 누르면 프로필 오픈 */}
                       <Pressable
                         onPress={onPressCommentAuthor ? onPressAuthor : undefined}
                         disabled={!onPressCommentAuthor}
                         hitSlop={8}
-                        style={({ pressed }) => [
-                          styles.authorPressable,
-                          { opacity: pressed ? 0.9 : 1 },
-                        ]}
+                        style={({ pressed }) => [styles.authorPressable, { opacity: pressed ? 0.9 : 1 }]}
                       >
                         <View style={[styles.commentAvatar, { backgroundColor: subtleBg }]}>
                           {avatarUrl ? (
@@ -463,11 +484,8 @@ export function DetailContent({
 
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <View style={styles.authorLine}>
-                            <Text
-                              style={[t.typography.labelLarge, { color: t.colors.textMain }]}
-                              numberOfLines={1}
-                            >
-                              {item.authorNickname}
+                            <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
+                              {author.nickname || "사용자"}
                             </Text>
                             <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
                               {" "}
@@ -500,12 +518,12 @@ export function DetailContent({
                             <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>답글</Text>
                           </Pressable>
 
-                          {item.authorId === currentUserId ? (
+                          {isMine ? (
                             <>
                               <Pressable onPress={() => onEditComment(item)} hitSlop={8}>
                                 <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>수정</Text>
                               </Pressable>
-                              <Pressable onPress={() => onDeleteComment(item.id)} hitSlop={8}>
+                              <Pressable onPress={() => onDeleteComment(String(item.id))} hitSlop={8}>
                                 <Text style={[t.typography.labelSmall, { color: t.colors.error }]}>삭제</Text>
                               </Pressable>
                             </>
@@ -531,7 +549,7 @@ export function DetailContent({
                     style={{ marginRight: 6 }}
                   />
                   <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                    {replyTarget ? `${replyTarget.authorNickname}님에게 답글 작성 중` : "댓글 수정 중"}
+                    {replyTarget ? `${replyNickname || "상대"}님에게 답글 작성 중` : editingLabel}
                   </Text>
                 </View>
 
@@ -582,20 +600,13 @@ export function DetailContent({
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-
-  mapContainer: {
-    position: "relative",
-    height: 200,
-    width: "100%",
-    overflow: "hidden",
-  },
+  mapContainer: { position: "relative", height: 200, width: "100%", overflow: "hidden" },
   centerPin: {
     position: "absolute",
     left: "50%",
     top: "50%",
     transform: [{ translateX: -16 }, { translateY: -32 }],
   },
-
   rowCenter: { flexDirection: "row", alignItems: "center" },
 
   hostRow: {
@@ -615,7 +626,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
     overflow: "hidden",
   },
-  avatarImg: { width: 40, height: 40, borderRadius: 20 },
+  hostAvatarImg: { width: 40, height: 40, borderRadius: 20 },
+
   hostBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   hostBadgeText: { fontSize: 10, fontWeight: "800" },
 
@@ -629,12 +641,7 @@ const styles = StyleSheet.create({
   infoTextCtx: { marginLeft: 14 },
   divider: { height: 1, marginVertical: 16, marginLeft: 34 },
 
-  conditionBox: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 32,
-  },
+  conditionBox: { padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 32 },
 
   section: { marginBottom: 32 },
   bubble: { padding: 20, borderRadius: 16, borderBottomLeftRadius: 6, borderWidth: 1 },
@@ -657,7 +664,13 @@ const styles = StyleSheet.create({
   replyCard: { marginLeft: 14, borderLeftWidth: 3, paddingLeft: 10 },
 
   commentRow: { flexDirection: "row" },
-  authorPressable: { flexDirection: "row", alignItems: "center", marginRight: 10, flex: 1, minWidth: 0 },
+  authorPressable: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 10,
+    flex: 1,
+    minWidth: 0,
+  },
 
   commentAvatar: {
     width: 28,
@@ -672,7 +685,6 @@ const styles = StyleSheet.create({
   commentAvatarImg: { width: 28, height: 28, borderRadius: 14 },
 
   authorLine: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
-
   replyMeta: {
     marginTop: 6,
     alignSelf: "flex-start",
@@ -684,7 +696,7 @@ const styles = StyleSheet.create({
   },
 
   commentActions: { flexDirection: "row", marginTop: 8 },
-  
+
   composerWrap: { marginTop: 14, borderWidth: 1, borderRadius: 14, overflow: "hidden" },
   composerStatus: {
     paddingHorizontal: 12,
@@ -694,12 +706,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  composerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
+  composerRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10 },
   composerInput: {
     flex: 1,
     minHeight: 40,

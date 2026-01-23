@@ -1,3 +1,4 @@
+// CreateMeetingScreen.tsx
 import React, { useCallback, useState } from "react";
 import { Alert } from "react-native";
 import { Stack, useRouter } from "expo-router";
@@ -7,15 +8,14 @@ import TopBar from "@/shared/ui/TopBar";
 import MeetingForm from "./ui/MeetingForm";
 
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type { MeetingParams } from "@/features/meetings/model/types";
+import type { MeetingUpsert } from "@/features/meetings/model/types";
 
 export default function CreateMeetingScreen() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
 
   const goHomeOnce = useCallback(() => {
-    // ✅ navigation은 1번만: dismissAll 후 replace, 혹은 replace만
-    // dismissAll이 필요한 구조라면 아래처럼 하고 return 처리
+    // ✅ 라우팅 중복 호출 방지(한 번만)
     if (router.canGoBack()) {
       router.dismissAll();
       router.replace("/(tabs)");
@@ -25,29 +25,31 @@ export default function CreateMeetingScreen() {
   }, [router]);
 
   const handleCreate = useCallback(
-    async (formData: MeetingParams) => {
+    async (formData: MeetingUpsert) => {
       if (submitting) return;
 
       try {
         setSubmitting(true);
 
-        const created: any = await meetingApi.createMeeting(formData);
+        // ✅ MeetingUpsert(=MeetingShape) 그대로 전송
+        const created = await meetingApi.createMeeting(formData);
+        const anyCreated = created as any;
 
-        // ✅ API 응답 방어적 파싱 (프로젝트마다 형태가 달라서)
+        // ✅ API 응답 방어적 파싱(로컬/리모트/래퍼 형태 차이 대응)
         const createdId =
-          created?.id ??
-          created?.post?.id ??
-          created?.meeting?.id ??
-          created?.data?.id ??
+          anyCreated?.id ??
+          anyCreated?.post?.id ??
+          anyCreated?.meeting?.id ??
+          anyCreated?.data?.id ??
           null;
 
-        // ✅ 가장 좋은 UX: 생성 직후 상세로 이동 (리스트 캐시 문제도 사라짐)
         if (createdId) {
+          // ✅ 생성 직후 상세로 이동 (리스트 캐시/갱신 이슈 회피)
           router.replace((`/meetings/${createdId}?v=${Date.now()}` as unknown) as any);
           return;
         }
 
-        // ✅ id를 못 받으면 탭으로
+        // ✅ id를 못 받으면 홈으로
         goHomeOnce();
       } catch (e) {
         console.error(e);

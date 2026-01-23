@@ -1,3 +1,5 @@
+// 📂 src/features/meetings/ui/MeetingForm.tsx
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -27,8 +29,8 @@ import { Button } from "@/shared/ui/Button";
 import CategoryChips from "@/shared/ui/CategoryChips";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
-// ✅ Types
-import type { CategoryKey, JoinMode, MeetingParams } from "@/features/meetings/model/types";
+// ✅ Types (통일 Shape)
+import type { CategoryKey, JoinMode, MeetingUpsert } from "@/features/meetings/model/types";
 
 // --- Types & Constants ---
 type LocationData = {
@@ -75,9 +77,9 @@ const clampDuration = (v: number) => {
 
 // --- Props Definition ---
 type MeetingFormProps = {
-  initialValues?: Partial<MeetingParams>;
+  initialValues?: Partial<MeetingUpsert>;
   submitLabel: string;
-  onSubmit: (data: MeetingParams) => void;
+  onSubmit: (data: MeetingUpsert) => void;
   isSubmitting: boolean;
 };
 
@@ -100,7 +102,7 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [pickedLocation, setPickedLocation] = useState<LocationData | null>(null);
   const [content, setContent] = useState("");
-  const [capacity, setCapacity] = useState(4);
+  const [capacityTotal, setCapacityTotal] = useState(4);
   const [durationMinutes, setDurationMinutes] = useState(90);
   const [joinMode, setJoinMode] = useState<JoinMode>("INSTANT");
   const [conditions, setConditions] = useState("");
@@ -125,20 +127,20 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
     setTitle(iv.title ?? "");
     setCategory((iv.category as CategoryKey) ?? "SPORTS");
 
-    setSelectedDate(iv.meetingTimeIso ? new Date(iv.meetingTimeIso) : null);
+    setSelectedDate(iv.meetingTime ? new Date(iv.meetingTime) : null);
 
-    if (iv.locationLat && iv.locationLng) {
+    if (iv.location?.lat && iv.location?.lng) {
       setPickedLocation({
-        addressText: iv.locationText || "위치 정보",
-        lat: iv.locationLat,
-        lng: iv.locationLng,
+        addressText: iv.location?.name || "위치 정보",
+        lat: iv.location.lat,
+        lng: iv.location.lng,
       });
     } else {
       setPickedLocation(null);
     }
 
     setContent(iv.content ?? "");
-    setCapacity(iv.capacityTotal ?? 4);
+    setCapacityTotal(iv.capacity?.total ?? 4);
 
     const initDuration = clampDuration(iv.durationMinutes ?? 90);
     setDurationMinutes(initDuration);
@@ -166,8 +168,8 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
   }, []);
 
   const summaryText = useMemo(() => {
-    return `${capacity}명 · ${getDurationLabel(durationMinutes)} · ${joinMode === "INSTANT" ? "선착순" : "승인제"}`;
-  }, [capacity, durationMinutes, joinMode]);
+    return `${capacityTotal}명 · ${getDurationLabel(durationMinutes)} · ${joinMode === "INSTANT" ? "선착순" : "승인제"}`;
+  }, [capacityTotal, durationMinutes, joinMode]);
 
   const handleSubmit = useCallback(() => {
     if (!title.trim()) return Alert.alert("알림", "제목을 입력해주세요.");
@@ -177,15 +179,22 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
       return Alert.alert("알림", "승인 조건을 입력해주세요.");
     }
 
-    const formData: MeetingParams = {
+    // ✅ 통일 shape: MeetingUpsert
+    const formData: MeetingUpsert = {
       title: title.trim(),
       category,
-      meetingTimeText: formatDateSimple(selectedDate),
-      meetingTimeIso: selectedDate.toISOString(),
-      locationText: pickedLocation.addressText,
-      locationLat: pickedLocation.lat,
-      locationLng: pickedLocation.lng,
-      capacityTotal: capacity,
+      meetingTime: selectedDate.toISOString(),
+
+      location: {
+        name: pickedLocation.addressText,
+        lat: pickedLocation.lat,
+        lng: pickedLocation.lng,
+      },
+
+      capacity: {
+        total: capacityTotal,
+      },
+
       content: content.trim(),
       joinMode,
       conditions: joinMode === "APPROVAL" ? conditions.trim() : undefined,
@@ -193,7 +202,18 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
     };
 
     onSubmit(formData);
-  }, [title, selectedDate, pickedLocation, joinMode, conditions, category, capacity, content, durationMinutes, onSubmit]);
+  }, [
+    title,
+    selectedDate,
+    pickedLocation,
+    joinMode,
+    conditions,
+    category,
+    capacityTotal,
+    content,
+    durationMinutes,
+    onSubmit,
+  ]);
 
   const onPickCategory = useCallback((val: CategoryKey | "ALL") => {
     if (val !== "ALL") setCategory(val);
@@ -203,8 +223,8 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
     scrollViewRef.current?.scrollTo({ y: 260, animated: true });
   }, []);
 
-  const onDecCapacity = useCallback(() => setCapacity((c) => Math.max(2, c - 1)), []);
-  const onIncCapacity = useCallback(() => setCapacity((c) => Math.min(20, c + 1)), []);
+  const onDecCapacity = useCallback(() => setCapacityTotal((c) => Math.max(2, c - 1)), []);
+  const onIncCapacity = useCallback(() => setCapacityTotal((c) => Math.min(20, c + 1)), []);
 
   const onSelectJoinMode = useCallback((mode: JoinMode) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -327,7 +347,12 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
             </View>
 
             {/* 5. 상세 설정 (아코디언) */}
-            <View style={[styles.optionsContainer, { borderColor: t.colors.neutral[200], backgroundColor: t.colors.surface }]}>
+            <View
+              style={[
+                styles.optionsContainer,
+                { borderColor: t.colors.neutral[200], backgroundColor: t.colors.surface },
+              ]}
+            >
               <Pressable onPress={toggleOptions} style={styles.expandHeader}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>상세 설정 (인원, 시간, 방식)</Text>
@@ -346,15 +371,28 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
                   <View style={styles.optionRow}>
                     <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>모집 인원</Text>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Pressable onPress={onDecCapacity} style={[styles.circleBtn, { backgroundColor: t.colors.neutral[100] }]} hitSlop={10}>
+                      <Pressable
+                        onPress={onDecCapacity}
+                        style={[styles.circleBtn, { backgroundColor: t.colors.neutral[100] }]}
+                        hitSlop={10}
+                      >
                         <Ionicons name="remove" size={18} color={t.colors.textMain} />
                       </Pressable>
 
-                      <Text style={[t.typography.titleMedium, { color: t.colors.textMain, minWidth: 28, textAlign: "center", marginHorizontal: 12 }]}>
-                        {capacity}
+                      <Text
+                        style={[
+                          t.typography.titleMedium,
+                          { color: t.colors.textMain, minWidth: 28, textAlign: "center", marginHorizontal: 12 },
+                        ]}
+                      >
+                        {capacityTotal}
                       </Text>
 
-                      <Pressable onPress={onIncCapacity} style={[styles.circleBtn, { backgroundColor: t.colors.neutral[100] }]} hitSlop={10}>
+                      <Pressable
+                        onPress={onIncCapacity}
+                        style={[styles.circleBtn, { backgroundColor: t.colors.neutral[100] }]}
+                        hitSlop={10}
+                      >
                         <Ionicons name="add" size={18} color={t.colors.textMain} />
                       </Pressable>
                     </View>
@@ -438,7 +476,11 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
 
                         <Text style={[t.typography.labelMedium, { color: t.colors.textSub, marginLeft: 8 }]}>분</Text>
 
-                        <Pressable onPress={commitDurationInput} hitSlop={10} style={({ pressed }) => [{ marginLeft: "auto", padding: 8, opacity: pressed ? 0.8 : 1 }]}>
+                        <Pressable
+                          onPress={commitDurationInput}
+                          hitSlop={10}
+                          style={({ pressed }) => [{ marginLeft: "auto", padding: 8, opacity: pressed ? 0.8 : 1 }]}
+                        >
                           <Ionicons name="checkmark-circle" size={22} color={t.colors.primary} />
                         </Pressable>
                       </View>
@@ -504,8 +546,19 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
       </ScrollView>
 
       {/* 하단 버튼 */}
-      <View style={[styles.bottomBar, { backgroundColor: t.colors.background, borderTopColor: t.colors.neutral[200], paddingBottom: 12 + insets.bottom }]}>
-        <Button title={isSubmitting ? "처리 중..." : submitLabel} size="lg" onPress={handleSubmit} loading={isSubmitting} disabled={isSubmitting} />
+      <View
+        style={[
+          styles.bottomBar,
+          { backgroundColor: t.colors.background, borderTopColor: t.colors.neutral[200], paddingBottom: 12 + insets.bottom },
+        ]}
+      >
+        <Button
+          title={isSubmitting ? "처리 중..." : submitLabel}
+          size="lg"
+          onPress={handleSubmit}
+          loading={isSubmitting}
+          disabled={isSubmitting}
+        />
       </View>
 
       {/* 모달 */}
@@ -653,6 +706,7 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
             onRegionChangeComplete={onRegionChangeComplete}
             provider={PROVIDER_GOOGLE}
             rotateEnabled={false}
+            pitchEnabled={false}
           />
           <View style={styles.centerPin} pointerEvents="none">
             <Ionicons name="location-sharp" size={36} color={t.colors.primary} />
@@ -660,7 +714,10 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
         </View>
 
         <View style={[styles.modalBottom, { paddingBottom: 20 + insets.bottom, backgroundColor: t.colors.surface }]}>
-          <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginBottom: 16, textAlign: "center" }]} numberOfLines={2}>
+          <Text
+            style={[t.typography.bodyMedium, { color: t.colors.textMain, marginBottom: 16, textAlign: "center" }]}
+            numberOfLines={2}
+          >
             {address || "위치 잡는 중..."}
           </Text>
           <Button title="이 위치로 설정" onPress={confirm} />

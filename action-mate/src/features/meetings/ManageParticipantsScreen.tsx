@@ -1,3 +1,4 @@
+// ManageParticipantsScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -20,19 +21,19 @@ import TopBar from "@/shared/ui/TopBar";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
 
+import { useAuthStore } from "@/features/auth/model/authStore";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type { MeetingPost, Participant } from "@/features/meetings/model/types";
+import type { MeetingPost, Participant, MembershipStatus } from "@/features/meetings/model/types";
 
-const CURRENT_USER_ID = "me";
 type TabKey = "PENDING" | "CONFIRMED";
 
-// ✅ FlatList sticky를 “실무에서 가장 안정적으로” 먹이는 패턴:
-// - ListHeaderComponent는 Top(요약/검색)만 둠
-// - sticky 영역(탭/섹션 타이틀)은 data의 첫 아이템으로 넣어서 stickyHeaderIndices로 고정
+// ✅ FlatList sticky 안정 패턴
 type Row =
   | { _type: "STICKY" }
-  | { _type: "SPACER"; id: string }
+  | { _type: "EMPTY" }
   | (Participant & { _type?: undefined });
+
+const isConfirmedStatus = (s: MembershipStatus) => s === "MEMBER" || s === "HOST";
 
 export default function ManageParticipantsScreen() {
   const t = useAppTheme();
@@ -40,6 +41,9 @@ export default function ManageParticipantsScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+
+  const me = useAuthStore((s) => s.user);
+  const currentUserId = me?.id ? String(me.id) : "guest";
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,22 +55,24 @@ export default function ManageParticipantsScreen() {
     participantsRef.current = participants;
   }, [participants]);
 
-  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [processingUserId, setProcessingUserId] = useState<string | null>(null);
 
   const [tab, setTab] = useState<TabKey>("PENDING");
   const [query, setQuery] = useState("");
 
-  const isHost = post?.myState?.membershipStatus === "HOST" || post?.host?.id === CURRENT_USER_ID;
+  const isHost =
+    post?.myState?.membershipStatus === "HOST" || (post?.host?.id != null && String(post.host.id) === currentUserId);
 
   // ✅ derived lists
   const pending = useMemo(() => participants.filter((p) => p.status === "PENDING"), [participants]);
-  const confirmed = useMemo(() => participants.filter((p) => p.status !== "PENDING"), [participants]);
+  const confirmed = useMemo(() => participants.filter((p) => isConfirmedStatus(p.status)), [participants]);
 
   const filtered = useMemo(() => {
     const base = tab === "PENDING" ? pending : confirmed;
     const q = query.trim().toLowerCase();
     if (!q) return base;
-    return base.filter((p) => (p.nickname ?? "").toLowerCase().includes(q));
+
+    return base.filter((p) => String(p.nickname ?? "").toLowerCase().includes(q));
   }, [tab, pending, confirmed, query]);
 
   // ✅ access guards
@@ -83,12 +89,15 @@ export default function ManageParticipantsScreen() {
 
       if (!opts?.silent) setLoading(true);
       try {
-        const m = await meetingApi.getMeeting(id);
+        const m = await meetingApi.getMeeting(id as any);
         if (seq !== loadSeq.current) return;
         setPost(m);
 
-        if (m.myState?.membershipStatus === "HOST" || m.host?.id === CURRENT_USER_ID) {
-          const parts = await meetingApi.getParticipants(m.id);
+        const hostOk =
+          m.myState?.membershipStatus === "HOST" || (m.host?.id != null && String(m.host.id) === currentUserId);
+
+        if (hostOk) {
+          const parts = await meetingApi.getParticipants(String(m.id) as any);
           if (seq !== loadSeq.current) return;
           setParticipants(parts);
         } else {
@@ -101,7 +110,7 @@ export default function ManageParticipantsScreen() {
         if (!opts?.silent) setLoading(false);
       }
     },
-    [id]
+    [id, currentUserId]
   );
 
   useEffect(() => {
@@ -119,43 +128,42 @@ export default function ManageParticipantsScreen() {
 
   // ✅ 로컬 즉시 업데이트 helpers (optimistic)
   const updateParticipant = useCallback((userId: string, patch: Partial<Participant>) => {
-    setParticipants((prev) => prev.map((p) => (p.userId === userId ? { ...p, ...patch } : p)));
+    setParticipants((prev) => prev.map((p) => (String(p.id) === userId ? { ...p, ...patch } : p)));
   }, []);
 
   const removeParticipant = useCallback((userId: string) => {
-    setParticipants((prev) => prev.filter((p) => p.userId !== userId));
+    setParticipants((prev) => prev.filter((p) => String(p.id) !== userId));
   }, []);
 
-  // ✅ 승인: 즉시 반영 + 실패 시 롤백 + (선택) 백그라운드 revalidate
+  // ✅ 승인: 즉시 반영 + 실패 시 롤백 + 서버 응답 반영(가능하면)
   const handleApprove = useCallback(
     async (userId: string) => {
       if (!post) return;
-      if (processingId) return;
+      if (processingUserId) return;
 
       const prevSnapshot = participantsRef.current;
-      setProcessingId(userId);
+      setProcessingUserId(userId);
 
-      // 즉시 UI 반영 (PENDING -> CONFIRMED)
-      updateParticipant(userId, { status: "CONFIRMED" as any });
+      // ✅ PENDING -> MEMBER
+      updateParticipant(userId, { status: "MEMBER" });
 
       try {
-        await meetingApi.approveParticipant(post.id, userId);
-
-        // (선택) 서버 정합성 보정: 조용히 한번 더 동기화
-        // load({ silent: true });
+        const updated = await meetingApi.approveParticipant(String(post.id) as any, userId);
+        // 서버가 최신 목록을 주는 경우 정합성 고정
+        if (Array.isArray(updated)) setParticipants(updated);
 
         Alert.alert("승인 완료", "참여가 확정되었습니다.");
       } catch {
         setParticipants(prevSnapshot);
         Alert.alert("오류", "승인 처리에 실패했습니다.");
       } finally {
-        setProcessingId(null);
+        setProcessingUserId(null);
       }
     },
-    [post, processingId, updateParticipant]
+    [post, processingUserId, updateParticipant]
   );
 
-  // ✅ 거절: 즉시 제거 + 실패 시 롤백
+  // ✅ 거절: 즉시 제거 + 실패 시 롤백 + 서버 응답 반영(가능하면)
   const handleReject = useCallback(
     async (userId: string) => {
       if (!post) return;
@@ -167,21 +175,19 @@ export default function ManageParticipantsScreen() {
           style: "destructive",
           onPress: async () => {
             const prevSnapshot = participantsRef.current;
-            setProcessingId(userId);
+            setProcessingUserId(userId);
 
             // 즉시 UI 반영 (목록에서 제거)
             removeParticipant(userId);
 
             try {
-              await meetingApi.rejectParticipant(post.id, userId);
-
-              // (선택) 서버 정합성 보정
-              // load({ silent: true });
+              const updated = await meetingApi.rejectParticipant(String(post.id) as any, userId);
+              if (Array.isArray(updated)) setParticipants(updated);
             } catch {
               setParticipants(prevSnapshot);
               Alert.alert("오류", "거절 처리에 실패했습니다.");
             } finally {
-              setProcessingId(null);
+              setProcessingUserId(null);
             }
           },
         },
@@ -198,7 +204,7 @@ export default function ManageParticipantsScreen() {
   const emptyDesc =
     tab === "PENDING" ? "새 신청이 들어오면 여기에 표시됩니다." : "승인된 참여자가 생기면 여기에 표시됩니다.";
 
-  // ✅ HeaderTop: 스크롤되는 영역(요약+검색) — ListHeaderComponent로만 둠
+  // ✅ HeaderTop: 스크롤되는 영역(요약+검색)
   const HeaderTop = useMemo(() => {
     return (
       <View style={{ padding: 16, paddingBottom: 10 }}>
@@ -241,7 +247,7 @@ export default function ManageParticipantsScreen() {
     );
   }, [t, headerBg, cardBorder, post?.title, pending.length, confirmed.length, query]);
 
-  // ✅ Sticky 영역을 data에 넣기 위한 컴포넌트 (항상 최신 count/tab을 렌더)
+  // ✅ Sticky 영역(탭/섹션 타이틀)
   const StickyHeader = useMemo(() => {
     return (
       <View style={[styles.stickyWrap, { backgroundColor: t.colors.background, borderBottomColor: t.colors.border }]}>
@@ -261,18 +267,7 @@ export default function ManageParticipantsScreen() {
     );
   }, [t, tab, pending.length, confirmed.length]);
 
-  // ✅ FlatList data (첫 아이템이 sticky)
-  const listData: Row[] = useMemo(() => {
-    const base: Row[] = [{ _type: "STICKY" }];
-
-    if (accessDenied) return base;
-
-    // filtered 바로 밑에 separator spacing을 일정하게 하고 싶으면 SPACER를 넣을 수도 있지만,
-    // 지금은 ItemSeparatorComponent로 충분해서 생략 가능.
-    return base.concat(filtered as Row[]);
-  }, [accessDenied, filtered]);
-
-  // ✅ Empty 상태
+  // ✅ Empty 상태 (data에 EMPTY row로 넣어 렌더)
   const EmptyState = useMemo(() => {
     if (loading) {
       return (
@@ -307,23 +302,34 @@ export default function ManageParticipantsScreen() {
     );
   }, [loading, accessDenied, t, emptyTitle, emptyDesc]);
 
-  // ✅ renderItem 최적화
+  // ✅ FlatList data (첫 아이템이 sticky)
+  const listData: Row[] = useMemo(() => {
+    const base: Row[] = [{ _type: "STICKY" }];
+
+    // 접근 거부/로딩/필터 결과 없음이면 EMPTY row 추가
+    if (loading || accessDenied || filtered.length === 0) return base.concat([{ _type: "EMPTY" }]);
+
+    return base.concat(filtered as Row[]);
+  }, [loading, accessDenied, filtered]);
+
   const renderItem = useCallback(
     ({ item }: { item: Row }) => {
       if ("_type" in item) {
         if (item._type === "STICKY") return StickyHeader;
-        return <View />; // (미사용)
+        if (item._type === "EMPTY") return EmptyState;
+        return <View />;
       }
 
+      const userId = String(item.id);
       const isPending = item.status === "PENDING";
-      const isProcessing = processingId === item.userId;
+      const isProcessing = processingUserId === userId;
 
       return (
         <View style={{ paddingHorizontal: 16 }}>
           <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
             <View style={styles.cardLeft}>
               {item.avatarUrl ? (
-                <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+                <Image source={{ uri: item.avatarUrl }} style={styles.avatarImage} />
               ) : (
                 <View style={[styles.avatarPlaceholder, { backgroundColor: t.colors.neutral[100] }]}>
                   <Ionicons name="person" size={18} color={t.colors.icon.muted} />
@@ -332,7 +338,7 @@ export default function ManageParticipantsScreen() {
 
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
-                  {item.nickname}
+                  {item.nickname ?? "알 수 없음"}
                 </Text>
                 <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 2 }]}>
                   {isPending ? "신청 대기" : "참여 확정"}
@@ -346,7 +352,7 @@ export default function ManageParticipantsScreen() {
               ) : isPending ? (
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
                   <Pressable
-                    onPress={() => handleReject(item.userId)}
+                    onPress={() => handleReject(userId)}
                     hitSlop={10}
                     style={({ pressed }) => [
                       styles.iconAction,
@@ -359,7 +365,7 @@ export default function ManageParticipantsScreen() {
                   <View style={{ width: 8 }} />
 
                   <Pressable
-                    onPress={() => handleApprove(item.userId)}
+                    onPress={() => handleApprove(userId)}
                     hitSlop={10}
                     style={({ pressed }) => [
                       styles.primaryAction,
@@ -380,13 +386,12 @@ export default function ManageParticipantsScreen() {
         </View>
       );
     },
-    [StickyHeader, processingId, t, handleReject, handleApprove]
+    [StickyHeader, EmptyState, processingUserId, t, handleReject, handleApprove]
   );
 
-  // ✅ keyExtractor 안정화
-  const keyExtractor = useCallback((item: Row, index: number) => {
-    if ("_type" in item) return "sticky";
-    return item.userId;
+  const keyExtractor = useCallback((item: Row) => {
+    if ("_type" in item) return item._type === "STICKY" ? "sticky" : "empty";
+    return String(item.id);
   }, []);
 
   return (
@@ -410,11 +415,10 @@ export default function ManageParticipantsScreen() {
         data={listData}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
-        // ✅ “탭 눌러야 갱신”/“숫자 지연” 방지: FlatList가 header/sticky를 놓치지 않게 강제 트리거
         extraData={{
           tab,
           query,
-          processingId,
+          processingUserId,
           pendingCount: pending.length,
           confirmedCount: confirmed.length,
           denied: accessDenied,
@@ -425,13 +429,9 @@ export default function ManageParticipantsScreen() {
           paddingBottom: Math.max(16, insets.bottom),
           flexGrow: 1,
         }}
-        // ✅ HeaderTop만 “헤더”로, sticky는 data 첫 아이템으로 처리
         ListHeaderComponent={() => <View>{HeaderTop}</View>}
-        // ✅ HeaderTop(0) 다음의 첫 아이템(STICKY)을 고정
         stickyHeaderIndices={[1]}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        // ✅ STICKY만 있고 실제 데이터가 없을 수 있으니 Empty는 여기서 처리
-        ListEmptyComponent={EmptyState}
       />
     </AppLayout>
   );
@@ -555,7 +555,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  avatar: { width: 38, height: 38, borderRadius: 19, marginRight: 10 },
+  avatarImage: { width: 38, height: 38, borderRadius: 19, marginRight: 10 },
   avatarPlaceholder: {
     width: 38,
     height: 38,
