@@ -24,19 +24,51 @@ import CategoryChips from "@/shared/ui/CategoryChips";
 
 import { MeetingCard } from "@/features/meetings/ui/MeetingCard";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type { CategoryKey, HotMeetingItem, MeetingPost } from "@/features/meetings/model/types";
+import type {
+  CategoryKey,
+  HotMeetingItem,
+  MeetingPost,
+  MembershipStatus,
+} from "@/features/meetings/model/types";
 
 import { useAuthStore } from "@/features/auth/model/authStore";
 
+function isCapacityFull(m: MeetingPost) {
+  const total = m.capacity?.total ?? 0;
+  const current = m.capacity?.current ?? 0;
+  return total > 0 && current >= total;
+}
+
 /**
- * Home 하단 리스트에서 숨길 상태
- * - 요구사항: 참여 종료(ENDED) / 정원 마감(FULL) 은 보이면 안 됨
+ * ✅ 홈 리스트 노출 규칙(요청 반영)
+ * - FULL/ENDED/CANCELED: 숨김
+ * - capacity full(실제 정원 꽉참): 숨김
+ * - myState.membershipStatus === CANCELED/REJECTED(승인 취소/거절): 숨김
+ * - NONE인데 OPEN이 아니면(STARTED 등): 숨김
+ * - NONE + INSTANT + canJoin=false: 숨김
+ * - NONE + APPROVAL + canJoin=false: "비활성"로 보여야 하므로 숨기지 않음
  */
-function shouldHideInHomeList(status: MeetingPost["status"] | undefined) {
-  if (!status) return false;
-  return status === "FULL" || status === "ENDED";
-  // 취소도 숨기려면:
-  // return status === "FULL" || status === "ENDED" || status === "CANCELED";
+function shouldShowInHomeList(m: MeetingPost) {
+  const ms: MembershipStatus = m.myState?.membershipStatus ?? "NONE";
+  const canJoin = m.myState?.canJoin ?? true;
+
+  // 승인 취소/거절: 홈 목록에서 숨김
+  if (ms === "CANCELED" || ms === "REJECTED") return false;
+
+  // 정원마감/종료/취소: 홈 목록에서 숨김
+  if (m.status === "FULL" || m.status === "ENDED" || m.status === "CANCELED") return false;
+
+  // OPEN인데도 capacity가 꽉 찼으면 사실상 FULL → 숨김
+  if (isCapacityFull(m)) return false;
+
+  // NONE이면 탐색 목적상 OPEN만 보여줌 (STARTED 등 혼란 방지)
+  if (ms === "NONE" && m.status !== "OPEN") return false;
+
+  // 선착순(INSTANT)은 canJoin=false면 홈에서 숨김
+  if (ms === "NONE" && m.joinMode === "INSTANT" && canJoin === false) return false;
+
+  // 승인제(APPROVAL) + canJoin=false는 "비활성"로 보여야 하므로 keep
+  return true;
 }
 
 export default function HomeScreen() {
@@ -67,11 +99,11 @@ export default function HomeScreen() {
           data = [];
         }
 
-        // ✅ FULL/ENDED 숨김 (서버가 섞어서 내려줘도 UI에서 차단)
-        const visibleData = data.filter((m) => !shouldHideInHomeList(m.status));
+        // ✅ 홈 정책 필터 적용
+        const visibleData = data.filter(shouldShowInHomeList);
         setItems(visibleData);
 
-        // 2) 핫한 모임
+        // 2) 핫한 모임(상태가 없으니 정원 여유만 체크)
         let hot: HotMeetingItem[] = [];
         try {
           hot = await meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 });
@@ -79,7 +111,14 @@ export default function HomeScreen() {
           console.warn("핫한 모임 로드 실패:", err);
           hot = [];
         }
-        setHotItems(hot);
+
+        // 정원 여유만 남김
+        const visibleHot = hot.filter((h) => {
+          const total = h.capacity?.total ?? 0;
+          const current = h.capacity?.current ?? 0;
+          return !(total > 0 && current >= total);
+        });
+        setHotItems(visibleHot);
       } catch (e) {
         console.error("HomeScreen 전체 로드 에러:", e);
       } finally {
@@ -90,22 +129,16 @@ export default function HomeScreen() {
     [cat]
   );
 
-  // 최초 로드 + 카테고리 변경 시 로드
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // ✅ “상세 -> 뒤로가기”로 돌아올 때 즉시 갱신 (포커스 기반)
-  // - 의도: Home은 이미 마운트되어 있으므로 focus 시점에 서버 상태(참여/정원 등)를 다시 동기화
-  // - 과도한 중복 호출 방지를 위해 짧은 디바운스(예: 800ms) 적용
   const lastFocusFetchAtRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
       const now = Date.now();
       if (now - lastFocusFetchAtRef.current < 800) return;
       lastFocusFetchAtRef.current = now;
-
-      // “조용한” 갱신: 전체 로딩 스피너 대신 isRefresh=true로 처리
       fetchData(true);
     }, [fetchData])
   );
@@ -127,7 +160,6 @@ export default function HomeScreen() {
   const ListHeader = useMemo(() => {
     return (
       <View>
-        {/* 1) 헤드라인 */}
         <View style={{ paddingHorizontal: t.spacing.pagePaddingH, marginBottom: 16, marginTop: 4 }}>
           <Text style={[t.typography.headlineSmall, { color: t.colors.textMain }]}>
             {displayName}, 지금 참여 가능한{"\n"}
@@ -135,7 +167,6 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* 2) Hot Items */}
         {hotItems.length === 0 ? (
           <View style={{ paddingHorizontal: t.spacing.pagePaddingH, paddingBottom: 24 }}>
             <EmptyView title="지금 임박한 모임이 없어요" description="조금 뒤에 다시 확인해보세요!" />
@@ -237,7 +268,8 @@ export default function HomeScreen() {
         keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (
           <View style={{ paddingHorizontal: t.spacing.pagePaddingH }}>
-            <MeetingCard item={item} />
+            {/* ✅ 홈에서는 "내 관계 뱃지(내모임/참여중/승인대기)"만 보이게 */}
+            <MeetingCard item={item} showStatusPill={false} showJoinBlockedBadge={false} />
           </View>
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}

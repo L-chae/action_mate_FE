@@ -158,13 +158,6 @@ export default function SettingsScreen() {
             danger
             onPress={onLogout}
           />
-          <SettingRow
-            icon="trash-outline"
-            title="회원 탈퇴"
-            description="계정과 데이터가 삭제되며 복구할 수 없습니다."
-            danger
-            onPress={onWithdraw}
-          />
         </View>
       </ScrollView>
     </AppLayout>

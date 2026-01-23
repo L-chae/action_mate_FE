@@ -15,13 +15,8 @@ export default function TabsLayout() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const hasHydrated = useAuthStore((s) => s.hasHydrated);
 
-  // ✅ 로딩(하이드레이트) 끝날 때까지 아무것도 렌더하지 않음
   if (!hasHydrated) return null;
-
-  // ✅ 로그인 안 했으면 탭 진입 자체를 Redirect로 차단 (router.replace 금지)
-  if (!isLoggedIn) {
-    return <Redirect href="/(auth)/login" />;
-  }
+  if (!isLoggedIn) return <Redirect href="/(auth)/login" />;
 
   return (
     <Tabs
@@ -44,11 +39,7 @@ export default function TabsLayout() {
         options={{
           title: "홈",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "home" : "home-outline"}
-              color={color}
-              size={size}
-            />
+            <Ionicons name={focused ? "home" : "home-outline"} color={color} size={size} />
           ),
         }}
       />
@@ -58,11 +49,7 @@ export default function TabsLayout() {
         options={{
           title: "지도",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "location" : "location-outline"}
-              color={color}
-              size={size}
-            />
+            <Ionicons name={focused ? "location" : "location-outline"} color={color} size={size} />
           ),
         }}
       />
@@ -72,17 +59,13 @@ export default function TabsLayout() {
         options={{
           title: "채팅",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "chatbubble" : "chatbubble-outline"}
-              color={color}
-              size={size}
-            />
+            <Ionicons name={focused ? "chatbubble" : "chatbubble-outline"} color={color} size={size} />
           ),
         }}
       />
 
       <Tabs.Screen
-        name="my"
+        name="my/index"
         options={{
           title: "마이페이지",
           tabBarIcon: ({ color, size, focused }) => (
@@ -94,6 +77,8 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen name="my/joined" options={{ href: null }} />
+      <Tabs.Screen name="my/hosted" options={{ href: null }} />
     </Tabs>
   );
 }
