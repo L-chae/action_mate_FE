@@ -1,6 +1,5 @@
 // 📂 src/features/meetings/ui/DetailContent.tsx
-
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import type { ReactNode } from "react";
 import {
   FlatList,
@@ -38,16 +37,6 @@ function timeAgo(iso: string) {
   return d.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
 
-function parseReplyPrefix(content: string) {
-  if (!content?.startsWith("@")) return null;
-  const firstSpace = content.indexOf(" ");
-  if (firstSpace <= 1) return null;
-  const nickname = content.slice(1, firstSpace);
-  const body = content.slice(firstSpace + 1).trim();
-  if (!nickname) return null;
-  return { nickname, body };
-}
-
 /** 테마 타입 정의 */
 type Theme = ReturnType<typeof useAppTheme>;
 
@@ -83,19 +72,17 @@ function isValidLatLng(lat: unknown, lng: unknown) {
   const a = Number(lat);
   const b = Number(lng);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-  // 0,0은 대부분 "없음"으로 취급하는 게 UX에 유리
   if (a === 0 && b === 0) return false;
   return true;
 }
 
 /**
- * ✅ Comment.author(UserSummary)로 통일되었지만,
- * 과거/목업 데이터가 섞여도 화면이 죽지 않게 "읽기"만 방어합니다.
+ * ✅ Comment.author(UserSummary) 기준
+ * (과거/목업 데이터가 섞여도 화면이 죽지 않게 읽기만 방어)
  */
 function getCommentAuthor(item: Comment): { id: string; nickname: string; avatarUrl?: string } {
   const anyItem = item as any;
 
-  // 1) 최신 스키마: author: UserSummary
   const author = (item as any)?.author;
   if (author) {
     const id = String(author.id ?? "");
@@ -110,7 +97,6 @@ function getCommentAuthor(item: Comment): { id: string; nickname: string; avatar
     return { id, nickname, avatarUrl: avatarUrl ?? undefined };
   }
 
-  // 2) 레거시 방어 (가능하면 제거)
   const id = String(anyItem?.authorId ?? "");
   const nickname = String(anyItem?.authorNickname ?? "");
   const avatarUrl = anyItem?.authorAvatarUrl ?? anyItem?.avatarUrl ?? undefined;
@@ -182,19 +168,30 @@ function MetaLine({
 type DetailContentProps = {
   t: Theme;
   post: MeetingPost;
+
+  /** ✅ 이미 MeetingDetailScreen에서 “무한 depth threaded”로 정렬된 리스트가 들어온다 */
   comments: Comment[];
+
+  /** ✅ TS2322 해결: MeetingDetailScreen에서 넘기는 commentById prop 추가 */
+  commentById: Map<string, Comment>;
+
   currentUserId: string;
+
   headerComponent?: ReactNode;
   scrollViewRef: React.RefObject<ScrollView | null>;
   bottomPadding: number;
+
   onPressHostProfile: () => void;
+
   onPressCommentAuthor?: (payload: { id: string; nickname: string; avatarUrl?: string }) => void;
   onReply: (c: Comment) => void;
   onEditComment: (c: Comment) => void;
   onDeleteComment: (id: string) => void;
-  onContentHeightChange: (h: number) => void;
-  onScrollViewHeightChange: (h: number) => void;
-  onScroll: (e: any) => void;
+
+  onContentHeightChange?: (h: number) => void;
+  onScrollViewHeightChange?: (h: number) => void;
+  onScroll?: (e: any) => void;
+
   commentText: string;
   setCommentText: (v: string) => void;
   inputRef: React.RefObject<TextInput | null>;
@@ -203,12 +200,16 @@ type DetailContentProps = {
   onCancelInputMode: () => void;
   onSubmitComment: () => void;
   onFocusComposer: () => void;
+
+  /** ✅ 댓글 위치 저장(부모/신규 댓글로 스크롤 이동용) */
+  onCommentLayout?: (id: string, y: number) => void;
 };
 
 export function DetailContent({
   t,
   post,
   comments,
+  commentById,
   currentUserId,
   headerComponent,
   scrollViewRef,
@@ -229,6 +230,7 @@ export function DetailContent({
   onCancelInputMode,
   onSubmitComment,
   onFocusComposer,
+  onCommentLayout,
 }: DetailContentProps) {
   const isDark = t.mode === "dark";
 
@@ -244,11 +246,12 @@ export function DetailContent({
 
   const hostPillBg = withAlpha(t.colors.primary, isDark ? 0.24 : 0.14);
   const hostPillFg = t.colors.primary;
+
   const bubbleBg = withAlpha(t.colors.primary, isDark ? 0.18 : 0.12);
   const inputBg = isDark ? subtleBg2 : subtleBg;
 
-  const conditionBg = withAlpha(t.colors.point ?? "#FF5722", 0.08);
-  const conditionText = t.colors.point ?? "#FF5722";
+  const conditionBg = withAlpha(t.colors.point ?? t.colors.primary, 0.08);
+  const conditionText = t.colors.point ?? t.colors.primary;
 
   const { meta, right } = useMemo(() => getMeetingStatusTokens(post), [post]);
   const metaToken = meta[0];
@@ -258,7 +261,7 @@ export function DetailContent({
     return post.meetingTime ? meetingTimeTextFromIso(post.meetingTime) : "";
   }, [post.meetingTime]);
 
-  // ✅ 지도 좌표 (MeetingPost.location 기반)
+  // ✅ 지도 좌표
   const map = useMemo(() => {
     const lat = post.location?.lat;
     const lng = post.location?.lng;
@@ -268,22 +271,59 @@ export function DetailContent({
 
   const hostAvatarUrl = post.host?.avatarUrl || null;
 
-  // ✅ 인원 정보 (MeetingPost.capacity 기반)
+  // ✅ 인원 정보
   const capacityCurrent = post.capacity?.current ?? 0;
   const capacityTotal = post.capacity?.total ?? 0;
   const remaining = Math.max(0, capacityTotal - capacityCurrent);
 
-  // ✅ reply/edit 표기용 닉네임 (Comment.author 기반)
+  // ✅ reply/edit 표기용
   const replyNickname = replyTarget ? getCommentAuthor(replyTarget).nickname : "";
   const editingLabel = editingComment ? "댓글 수정 중" : "";
+
+  /** ✅ depth에 따라 들여쓰기 계산 (부모 체인을 타고 올라감) */
+  const depthOf = useCallback(
+    (c: Comment) => {
+      let depth = 0;
+      const visited = new Set<string>();
+      let cur: Comment | undefined = c;
+
+      while (cur && (cur as any)?.parentId) {
+        const pid = String((cur as any).parentId);
+        if (!pid || visited.has(pid)) break; // cycle 방어
+        visited.add(pid);
+        const parent = commentById.get(pid);
+        if (!parent) break;
+        depth += 1;
+        cur = parent;
+        if (depth >= 6) break; // 너무 깊어지면 UI 폭 망가짐 방어
+      }
+      return depth;
+    },
+    [commentById]
+  );
+
+  const indentByDepth = (depth: number) => {
+    const base = 0;
+    const step = 18; // ✅ 너무 과하지 않게
+    const max = 54; // ✅ 최대 3단까지만 시각적으로 들여쓰기
+    return base + Math.min(max, depth * step);
+  };
+
+  const parentNicknameOf = (c: Comment) => {
+    const pid = (c as any)?.parentId ? String((c as any).parentId) : "";
+    if (!pid) return "";
+    const parent = commentById.get(pid);
+    if (!parent) return "";
+    return getCommentAuthor(parent).nickname;
+  };
 
   return (
     <ScrollView
       ref={scrollViewRef}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ paddingBottom: bottomPadding, backgroundColor: pageBg }}
-      onContentSizeChange={(_, h) => onContentHeightChange(h)}
-      onLayout={(e) => onScrollViewHeightChange(e.nativeEvent.layout.height)}
+      onContentSizeChange={(_, h) => onContentHeightChange?.(h)}
+      onLayout={(e) => onScrollViewHeightChange?.(e.nativeEvent.layout.height)}
       onScroll={onScroll}
       scrollEventThrottle={16}
     >
@@ -340,9 +380,7 @@ export function DetailContent({
 
           <View style={{ flex: 1 }}>
             <View style={styles.rowCenter}>
-              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>
-                {post.host?.nickname ?? "호스트"}
-              </Text>
+              <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>{post.host?.nickname ?? "호스트"}</Text>
               <View style={[styles.hostBadge, { backgroundColor: hostPillBg, marginLeft: 6 }]}>
                 <Text style={[styles.hostBadgeText, { color: hostPillFg }]}>HOST</Text>
               </View>
@@ -360,20 +398,14 @@ export function DetailContent({
         <View style={styles.headerSection}>
           <View style={styles.headerMetaRow}>
             <Badge label={post.category} tone="neutral" />
-            {metaToken ? (
-              <MetaLine t={t} iconName={metaToken.iconName} label={metaToken.label} tone={metaToken.tone} />
-            ) : null}
-            {rightToken ? (
-              <MetaLine t={t} iconName={rightToken.iconName} label={rightToken.label} tone={rightToken.tone} />
-            ) : null}
+            {metaToken ? <MetaLine t={t} iconName={metaToken.iconName} label={metaToken.label} tone={metaToken.tone} /> : null}
+            {rightToken ? <MetaLine t={t} iconName={rightToken.iconName} label={rightToken.label} tone={rightToken.tone} /> : null}
           </View>
 
-          <Text style={[t.typography.headlineMedium, { marginTop: 12, color: t.colors.textMain }]}>
-            {post.title}
-          </Text>
+          <Text style={[t.typography.headlineMedium, { marginTop: 12, color: t.colors.textMain }]}>{post.title}</Text>
         </View>
 
-        {/* 4. 정보 박스 (시간, 장소, 인원) */}
+        {/* 4. 정보 박스 */}
         <View style={[styles.infoBox, { backgroundColor: surface, borderColor: border }]}>
           <InfoRow
             icon="time-outline"
@@ -402,7 +434,7 @@ export function DetailContent({
           />
         </View>
 
-        {/* 5. 승인 조건 표시 */}
+        {/* 5. 승인 조건 */}
         {post.joinMode === "APPROVAL" ? (
           <View style={[styles.conditionBox, { backgroundColor: conditionBg, borderColor: "transparent" }]}>
             <View style={styles.rowCenter}>
@@ -417,18 +449,14 @@ export function DetailContent({
 
         {/* 6. 호스트의 한마디 */}
         <View style={styles.section}>
-          <Text style={[t.typography.titleMedium, { marginBottom: 12, color: t.colors.textMain }]}>
-            호스트의 한마디
-          </Text>
+          <Text style={[t.typography.titleMedium, { marginBottom: 12, color: t.colors.textMain }]}>호스트의 한마디</Text>
           <View style={[styles.bubble, { backgroundColor: bubbleBg, borderColor: border }]}>
-            <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>
-              {post.content || "편하게 오세요!"}
-            </Text>
+            <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 22 }]}>{post.content || "편하게 오세요!"}</Text>
             <View style={[styles.bubbleTail, { borderTopColor: bubbleBg }]} />
           </View>
         </View>
 
-        {/* 7. 댓글 섹션 */}
+        {/* 7. 댓글 */}
         <View style={styles.section}>
           <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]}>댓글 {comments.length}</Text>
 
@@ -444,11 +472,17 @@ export function DetailContent({
               scrollEnabled={false}
               ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
               renderItem={({ item }) => {
-                const reply = parseReplyPrefix(item.content);
-                const isReply = !!reply;
-
                 const author = getCommentAuthor(item);
                 const avatarUrl = pickAvatarUrlFromComment(item, post);
+
+                const isMine = String(author.id) === String(currentUserId);
+                const pid = (item as any)?.parentId ? String((item as any).parentId) : "";
+                const isReply = !!pid;
+
+                const depth = isReply ? depthOf(item) : 0;
+                const indent = indentByDepth(depth);
+
+                const parentNickname = isReply ? parentNicknameOf(item) : "";
 
                 const onPressAuthor = () => {
                   if (!onPressCommentAuthor) return;
@@ -456,74 +490,75 @@ export function DetailContent({
                   onPressCommentAuthor({ id: author.id, nickname: author.nickname, avatarUrl });
                 };
 
-                const isMine = String(author.id) === String(currentUserId);
-
                 return (
                   <View
+                    onLayout={(e) => onCommentLayout?.(String(item.id), e.nativeEvent.layout.y)}
                     style={[
                       styles.commentCard,
-                      { backgroundColor: surface, borderColor: border },
-                      isReply && styles.replyCard,
-                      isReply && { borderLeftColor: t.colors.primary },
+                      { backgroundColor: surface, borderColor: border, marginLeft: indent },
+                      isReply && { backgroundColor: subtleBg },
                     ]}
                   >
-                    <View style={styles.commentRow}>
+                    <View style={styles.commentItemRow}>
+                      {/* 아바타 */}
                       <Pressable
                         onPress={onPressCommentAuthor ? onPressAuthor : undefined}
                         disabled={!onPressCommentAuthor}
                         hitSlop={8}
-                        style={({ pressed }) => [styles.authorPressable, { opacity: pressed ? 0.9 : 1 }]}
+                        style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
                       >
-                        <View style={[styles.commentAvatar, { backgroundColor: subtleBg }]}>
+                        <View style={[styles.commentAvatar, { backgroundColor: subtleBg2 }]}>
                           {avatarUrl ? (
                             <Image source={{ uri: avatarUrl }} style={styles.commentAvatarImg} />
                           ) : (
                             <Ionicons name="person" size={14} color={mutedIcon} />
                           )}
                         </View>
+                      </Pressable>
 
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <View style={styles.authorLine}>
+                      {/* 오른쪽 */}
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <View style={styles.commentTopLine}>
+                          <Pressable
+                            onPress={onPressCommentAuthor ? onPressAuthor : undefined}
+                            disabled={!onPressCommentAuthor}
+                            hitSlop={8}
+                            style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, flexShrink: 1 }]}
+                          >
                             <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
                               {author.nickname || "사용자"}
                             </Text>
-                            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-                              {" "}
-                              · {timeAgo(item.createdAt)}
-                            </Text>
-                          </View>
+                          </Pressable>
 
-                          {isReply ? (
-                            <View style={[styles.replyMeta, { backgroundColor: subtleBg }]}>
-                              <Ionicons name="return-down-forward" size={14} color={t.colors.textSub} />
-                              <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginLeft: 6 }]}>
-                                {reply!.nickname}님에게 답글
-                              </Text>
-                            </View>
+                          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}> · {timeAgo(item.createdAt)}</Text>
+
+                          {onPressCommentAuthor ? (
+                            <Ionicons name="chevron-forward" size={14} color={mutedIcon} style={{ marginLeft: 6 }} />
                           ) : null}
                         </View>
 
-                        {onPressCommentAuthor ? (
-                          <Ionicons name="chevron-forward" size={16} color={mutedIcon} style={{ marginLeft: 6 }} />
+                        {/* ✅ 답글 표시: 라인/주황바/칩 없이 “얇은 텍스트 한 줄” */}
+                        {isReply ? (
+                          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginTop: 6 }]}>
+                            ↳ {parentNickname ? `${parentNickname}님에게 답글` : "답글"}
+                          </Text>
                         ) : null}
-                      </Pressable>
 
-                      <View style={{ flex: 1 }}>
-                        <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 6 }]}>
-                          {isReply ? reply!.body : item.content}
-                        </Text>
+                        {/* 본문 */}
+                        <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 8 }]}>{item.content}</Text>
 
+                        {/* 액션: 간격 좁게(붙지 않게만) */}
                         <View style={styles.commentActions}>
-                          <Pressable onPress={() => onReply(item)} hitSlop={8}>
+                          <Pressable onPress={() => onReply(item)} hitSlop={8} style={styles.actionBtn}>
                             <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>답글</Text>
                           </Pressable>
 
                           {isMine ? (
                             <>
-                              <Pressable onPress={() => onEditComment(item)} hitSlop={8}>
+                              <Pressable onPress={() => onEditComment(item)} hitSlop={8} style={styles.actionBtn}>
                                 <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>수정</Text>
                               </Pressable>
-                              <Pressable onPress={() => onDeleteComment(String(item.id))} hitSlop={8}>
+                              <Pressable onPress={() => onDeleteComment(String(item.id))} hitSlop={8} style={styles.actionBtn}>
                                 <Text style={[t.typography.labelSmall, { color: t.colors.error }]}>삭제</Text>
                               </Pressable>
                             </>
@@ -537,7 +572,7 @@ export function DetailContent({
             />
           )}
 
-          {/* 댓글 입력창 */}
+          {/* 댓글 입력 */}
           <View style={[styles.composerWrap, { borderColor: border, backgroundColor: surface }]}>
             {(replyTarget || editingComment) ? (
               <View style={[styles.composerStatus, { backgroundColor: subtleBg, borderColor: border }]}>
@@ -600,6 +635,7 @@ export function DetailContent({
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+
   mapContainer: { position: "relative", height: 200, width: "100%", overflow: "hidden" },
   centerPin: {
     position: "absolute",
@@ -607,6 +643,7 @@ const styles = StyleSheet.create({
     top: "50%",
     transform: [{ translateX: -16 }, { translateY: -32 }],
   },
+
   rowCenter: { flexDirection: "row", alignItems: "center" },
 
   hostRow: {
@@ -644,6 +681,7 @@ const styles = StyleSheet.create({
   conditionBox: { padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 32 },
 
   section: { marginBottom: 32 },
+
   bubble: { padding: 20, borderRadius: 16, borderBottomLeftRadius: 6, borderWidth: 1 },
   bubbleTail: {
     position: "absolute",
@@ -660,42 +698,39 @@ const styles = StyleSheet.create({
 
   emptyComments: { padding: 20, alignItems: "center", borderRadius: 12 },
 
-  commentCard: { borderWidth: 1, borderRadius: 12, padding: 12 },
-  replyCard: { marginLeft: 14, borderLeftWidth: 3, paddingLeft: 10 },
+  // ✅ 댓글 카드
+  commentCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+  },
 
-  commentRow: { flexDirection: "row" },
-  authorPressable: {
+  commentItemRow: {
     flexDirection: "row",
-    alignItems: "center",
-    marginRight: 10,
-    flex: 1,
-    minWidth: 0,
+    alignItems: "flex-start",
   },
 
   commentAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 2,
     overflow: "hidden",
-    marginRight: 10,
+    marginRight: 12,
   },
-  commentAvatarImg: { width: 28, height: 28, borderRadius: 14 },
+  commentAvatarImg: { width: 32, height: 32, borderRadius: 16 },
 
-  authorLine: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
-  replyMeta: {
-    marginTop: 6,
-    alignSelf: "flex-start",
+  commentTopLine: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+    flexWrap: "nowrap",
   },
 
-  commentActions: { flexDirection: "row", marginTop: 8 },
+  commentActions: { flexDirection: "row", marginTop: 10 },
+
+  // ✅ “답글/수정/삭제” 간격: 살짝만 띄우기 (너무 멀지 않게)
+  actionBtn: { marginRight: 10 },
 
   composerWrap: { marginTop: 14, borderWidth: 1, borderRadius: 14, overflow: "hidden" },
   composerStatus: {
