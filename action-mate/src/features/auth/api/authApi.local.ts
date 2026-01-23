@@ -103,6 +103,22 @@ const authApi: AuthApi = {
   },
 
   /**
+   * ✅ 아이디 중복 확인 (추가됨)
+   * - true: 사용 가능 (중복 없음)
+   * - false: 사용 불가 (중복 있음)
+   */
+  async checkLoginIdAvailability(loginId: string): Promise<boolean> {
+    const targetId = normId(loginId);
+    const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+    
+    // 이미 존재하는 아이디인지 확인
+    const exists = users.some((u) => u.loginId && normId(u.loginId) === targetId);
+    
+    // 존재하지 않아야 사용 가능하므로 !exists 반환
+    return !exists;
+  },
+
+  /**
    * ✅ 회원가입
    */
   async signup(input: SignupInput): Promise<User> {
@@ -158,7 +174,6 @@ const authApi: AuthApi = {
 
   /**
    * ✅ 유저 정보 수정
-   * - 실무에서 호출자가 id/loginId를 섞어 보내도 동작하도록 방어적으로 구현합니다.
    */
   async updateUser(id: string, patch: Partial<User>): Promise<User> {
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
@@ -176,6 +191,7 @@ const authApi: AuthApi = {
     const updated: StoredUser = {
       ...existing,
       ...rest,
+      ...patch, // patch 내용을 적용하되, 식별자 보존
       password: existing.password,
       id: existing.id,
       loginId: existing.loginId,

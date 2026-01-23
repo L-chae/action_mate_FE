@@ -5,6 +5,7 @@ import { getAccessToken, clearAuthTokens } from "@/shared/api/authToken";
 // ------------------------------
 // ✅ 1. 기본 설정
 // ------------------------------
+// 실제 사용할 API 주소로 변경해주세요
 export const API_BASE_URL = "https://bold-seal-only.ngrok-free.app/api";
 
 export const client = axios.create({
@@ -17,73 +18,36 @@ export const client = axios.create({
 });
 
 // ------------------------------
-// ✅ 2. Request: 요청 보낼 때 '출입증(Token)' 자동 부착
+// ✅ 2. Request Interceptor: 토큰 자동 부착
 // ------------------------------
 client.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const token = await getAccessToken();
   
   if (token) {
     config.headers = config.headers ?? {};
-    // Authorization: Bearer {토큰} 형식으로 서버에 보냄
+    // Authorization: Bearer {토큰}
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
 // ------------------------------
-// ✅ 3. Response: 응답 처리 (단순화 버전)
+// ✅ 3. Response Interceptor: 응답/에러 처리
 // ------------------------------
 client.interceptors.response.use(
-  // 성공하면 데이터 그대로 반환
-  (res) => res,
-  
-  // 에러 나면 여기서 처리
+  (res) => res, // 성공 시 그대로 반환
   async (error: AxiosError) => {
-    // 혹~시나 2주가 지나서 401(인증 만료)이 뜨면?
+    // 인증 에러 (401) 발생 시 처리
     if (error.response?.status === 401) {
-      console.log("🚨 토큰 만료됨 (로그아웃 처리)");
-      // 기기에 저장된 토큰 삭제하고 로그아웃 시킴
+      console.log("🚨 토큰 만료 또는 인증 실패 (로그아웃 처리)");
       await clearAuthTokens();
-      // 필요시: window.location.href = "/login" 또는 router 이동 처리
+      // 필요 시 강제 리다이렉트 로직 추가 가능 (예: router.replace('/login'))
     }
-    
-    // 그 외 에러는 화면에서 처리하도록 그대로 넘김
     return Promise.reject(error);
   }
 );
 
-// ------------------------------
-// ✅ 4. API 주소 목록 (Endpoints)
-// ------------------------------
-export const endpoints = {
-  auth: {
-    login: "/auth/login",
-    logout: "/auth/logout",
-    // refresh는 지금 필요 없어서 뺌 (나중에 필요하면 추가)
-  },
-  users: {
-    signup: "/users",
-    exists: (loginId: string) =>
-      `/users/exists?loginId=${encodeURIComponent(loginId)}`,
-    profile: (userId: string) => `/users/${encodeURIComponent(userId)}/profile`,
-  },
-  posts: {
-    create: "/posts",
-    byId: (postId: number | string) => `/posts/id/${postId}`,
-    byCategory: (category: string) =>
-      `/posts/category/${encodeURIComponent(category)}`,
-    nearby: "/posts/nearby",
-    applicants: (postId: number | string) => `/posts/${postId}/applicants`,
-    decideApplicant: (postId: number | string, userId: string) =>
-      `/posts/${postId}/applicants/${encodeURIComponent(userId)}`,
-    ratings: (postId: number | string) => `/posts/${postId}/ratings`,
-  },
-  message: {
-    rooms: "/message/room",
-    room: (roomId: number | string) => `/message/room/${roomId}`,
-    send: "/message",
-  },
-  reports: {
-    create: "/reports",
-  },
-} as const;
+// endpoints는 별도 파일(endpoints.ts)에서 관리하는 것을 권장하지만,
+// 편의를 위해 여기서 바로 export 해서 사용해도 됩니다.
+// (위에 작성해드린 endpoints.ts 내용을 사용하세요)
+export { endpoints } from "./endpoints";

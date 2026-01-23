@@ -32,6 +32,7 @@ export type LoginInput = {
 export type ResetRequestResult = { code?: string };
 
 export type AuthApi = {
+  checkLoginIdAvailability(loginId: string): Promise<boolean>;
   getUserByLoginId(loginId: string): Promise<User | null>;
   signup(input: SignupInput): Promise<User>;
   login(input: LoginInput): Promise<User>;
