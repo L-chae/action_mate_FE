@@ -8,24 +8,22 @@ import {
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
   TextInput,
   findNodeHandle,
+  ScrollView,
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
-// ✅ Store & API
 import { useAuthStore } from "@/features/auth/model/authStore";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, Comment, Participant } from "@/features/meetings/model/types";
 
-// ✅ UI & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
 import NotiButton from "@/shared/ui/NotiButton";
@@ -35,7 +33,7 @@ import { ProfileModal } from "@/features/meetings/ui/ProfileModal";
 import { DetailContent } from "./ui/DetailContent";
 import { BottomBar } from "./ui/BottomBar";
 
-// Mock Data (✅ Comment 타입: { id, content, createdAt, parentId?, author: UserSummary })
+// Mock Data
 const MOCK_COMMENTS: Comment[] = [
   {
     id: "c1",
@@ -52,8 +50,51 @@ const MOCK_COMMENTS: Comment[] = [
   },
 ];
 
-// ✅ 헤더 높이 상수 (AppLayout 헤더 높이와 일치해야 덜컹거리지 않음)
 const TOPBAR_HEIGHT = 56;
+
+function sortByCreatedAtAsc(a: Comment, b: Comment) {
+  return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+}
+
+/**
+ * ✅ 무한 depth 댓글 트리 정렬 (부모 → 자식 → 손자 …)
+ * - 루트부터 createdAt 오름차순
+ * - 각 children도 오름차순
+ * - DFS(preorder)로 펼쳐서 "항상 답글이 바로 아래로"
+ */
+function buildThreadedCommentsDeep(list: Comment[]) {
+  const byId = new Map<string, Comment>();
+  const childrenMap = new Map<string, Comment[]>();
+  const roots: Comment[] = [];
+
+  for (const c of list) byId.set(String(c.id), c);
+
+  for (const c of list) {
+    const pid = (c as any)?.parentId ? String((c as any).parentId) : "";
+    if (!pid) {
+      roots.push(c);
+      continue;
+    }
+    const arr = childrenMap.get(pid) ?? [];
+    arr.push(c);
+    childrenMap.set(pid, arr);
+  }
+
+  roots.sort(sortByCreatedAtAsc);
+  for (const [, arr] of childrenMap) arr.sort(sortByCreatedAtAsc);
+
+  const out: Comment[] = [];
+  const visit = (node: Comment) => {
+    out.push(node);
+    const kids = childrenMap.get(String(node.id));
+    if (kids && kids.length) {
+      for (const child of kids) visit(child);
+    }
+  };
+
+  for (const r of roots) visit(r);
+  return { threaded: out, byId };
+}
 
 export default function MeetingDetailScreen() {
   const t = useAppTheme();
@@ -62,40 +103,32 @@ export default function MeetingDetailScreen() {
   const params = useLocalSearchParams();
   const meetingId = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  // 내 정보
   const me = useAuthStore((s) => s.user);
   const currentUserId = me?.id ? String(me.id) : "guest";
 
-  // --- State ---
   const [post, setPost] = useState<MeetingPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileVisible, setProfileVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
-  // UI State
   const [bottomBarHeight, setBottomBarHeight] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // Comments State
-  const [comments, setComments] = useState<Comment[]>([]);
+  // ✅ raw 저장 → 화면용은 threaded로 계산
+  const [commentsRaw, setCommentsRaw] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [replyTarget, setReplyTarget] = useState<Comment | null>(null);
   const [editingComment, setEditingComment] = useState<Comment | null>(null);
 
-  // --- Refs ---
   const inputRef = useRef<TextInput | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
-  const contentHeightRef = useRef(0);
-  const scrollViewHeightRef = useRef(0);
-  const stickToBottomRef = useRef(true);
+
+  // ✅ 댓글 y 위치 저장 (ScrollView content 기준)
+  const commentYRef = useRef<Record<string, number>>({});
 
   // --- Keyboard Logic ---
-  const { isKeyboardVisible } = useKeyboardAwareScroll(() => {
-    // 키보드가 나타날 때 스크롤을 맨 아래로 부드럽게 이동
-    stickToBottomRef.current = true;
-    scrollToBottomSoon(true);
-  });
+  const { isKeyboardVisible } = useKeyboardAwareScroll(() => {});
 
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) =>
@@ -108,22 +141,18 @@ export default function MeetingDetailScreen() {
     };
   }, []);
 
-  // --- Computed Values ---
   const isAuthor = post?.host?.id === currentUserId || post?.host?.id === "me";
   const membership = post?.myState?.membershipStatus ?? "NONE";
   const canJoin = post?.myState?.canJoin ?? post?.status === "OPEN";
   const pendingCount = participants.filter((p) => p.status === "PENDING").length;
 
-  // ✅ 하단 패딩 계산 (자연스러운 스크롤을 위해 중요)
   const contentBottomPadding =
     (isKeyboardVisible ? 0 : bottomBarHeight) +
     20 +
     (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
 
-  // ✅ 키보드 오프셋 계산 (헤더 높이 + 노치 영역 고려)
   const keyboardVerticalOffset = Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : 0;
 
-  // 호스트 정보 동기화
   const displayHost = useMemo(() => {
     if (!post?.host) return null;
     if (isAuthor && me) {
@@ -132,31 +161,18 @@ export default function MeetingDetailScreen() {
     return post.host;
   }, [post?.host, isAuthor, me]);
 
-  // 본문 표시용 데이터
   const displayPost = useMemo(() => {
     if (!post) return null;
     return { ...post, host: displayHost ?? post.host };
   }, [post, displayHost]);
 
-  // --- Scroll Helpers ---
-  const scrollToBottomSoon = (animated = true) => {
-    setTimeout(() => {
-      if (scrollViewRef.current) {
-        scrollViewRef.current.scrollToEnd({ animated });
-      }
-    }, 100);
-  };
-
-  const handleScroll = (e: any) => {
-    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-    const distanceFromBottom =
-      contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
-    // 사용자가 스크롤을 올렸는지 감지 (24px 여유)
-    stickToBottomRef.current = distanceFromBottom < 24;
-  };
+  // ✅ 트리 정렬 + byId(부모 닉네임 표시용)
+  const { threaded: comments, byId: commentById } = useMemo(
+    () => buildThreadedCommentsDeep(commentsRaw),
+    [commentsRaw]
+  );
 
   const scrollComposerToKeyboard = () => {
-    // 인풋창이 키보드에 가려지지 않게 스크롤 조정
     const node = findNodeHandle(inputRef.current);
     const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
     if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
@@ -165,9 +181,30 @@ export default function MeetingDetailScreen() {
         Platform.OS === "android" ? 20 : 12,
         true
       );
-    } else {
-      scrollToBottomSoon(true);
     }
+  };
+
+  /**
+   * ✅ y가 잡히면 그때 이동 (레이아웃 지연 때문에 재시도)
+   * - y가 없으면 "현재 위치 유지" → 맨 위로 튐 방지
+   */
+  const scrollToCommentIfPossible = (id: string, animated = true) => {
+    const key = String(id);
+    let tries = 0;
+
+    const tick = () => {
+      tries += 1;
+      const y = commentYRef.current[key];
+      if (Number.isFinite(y)) {
+        scrollViewRef.current?.scrollTo({ y: Math.max(0, (y as number) - 12), animated });
+        return;
+      }
+      if (tries < 10) {
+        setTimeout(tick, 60);
+      }
+    };
+
+    requestAnimationFrame(() => setTimeout(tick, 30));
   };
 
   // --- Data Loading ---
@@ -177,10 +214,9 @@ export default function MeetingDetailScreen() {
       const m = await meetingApi.getMeeting(meetingId as string);
       setPost(m);
 
-      // ✅ Comment 타입이 postId/authorNickname 등을 가지지 않으므로 단순 Mock 주입
-      setComments(MOCK_COMMENTS);
+      // ✅ 지금은 mock
+      setCommentsRaw(MOCK_COMMENTS);
 
-      // ✅ HOST만 참여자 로드
       if (m.myState?.membershipStatus === "HOST" || m.host?.id === currentUserId) {
         const parts = await meetingApi.getParticipants(String(m.id) as any);
         setParticipants(parts);
@@ -241,34 +277,53 @@ export default function MeetingDetailScreen() {
     ]);
   };
 
+  /**
+   * ✅ 댓글/답글/답글의답글 제출
+   * - replyTarget이 어떤 depth든 parentId = replyTarget.id
+   * - buildThreadedCommentsDeep가 "그 답글 바로 아래"로 붙여줌
+   * - submit 후: 맨 위로 튐 방지 + 새 댓글 y 잡히면 그쪽으로만 이동
+   */
   const handleSubmitComment = () => {
-    if (!commentText.trim()) return;
+    const text = commentText.trim();
+    if (!text) return;
 
+    // 수정
     if (editingComment) {
-      setComments((prev) =>
-        prev.map((c) => (c.id === editingComment.id ? { ...c, content: commentText } : c))
+      const editedId = String(editingComment.id);
+      setCommentsRaw((prev) =>
+        prev.map((c) => (String(c.id) === editedId ? { ...c, content: text } : c))
       );
-      setEditingComment(null);
-    } else {
-      const newComment: Comment = {
-        id: `new_${Date.now()}`,
-        content: replyTarget ? `@${replyTarget.author.nickname} ${commentText}` : commentText,
-        createdAt: new Date().toISOString(),
-        parentId: replyTarget?.id,
-        author: {
-          id: currentUserId,
-          nickname: me?.nickname || "나",
-          avatarUrl: me?.avatarUrl,
-        } as any,
-      };
 
-      setComments((prev) => [...prev, newComment]);
+      setEditingComment(null);
+      setCommentText("");
+      setReplyTarget(null);
+      Keyboard.dismiss();
+      return;
     }
+
+    const newId = `new_${Date.now()}`;
+    const parentId = replyTarget?.id ? String(replyTarget.id) : undefined;
+
+    const newComment: Comment = {
+      id: newId,
+      content: text,
+      createdAt: new Date().toISOString(),
+      ...(parentId ? { parentId } : {}),
+      author: {
+        id: currentUserId,
+        nickname: me?.nickname || "나",
+        avatarUrl: me?.avatarUrl,
+      } as any,
+    };
+
+    setCommentsRaw((prev) => [...prev, newComment]);
 
     setCommentText("");
     setReplyTarget(null);
-    Keyboard.dismiss();
-    scrollToBottomSoon(true);
+
+    // ✅ 키보드 내려도 위치가 튀지 않도록 "강제 scroll" 금지
+    // 대신: 새 댓글 위치 y가 잡히면 그때만 이동
+    scrollToCommentIfPossible(newId, true);
   };
 
   if (loading || !post) {
@@ -285,7 +340,6 @@ export default function MeetingDetailScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* 프로필 모달 */}
       {displayHost && (
         <ProfileModal
           visible={profileVisible}
@@ -294,7 +348,6 @@ export default function MeetingDetailScreen() {
         />
       )}
 
-      {/* 메뉴 모달 */}
       <Modal
         visible={menuVisible}
         transparent
@@ -311,7 +364,12 @@ export default function MeetingDetailScreen() {
               },
             ]}
           >
-            <View style={styles.dragHandle} />
+            <View
+              style={[
+                styles.dragHandle,
+                { backgroundColor: t.colors.neutral?.[200] ?? t.colors.border },
+              ]}
+            />
             <Pressable
               style={styles.menuItem}
               onPress={() => {
@@ -322,7 +380,9 @@ export default function MeetingDetailScreen() {
               <Ionicons name="pencil-outline" size={20} color={t.colors.textMain} />
               <Text style={t.typography.bodyLarge}>게시글 수정</Text>
             </Pressable>
+
             <View style={[styles.menuDivider, { backgroundColor: t.colors.neutral[100] }]} />
+
             <Pressable
               style={styles.menuItem}
               onPress={() => {
@@ -380,16 +440,16 @@ export default function MeetingDetailScreen() {
           }
         />
 
-        {/* ✅ 키보드 회피 뷰 설정 (iOS/Android 분기) */}
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={keyboardVerticalOffset}
+          keyboardVerticalOffset={Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : 0}
           style={{ flex: 1 }}
         >
           <DetailContent
             t={t}
             post={displayPost || post}
-            comments={comments}
+            comments={comments}             
+            commentById={commentById}        
             currentUserId={currentUserId}
             scrollViewRef={scrollViewRef}
             bottomPadding={contentBottomPadding}
@@ -403,10 +463,9 @@ export default function MeetingDetailScreen() {
               setCommentText(c.content);
               inputRef.current?.focus();
             }}
-            onDeleteComment={(id) => setComments((prev) => prev.filter((c) => c.id !== id))}
-            onContentHeightChange={(h) => (contentHeightRef.current = h)}
-            onScrollViewHeightChange={(h) => (scrollViewHeightRef.current = h)}
-            onScroll={handleScroll}
+            onDeleteComment={(id) =>
+              setCommentsRaw((prev) => prev.filter((c) => String(c.id) !== String(id)))
+            }
             commentText={commentText}
             setCommentText={setCommentText}
             inputRef={inputRef}
@@ -414,9 +473,9 @@ export default function MeetingDetailScreen() {
             editingComment={editingComment}
             onCancelInputMode={handleCancelInputMode}
             onSubmitComment={handleSubmitComment}
-            onFocusComposer={() => {
-              stickToBottomRef.current = true;
-              setTimeout(scrollComposerToKeyboard, 40);
+            onFocusComposer={() => setTimeout(scrollComposerToKeyboard, 40)}
+            onCommentLayout={(id, y) => {
+              commentYRef.current[String(id)] = y;
             }}
           />
 
@@ -457,7 +516,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#E5E5E5",
     alignSelf: "center",
     marginVertical: 10,
   },

@@ -1,5 +1,3 @@
-// src/features/meetings/model/mapper.ts
-
 import type { MeetingPostDTO, ApplicantDTO } from "./dto";
 import type {
   MeetingPost,
@@ -11,7 +9,7 @@ import type {
   HostSummary,
 } from "./types";
 
-// ✅ 1) 카테고리 안전 변환기 (앱 크래시 방지)
+// ✅ 1) 카테고리 안전 변환기
 const parseCategory = (raw?: string): CategoryKey => {
   if (!raw) return "ETC";
 
@@ -63,15 +61,19 @@ const applicantToMembership = (state?: string): MembershipStatus => {
   }
 };
 
-// DTO에 host 상세가 없을 때도 UI가 깨지지 않게 최소 HostSummary 채움
-const fallbackHost = (hostId?: string): HostSummary | undefined => {
+/**
+ * ✅ Host 정보 생성기 (DTO에 hostId만 있을 경우 대비)
+ * - DTO에 닉네임, 평점 정보가 없으므로 '알 수 없음' 및 '0점'으로 초기화합니다.
+ * - 추후 상세 조회 API나 유저 조회 API를 통해 보강해야 할 수도 있습니다.
+ */
+const createFallbackHost = (hostId?: string): HostSummary | undefined => {
   if (!hostId) return undefined;
   return {
     id: hostId,
-    nickname: hostId,
+    nickname: "알 수 없음", // 리스트 API에서는 닉네임을 주지 않음
     avatarUrl: null,
-    mannerTemperature: 36.5,
-    praiseCount: 0,
+    avgRate: 0, // 기본값
+    orgTime: 0, // 기본값
     intro: undefined,
   };
 };
@@ -83,7 +85,8 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
     return {} as MeetingPost;
   }
 
-  const total = Math.max(1, Number(dto.capacity ?? 1));
+  // DTO의 capacity는 "총원"을 의미함
+  const maxCapacity = Math.max(1, Number(dto.capacity ?? 1));
 
   return {
     id: String(dto.id),
@@ -93,29 +96,33 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
     category: parseCategory(dto.category),
     meetingTime: dto.meetingTime,
 
+    // ✅ Location: DTO(latitude, longitude) -> Domain(latitude, longitude)
     location: {
       name: dto.locationName || "",
-      lat: Number(dto.latitude ?? 0),
-      lng: Number(dto.longitude ?? 0),
+      latitude: Number(dto.latitude ?? 0),
+      longitude: Number(dto.longitude ?? 0),
     },
 
-    // 백엔드가 current를 안 주므로 0으로 둠 (추후 참가/상태 API로 보강 가능)
+    // ✅ Capacity: DTO에는 currentCount가 없음 -> 0으로 초기화
+    // (상세 조회 시 업데이트되거나, 별도 API가 필요할 수 있음)
     capacity: {
-      total,
-      current: 0,
+      max: maxCapacity,
+      current: 0, 
     },
 
     status: safeStatus(dto.state),
     joinMode: safeJoinMode(dto.joinMode),
 
-    // DTO에 없는 필드는 undefined로 유지 (UI 파생/추가 API로 채움)
+    // 호스트 정보 매핑 (DTO에 hostId만 존재)
+    host: createFallbackHost(dto.hostId),
+
+    // 그 외 필드 초기화
     durationMinutes: undefined,
     conditions: undefined,
     items: undefined,
     distanceText: undefined,
     meetingTimeText: undefined,
     myState: undefined,
-    host: fallbackHost(dto.hostId),
   };
 };
 
@@ -125,9 +132,10 @@ export const toParticipant = (dto: ApplicantDTO): Participant => {
 
   return {
     id: dto.userId,
-    nickname: dto.userId, // 닉네임이 없으므로 userId를 기본 표시값으로 사용
+    // 참여자 API도 닉네임을 주지 않는다면 userId를 임시로 사용
+    nickname: dto.userId, 
     avatarUrl: null,
     status: applicantToMembership(dto.state),
-    appliedAt: new Date().toISOString(), // DTO에 없으므로 현재시각 (필요시 서버 필드 추가 권장)
+    appliedAt: new Date().toISOString(), // 신청 시간 정보 없음 -> 현재 시간 (임시)
   };
 };
