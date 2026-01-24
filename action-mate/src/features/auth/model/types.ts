@@ -1,28 +1,15 @@
 // src/features/auth/model/types.ts
-import type {
-  Gender as SharedGender,
-  ISODateString,
-  Id,
-  UserSummary,
-} from "@/shared/model/types";
+import type { Gender as SharedGender, ISODateString, Id, UserSummary } from "@/shared/model/types";
 
 /**
- * ✅ Raw vs UI 분리 전략
- * - Auth 도메인은 "UI 안정화된 UserSummary(id: string)"를 기본으로 사용합니다.
- * - 서버에서 id가 number로 내려오면 API 레이어에서 normalizeId로 문자열로 바꾼 뒤 User로 만듭니다.
- */
-
-/**
- * 기존 import 경로/사용처 변경을 최소화하기 위해 auth에서도 Gender를 유지(재노출)합니다.
+ * Auth 도메인 타입
+ * - UI에서는 UserSummary(id: NormalizedId) 기반 User를 사용
+ * - 서버 스키마/불안정성은 API 레이어(Mapper)에서 흡수
  */
 export type Gender = SharedGender;
 
-/**
- * UserSummary를 확장해 auth에서 필요한 상세 필드만 추가
- * - UI에서 안정적으로 쓰기 위해 required 유지(서버 불안정은 API 레이어에서 기본값/검증)
- */
 export type User = UserSummary & {
-  loginId: string; // 로그인 아이디
+  loginId: string; // 로그인 아이디(서버 명세상 id가 loginId 역할)
   gender: Gender;
   birthDate: ISODateString; // "YYYY-MM-DD"
 };
@@ -50,7 +37,8 @@ export type AuthApi = {
 
   /**
    * ✅ API 호출 파라미터는 유연하게(Id 허용)
-   * - 내부에서 normalizeId를 거쳐 UI User로 반환하는 흐름 권장
+   * - 서버 명세에 user update가 없으므로 remote에서는 throw
+   * - local mock에서는 구현되어 있음
    */
   updateUser(id: Id, patch: Partial<User>): Promise<User>;
 

@@ -1,7 +1,8 @@
 // src/features/auth/api/authApi.local.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { User, SignupInput, LoginInput, AuthApi, ResetRequestResult } from "@/features/auth/model/types";
-import { setAccessToken, clearAuthTokens } from "@/shared/api/authToken";
+import { setAccessToken, setRefreshToken, clearAuthTokens } from "@/shared/api/authToken";
+import type { Id } from "@/shared/model/types";
 
 // ⚠️ 로컬 목업용: 비밀번호 평문 저장 (실서비스 금지)
 type StoredUser = User & { password: string };
@@ -9,8 +10,8 @@ type StoredUser = User & { password: string };
 const KEY_USERS = "localAuth:users";
 const KEY_CURRENT_LOGIN_ID = "localAuth:currentLoginId";
 
-// ✅ 안전한 정규화 함수 (undefined가 들어와도 죽지 않음)
-const normId = (id?: string) => (id || "").trim().toLowerCase();
+// ✅ 안전한 정규화 함수 (undefined/number/string 혼재 방어)
+const normKey = (v?: Id | string) => String(v ?? "").trim().toLowerCase();
 
 // ----------------------------------------------------------------------
 // Helpers
@@ -31,16 +32,16 @@ async function writeJSON(key: string, value: unknown) {
 }
 
 // id 또는 loginId로 유저 찾기(실무에서 흔히 섞여 들어와도 안 깨지게)
-function findUserIndexByIdOrLoginId(users: StoredUser[], idOrLoginId: string): number {
-  const key = normId(idOrLoginId);
+function findUserIndexByIdOrLoginId(users: StoredUser[], idOrLoginId: Id): number {
+  const key = normKey(idOrLoginId);
   if (!key) return -1;
 
   // 1) id 우선
-  const byId = users.findIndex((u) => normId(u.id) === key);
+  const byId = users.findIndex((u) => normKey(u.id) === key);
   if (byId !== -1) return byId;
 
   // 2) loginId
-  return users.findIndex((u) => u.loginId && normId(u.loginId) === key);
+  return users.findIndex((u) => u.loginId && normKey(u.loginId) === key);
 }
 
 // ----------------------------------------------------------------------
@@ -48,7 +49,7 @@ function findUserIndexByIdOrLoginId(users: StoredUser[], idOrLoginId: string): n
 // ----------------------------------------------------------------------
 
 export async function seedMockUsers(): Promise<void> {
-  let users = await readJSON<StoredUser[]>(KEY_USERS, []);
+  const users = await readJSON<StoredUser[]>(KEY_USERS, []);
 
   // 🚨 데이터 정합성 체크
   const isCorrupted = users.some((u) => !u.loginId);
@@ -70,7 +71,7 @@ export async function seedMockUsers(): Promise<void> {
       },
       {
         id: "u_seed_02",
-        loginId: "rabbit99",
+        loginId: "test01",
         nickname: "당근조아",
         password: "1234",
         gender: "female",
@@ -92,10 +93,9 @@ const authApi: AuthApi = {
    * ✅ 아이디로 유저 조회
    */
   async getUserByLoginId(loginId: string): Promise<User | null> {
-    const targetId = normId(loginId);
+    const target = normKey(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-
-    const found = users.find((u) => u.loginId && normId(u.loginId) === targetId);
+    const found = users.find((u) => u.loginId && normKey(u.loginId) === target);
 
     if (!found) return null;
     const { password: _pw, ...user } = found;
@@ -103,18 +103,14 @@ const authApi: AuthApi = {
   },
 
   /**
-   * ✅ 아이디 중복 확인 (추가됨)
+   * ✅ 아이디 중복 확인
    * - true: 사용 가능 (중복 없음)
    * - false: 사용 불가 (중복 있음)
    */
   async checkLoginIdAvailability(loginId: string): Promise<boolean> {
-    const targetId = normId(loginId);
+    const target = normKey(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    
-    // 이미 존재하는 아이디인지 확인
-    const exists = users.some((u) => u.loginId && normId(u.loginId) === targetId);
-    
-    // 존재하지 않아야 사용 가능하므로 !exists 반환
+    const exists = users.some((u) => u.loginId && normKey(u.loginId) === target);
     return !exists;
   },
 
@@ -122,7 +118,7 @@ const authApi: AuthApi = {
    * ✅ 회원가입
    */
   async signup(input: SignupInput): Promise<User> {
-    const loginId = normId(input.loginId);
+    const loginId = normKey(input.loginId);
     const nickname = input.nickname.trim();
 
     if (!loginId) throw new Error("아이디를 입력해주세요.");
@@ -133,7 +129,7 @@ const authApi: AuthApi = {
 
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
 
-    if (users.some((u) => u.loginId && normId(u.loginId) === loginId)) {
+    if (users.some((u) => u.loginId && normKey(u.loginId) === loginId)) {
       throw new Error("이미 사용 중인 아이디예요.");
     }
 
@@ -154,19 +150,18 @@ const authApi: AuthApi = {
    * ✅ 로그인
    */
   async login(input: LoginInput): Promise<User> {
-    const targetId = normId(input.loginId);
+    const target = normKey(input.loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
 
-    const found = users.find((u) => u.loginId && normId(u.loginId) === targetId);
+    const found = users.find((u) => u.loginId && normKey(u.loginId) === target);
 
     if (!found) throw new Error("존재하지 않는 아이디예요.");
-    if (found.password !== input.password) {
-      throw new Error("비밀번호가 일치하지 않아요.");
-    }
+    if (found.password !== input.password) throw new Error("비밀번호가 일치하지 않아요.");
 
     const { password: _pw, ...user } = found;
 
-    await setAccessToken(`mock_token_${Date.now()}`);
+    // mock 환경에서도 토큰/리프레시를 넣어두면 API 레이어/가드 로직이 덜 흔들립니다.
+    await Promise.all([setAccessToken(`mock_access_${Date.now()}`), setRefreshToken(`mock_refresh_${Date.now()}`)]);
     await authApi.setCurrentLoginId(user.loginId);
 
     return user;
@@ -175,26 +170,25 @@ const authApi: AuthApi = {
   /**
    * ✅ 유저 정보 수정
    */
-  async updateUser(id: string, patch: Partial<User>): Promise<User> {
+  async updateUser(id: Id, patch: Partial<User>): Promise<User> {
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
     const idx = findUserIndexByIdOrLoginId(users, id);
 
-    if (idx === -1) {
-      throw new Error("사용자를 찾을 수 없습니다.");
-    }
+    if (idx === -1) throw new Error("사용자를 찾을 수 없습니다.");
 
     const existing = users[idx];
 
-    // loginId / id 같은 식별자는 실수로 덮어쓰지 않게 제한(원하면 풀어도 됨)
-    const { id: _id, loginId: _loginId, password: _pw, ...rest } = patch as any;
+    // 식별자/비밀번호는 덮어쓰기 방지
+    const sanitizedPatch: Partial<User> = { ...patch };
+    delete (sanitizedPatch as any).id;
+    delete (sanitizedPatch as any).loginId;
 
     const updated: StoredUser = {
       ...existing,
-      ...rest,
-      ...patch, // patch 내용을 적용하되, 식별자 보존
-      password: existing.password,
+      ...sanitizedPatch,
       id: existing.id,
       loginId: existing.loginId,
+      password: existing.password,
     };
 
     users[idx] = updated;
@@ -232,11 +226,11 @@ const authApi: AuthApi = {
   // ----------------------------------------------------------------------
 
   async getCurrentLoginId(): Promise<string | null> {
-    return await AsyncStorage.getItem(KEY_CURRENT_LOGIN_ID);
+    return AsyncStorage.getItem(KEY_CURRENT_LOGIN_ID);
   },
 
   async setCurrentLoginId(loginId: string): Promise<void> {
-    await AsyncStorage.setItem(KEY_CURRENT_LOGIN_ID, normId(loginId));
+    await AsyncStorage.setItem(KEY_CURRENT_LOGIN_ID, normKey(loginId));
   },
 
   async clearCurrentLoginId(): Promise<void> {

@@ -1,39 +1,34 @@
 // src/features/auth/model/authStore.ts
 import { create } from "zustand";
-import { getAccessToken, clearAuthTokens } from "@/shared/api/authToken";
+import { clearAuthTokens, getAccessToken } from "@/shared/api/authToken";
 import { authApi } from "@/features/auth/api/authApi";
-import { seedMockUsers } from "@/features/auth/api/authApi.local";
 import type { User } from "./types";
 
 /**
  * [개발용 설정]
- * true일 경우 앱 실행 시 저장된 세션이 없으면 'user01'로 자동 로그인 시도
- * ⚠️ 카카오 로그인 테스트 중에는 false로 설정하세요!
+ * - USE_MOCK가 true면 hydrate 시 "세션이 없을 경우" mock 자동 로그인 시도
  */
-const USE_MOCK = false; // __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === "true";
+const USE_MOCK = false; // 필요 시 __DEV__ 조건/환경변수로 제어 권장
 
 type AuthState = {
-  hasHydrated: boolean; // 초기화 완료 여부
-  isLoggedIn: boolean;  // 로그인 여부
-  user: User | null;    // 로그인 유저 정보
+  hasHydrated: boolean;
+  isLoggedIn: boolean;
+  user: User | null;
 
-  /** 앱 시작 시 세션 복구 */
   hydrateFromStorage: () => Promise<void>;
 
-  /** * ✅ 로그인 상태 업데이트
-   * (LoginScreen에서 토큰 저장 후 호출됨)
-   */
+  /** LoginScreen에서 authApi.login 성공 후 호출 */
   login: (user: User) => void;
 
-  /** * ✅ [추가됨] 유저 정보 강제 업데이트
-   * (프로필 수정 화면에서 UI 즉시 반영을 위해 사용) 
-   */
-  setUser: (user: User) => void;
+  /** 프로필 화면 등에서 즉시 UI 반영용 */
+  setUser: (user: User | null) => void;
 
-  /** 로그아웃 (토큰 삭제 + 상태 초기화) */
   logout: () => Promise<void>;
 
-  /** 프로필 업데이트 (서버 연동 포함) */
+  /**
+   * 프로필 업데이트
+   * - remoteApi는 명세에 update가 없어서 throw → UI에서 분기하거나 try/catch로 처리
+   */
   updateProfile: (patch: Partial<User>) => Promise<void>;
 };
 
@@ -44,52 +39,56 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   hydrateFromStorage: async () => {
     try {
-      const token = await getAccessToken();
-      const lastLoginId = await authApi.getCurrentLoginId();
+      const [token, lastLoginId] = await Promise.all([getAccessToken(), authApi.getCurrentLoginId()]);
 
-      // 토큰이나 ID가 하나라도 없으면 => 비로그인 상태로 시작 (에러 아님)
+      // 세션이 없으면 비로그인 상태로 종료
       if (!token || !lastLoginId) {
+        if (USE_MOCK) {
+          // 개발 편의: 세션 없으면 자동 로그인 시도
+          await tryAutoMockLogin(set);
+          return;
+        }
+
         set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
       }
 
-      // 서버에서 유저 정보 조회 시도
+      // 세션이 있으면 서버/로컬에서 유저 조회
       const user = await authApi.getUserByLoginId(lastLoginId);
-      
+
       if (!user) {
-        // 토큰은 있는데 유저 정보가 안 긁히면 => 만료된 것으로 간주하고 로그아웃
-        console.warn("User info not found, clearing session.");
-        await clearAuthTokens(); // 토큰 삭제
+        // 토큰은 있는데 유저를 못 가져오면 세션을 정리
+        await authApi.clearCurrentLoginId().catch(() => undefined);
+        await clearAuthTokens();
         set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
       }
 
-      // 성공
       set({ hasHydrated: true, isLoggedIn: true, user });
-
     } catch (e) {
-      console.log("⚠️ 세션 복구 중 에러 (로그아웃 처리됨):", e);
+      // hydrate는 "앱 부팅 안정성"이 목적이므로 실패 시 깨끗이 초기화하는 게 안전
+      await authApi.clearCurrentLoginId().catch(() => undefined);
       await clearAuthTokens();
       set({ hasHydrated: true, isLoggedIn: false, user: null });
     }
   },
 
   login: (user: User) => {
-    // 메모리 상태 업데이트
     set({ isLoggedIn: true, user });
-    
-    // (선택) 여기서 로컬에 ID 저장 로직을 추가할 수도 있습니다.
-    authApi.setCurrentLoginId(user.loginId).catch(console.warn);
+
+    // 로그인 성공 시 loginId 세션 저장(실패해도 UI 흐름은 유지)
+    authApi.setCurrentLoginId(user.loginId).catch(() => undefined);
   },
 
-  // ✅ [추가됨] setUser 구현부
-  setUser: (user: User) => {
-    set({ user });
+  setUser: (user: User | null) => {
+    set({ user, isLoggedIn: !!user });
   },
 
   logout: async () => {
+    // remoteApi.clearCurrentLoginId 내부에서 서버 로그아웃을 시도하므로
+    // 여기서는 clearAuthTokens를 중복 호출하지 않도록 순서를 정리
+    await authApi.clearCurrentLoginId().catch(() => undefined);
     await clearAuthTokens();
-    await authApi.clearCurrentLoginId();
     set({ isLoggedIn: false, user: null });
   },
 
@@ -97,32 +96,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentUser = get().user;
     if (!currentUser) return;
 
-    // 1. 낙관적 업데이트 (UI 먼저 변경)
-    const optimisticUser = { ...currentUser, ...patch };
+    // 1) 낙관적 업데이트(화면 즉시 반영)
+    const optimisticUser: User = { ...currentUser, ...patch };
     set({ user: optimisticUser });
 
     try {
-      // 2. 서버 요청
+      // 2) 서버/로컬 반영(서버 명세 없으면 remote에서 throw)
       const updatedUser = await authApi.updateUser(currentUser.loginId, patch);
-      // 3. 서버 응답값으로 확정
+
+      // 3) 응답으로 확정
       set({ user: updatedUser });
     } catch (e) {
-      console.error("프로필 수정 실패:", e);
-      // 4. 실패 시 롤백
+      // 4) 실패 시 롤백
       set({ user: currentUser });
       throw e;
     }
   },
 }));
 
-// --- 헬퍼 함수: 자동 목업 로그인 ---
-async function tryAutoMockLogin(set: any) {
+// ----------------------------------------------------------------------
+// DEV helper 개발용 자동 로그인
+// ----------------------------------------------------------------------
+async function tryAutoMockLogin(setState: (p: Partial<AuthState>) => void) {
   try {
-    console.log("⚡️ [DEV] 자동 목업 로그인 시도...");
     const user = await authApi.login({ loginId: "user01", password: "1234" });
-    set({ hasHydrated: true, isLoggedIn: true, user });
-  } catch (e) {
-    console.log("❌ [DEV] 자동 로그인 실패");
-    set({ hasHydrated: true, isLoggedIn: false, user: null });
+    setState({ hasHydrated: true, isLoggedIn: true, user });
+  } catch {
+    setState({ hasHydrated: true, isLoggedIn: false, user: null });
   }
 }
