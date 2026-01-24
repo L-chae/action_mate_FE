@@ -1,25 +1,21 @@
 // src/features/my/model/types.ts
-import type { Id, Location, UserReputation, UserSummary } from "@/shared/model/types";
+import type { Location, NormalizedId, UserReputation, UserSummary } from "@/shared/model/types";
 
 /**
- * 내 요약 정보는 평판 타입을 그대로 사용
+ * ✅ My 도메인도 UI 모델 기준
+ * - id는 NormalizedId(string)
+ * - 서버 원본이 불안정하면 API 레이어에서 normalizeId 적용 후 이 타입으로 맞춥니다.
  */
+
 export type MySummary = UserReputation;
 
-/**
- * MyProfile은 "유저 요약"과 동일한 shape가 가장 실무에서 덜 헷갈립니다.
- * - 기존에는 id가 빠져 있었는데, id가 빠지면 결국 다른 곳에서 또 들고 다니게 되어 중복이 생깁니다.
- */
 export type MyProfile = UserSummary;
 
-/**
- * MyMeetingItem도 location을 Meeting 도메인과 동일한 구조로 통일
- */
 export type MyMeetingItem = {
-  id: Id;
+  id: NormalizedId;
   title: string;
 
-  // ✅ place(string) 대신 location.name으로 통일
+  // Location에서 name만 재사용(표시 필드만 필요)
   location: Pick<Location, "name">;
 
   dateText: string;

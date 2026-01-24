@@ -2,17 +2,30 @@
 import type {
   Capacity,
   CapacityInput,
+  CapacityRaw,
   ISODateTimeString,
   Id,
+  JoinMode as SharedJoinMode,
   Location,
+  LocationRaw,
+  NormalizedId,
   UserReputation,
   UserSummary,
+  UserSummaryRaw,
 } from "@/shared/model/types";
+
+/**
+ * ✅ 목표(초보 + 실서비스 + 불안정 백엔드 대응)
+ * 1) Raw vs UI 모델 분리
+ * 2) UI 기본값 규칙(필수 표시 필드는 항상 존재)
+ * 3) Id 표준화(UI는 string id)
+ */
 
 // --- ENUMS & KEYS ---
 export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 export type HomeSort = "LATEST" | "NEAR" | "SOON";
-export type JoinMode = "INSTANT" | "APPROVAL";
+export type JoinMode = SharedJoinMode;
+
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
 export type MembershipStatus =
   | "NONE"
@@ -23,44 +36,125 @@ export type MembershipStatus =
   | "REJECTED";
 
 /**
- * ✅ 화면(HomeScreen/MeetingCard 등)에서 실제로 접근하는 필드를 안전하게 보장하기 위한 UI 친화 타입
- * - shared Location/Capacity가 프로젝트마다 모양이 다를 수 있어도,
- *   "화면에서 쓰는 필드"는 optional로 확장해 타입 에러를 막습니다.
- * - 런타임 변환을 강제하지 않도록 모두 optional로 둡니다.
+ * ✅ UI 기본값 규칙(표준)
+ * - 서버가 느리거나 일부 필드가 비어도 화면이 "깨지지 않도록" 최소 표시값을 보장하는 정책
+ * - 실제 기본값 적용은 API 레이어(매퍼)에서 수행하는 것을 권장합니다.
  */
-export type MeetingLocation = Location & {
-  /** HomeScreen에서 item.location?.name 을 사용 */
-  name?: string;
+export const MEETING_UI_DEFAULTS = {
+  title: "(제목 없음)",
+  locationName: "장소 미정",
+  meetingTimeText: "",
+  distanceText: "",
+  capacity: { current: 0, max: 0 } satisfies Capacity,
+} as const;
 
-  /** 지도/주변검색 등에서 쓰는 경우가 많아 함께 확장 */
-  lat?: number;
-  lng?: number;
+/** -----------------------
+ * Raw (서버 응답 다양성 수용)
+ * ---------------------- */
 
-  /** 상세 주소 텍스트가 있는 경우 */
-  address?: string;
+/**
+ * 서버 Location이 흔들리는 케이스를 그대로 수용
+ * - shared.LocationRaw를 그대로 사용(키 다양성 허용)
+ */
+export type MeetingLocationRaw = LocationRaw;
+
+/**
+ * 서버 Capacity가 흔들리는 케이스 수용
+ * - max/total 혼재 허용
+ */
+export type MeetingCapacityRaw = CapacityRaw;
+
+/**
+ * HostSummary Raw: 서버 유저 id가 number/string 섞일 수 있으므로 UserSummaryRaw 기반
+ */
+export type HostSummaryRaw = UserSummaryRaw &
+  UserReputation & {
+    intro?: string;
+  };
+
+export type ParticipantRaw = UserSummaryRaw & {
+  status: MembershipStatus;
+  appliedAt: ISODateTimeString;
 };
 
-export type MeetingCapacity = Capacity & {
-  /** HomeScreen에서 capacity?.total/current 를 사용 */
-  total?: number;
-  current?: number;
+export type MyStateRaw = {
+  membershipStatus: MembershipStatus;
+  canJoin: boolean;
+  reason?: string;
 };
 
-export type MeetingCapacityInput = CapacityInput & {
-  /** 폼/업서트에서도 total/current를 함께 다루는 서버가 있어 optional로 확장 */
-  total?: number;
-  current?: number;
+/**
+ * ✅ MeetingShapeRaw
+ * - 서버가 보내는 키/값이 일부 누락/변형될 수 있는 환경을 수용
+ * - 단, "키 이름 자체"가 완전히 바뀌는 경우는 매퍼에서 처리해야 합니다.
+ */
+export type MeetingShapeRaw = Partial<{
+  category: CategoryKey;
+  title: string;
+  content: string;
+  meetingTime: ISODateTimeString;
+  durationMinutes: number;
+  location: MeetingLocationRaw;
+  capacity: MeetingCapacityRaw;
+  joinMode: JoinMode;
+  conditions: string;
+  items: string;
+}>;
+
+export type MeetingPostRaw = MeetingShapeRaw & {
+  id: Id;
+  status?: PostStatus;
+
+  meetingTimeText?: string;
+  distanceText?: string;
+
+  host?: HostSummaryRaw;
+  myState?: MyStateRaw;
 };
 
-// --- SUB TYPES ---
+export type HotMeetingItemRaw = {
+  id?: Id;
+  meetingId: Id;
+  badge?: string;
 
-// HostSummary: UserSummary + Reputation + intro
+  title?: string;
+  location?: MeetingLocationRaw;
+  capacity?: MeetingCapacityRaw;
+};
+
+/** -----------------------
+ * UI (화면/상태관리용: 기본값/표준화된 형태)
+ * ---------------------- */
+
+/**
+ * ✅ MeetingLocation(UI)
+ * - name은 UI에서 항상 표시해야 하므로 required(기본값 적용 가정)
+ * - 좌표는 지도 기능에서만 필요하므로 null 허용(Location 공통 타입 사용)
+ */
+export type MeetingLocation = Location;
+
+/**
+ * ✅ MeetingCapacity(UI)
+ * - UI에서는 current/max가 항상 존재(기본값 적용 가정)
+ */
+export type MeetingCapacity = Capacity;
+
+/**
+ * ✅ MeetingCapacityInput(UI)
+ * - 전송용은 일반적으로 max가 필수이지만,
+ *   폼 상태(draft)는 비어있을 수 있으니 draft를 따로 두는 게 안전합니다.
+ * - 여기서는 "서버 전송용"을 명확히 하기 위해 max required 유지.
+ */
+export type MeetingCapacityInput = CapacityInput;
+
+/**
+ * HostSummary(UI): UserSummary(id는 정규화된 string) 기반
+ */
 export type HostSummary = UserSummary &
   UserReputation & {
     intro?: string;
   };
 
-// Participant: UserSummary + 참여 상태
 export type Participant = UserSummary & {
   status: MembershipStatus;
   appliedAt: ISODateTimeString;
@@ -73,51 +167,38 @@ export type MyState = {
 };
 
 /**
- * ✅ 핵심: "도메인 공통 Shape"를 분리
- * - 폼 바인딩 / API 전송 / 화면 렌더링에서 동일한 구조를 쓰게 해 변환을 최소화합니다.
- * - 서버가 관리하는 값(id, status, capacity.current 등)은 MeetingPost에서만 확장합니다.
+ * ✅ MeetingShape(UI)
+ * - 화면/폼/전송에서 "기준이 되는 안정 shape"
+ * - 기본값/정규화가 적용된 이후에는 필드 접근이 단순해집니다.
  */
 export type MeetingShape = {
   category: CategoryKey;
   title: string;
   content?: string;
 
-  // Time: ISO String을 공통 키(meetingTime)로 통일
   meetingTime: ISODateTimeString;
-
-  /**
-   * duration은 form에서 가장 다루기 쉬운 단위(분) 하나로 통일하는 게 실무에서 실수(시간/분) 줄이는데 유리합니다.
-   * - 기존 durationHours/durationMinutes는 UI 파생 값으로 처리 권장
-   */
   durationMinutes?: number;
 
-  // Location: 화면에서 쓰는 name 등을 위해 MeetingLocation으로 확장
   location: MeetingLocation;
-
-  // Capacity: 화면/필터에서 total/current 접근을 위해 MeetingCapacityInput으로 확장
   capacity: MeetingCapacityInput;
 
-  // Settings
   joinMode: JoinMode;
   conditions?: string;
-
-  // Meta
   items?: string;
 };
 
 /**
- * ✅ 서버에서 내려오는 “읽기 모델”
- * - MeetingShape를 그대로 포함 + 서버가 확정하는 필드를 확장
+ * ✅ MeetingPost(UI)
+ * - id는 NormalizedId(string)
+ * - title/location/capacity는 기본값 규칙으로 항상 표시 가능하다고 가정
  */
 export type MeetingPost = Omit<MeetingShape, "capacity"> & {
-  id: Id;
+  id: NormalizedId;
   status: PostStatus;
 
-  // UI 표시용(서버가 주면 쓰고, 없으면 프론트에서 파생)
   meetingTimeText?: string;
   distanceText?: string;
 
-  // Post에서는 total/current를 화면에서 바로 사용하므로 확장 타입으로 고정
   capacity: MeetingCapacity;
 
   host?: HostSummary;
@@ -125,10 +206,8 @@ export type MeetingPost = Omit<MeetingShape, "capacity"> & {
 };
 
 /**
- * ✅ 서버로 보내는 “쓰기 모델”
- * - MeetingShape와 동일한 구조를 그대로 사용
- * - create/update 모두 같은 shape를 쓰고,
- *   update는 Partial<MeetingUpsert>로 처리
+ * ✅ MeetingUpsert(UI)
+ * - 전송 모델: MeetingShape 그대로 사용
  */
 export type MeetingUpsert = MeetingShape;
 
@@ -140,22 +219,16 @@ export type AroundMeetingsOptions = {
 };
 
 /**
- * HotMeetingItem도 location/capacity shape를 MeetingPost와 맞춰
- * 리스트/상세/폼 간 이동 시 변환을 최소화합니다.
+ * ✅ HotMeetingItem(UI)
+ * - list key가 안정적으로 동작하도록 meetingId는 NormalizedId로 표준화
+ * - id는 서버에 따라 없을 수 있어 optional 유지
  */
 export type HotMeetingItem = {
-  /**
-   * 서버에 따라 hot-item 자체 id가 없을 수 있어 HomeScreen의
-   * keyExtractor(it.id || it.meetingId) 패턴을 그대로 지원
-   */
-  id?: Id;
-
-  /** 실제 모임(게시글) id */
-  meetingId: Id;
+  id?: NormalizedId;
+  meetingId: NormalizedId;
 
   badge: string;
 
-  // 동일 키/구조 유지
   title: string;
   location: MeetingLocation;
   capacity: MeetingCapacity;
@@ -163,8 +236,8 @@ export type HotMeetingItem = {
 
 /**
  * --- API Interface ---
- * - create/update가 MeetingUpsert 기반
- * - 서버 응답은 MeetingPost 기반
+ * - 호출 파라미터는 Id(유연) 허용
+ * - 반환은 UI 모델(정규화/기본값 적용된 형태)로 고정하는 것을 권장
  */
 export interface MeetingApi {
   listHotMeetings(opts?: { limit?: number; withinMinutes?: number }): Promise<HotMeetingItem[]>;
@@ -189,16 +262,14 @@ export interface MeetingApi {
 }
 
 /**
- * 댓글 타입도 author를 UserSummary로 통일하면
- * authorId/닉네임/avatarUrl의 중복 필드를 유지하지 않아도 되어 관리가 단순해집니다.
+ * 댓글 타입(UI)
  */
 export type Comment = {
-  id: Id;
+  id: NormalizedId;
   content: string;
   createdAt: ISODateTimeString;
 
-  parentId?: Id;
+  parentId?: NormalizedId;
 
-  // ✅ 통일된 author shape
   author: UserSummary;
 };

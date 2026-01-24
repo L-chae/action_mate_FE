@@ -1,17 +1,39 @@
 // src/shared/model/types.ts
 
-// 1. 기본 Alias
-export type ISODateString = string;
 /**
- * ✅ ISO DateTime(예: 2026-01-23T10:30:00Z)도 앱 전역에서 통일해 쓰기 위한 alias
- * - 기존 코드가 ISODateString을 날짜/시간 혼용해서 쓰고 있어도, 타입은 string이라 안전합니다.
- * - 미팅 도메인(meetingTime)에서 요구하는 키를 맞추기 위해 추가합니다.
+ * 이 파일은 "UI에서 안정적으로 쓰는 타입(UI Model)"을 기준으로 둡니다.
+ * - 백엔드가 불안정/느린 경우: API 레이어에서 Raw(서버응답) -> UI(표준화/기본값/Id정규화)로 한 번만 정리한 뒤
+ *   화면에서는 UI Model만 쓰는 방식이 유지보수에 가장 안전합니다.
  */
+
+// 1) 기본 Alias (런타임 변환 강제 없이 의미만 부여)
+export type ISODateString = string;
 export type ISODateTimeString = string;
 
+/**
+ * ✅ 서버/DB 원본 Id (불안정 서버 대비)
+ * - 서버가 number/string을 섞어 내려줄 수 있으니 Raw 모델은 이 타입을 사용
+ */
 export type Id = string | number;
 
-// ✅ 2. 공통 Enum (프론트엔드 편의를 위해 Gender는 영문 유지)
+/**
+ * ✅ UI 표준 Id (정규화된 Id)
+ * - 화면/상태관리/캐시 키에서 혼란을 줄이려면 "문자열"로 통일하는 게 안전합니다.
+ */
+export type NormalizedId = string;
+
+/**
+ * ✅ Id 표준화 함수
+ * - API 레이어에서 Raw -> UI 변환 시 사용 권장
+ */
+export const normalizeId = (id: Id): NormalizedId => String(id);
+
+/**
+ * ✅ 실무에서 자주 쓰는 유틸 타입
+ */
+export type Maybe<T> = T | null | undefined;
+
+// 2) 공통 Enum (프론트 편의를 위해 Gender는 영문 유지)
 export type Gender = "male" | "female";
 
 export type PostCategory = "운동" | "오락" | "식사" | "자유";
@@ -20,17 +42,29 @@ export type JoinMode = "INSTANT" | "APPROVAL";
 export type ApplicantState = "APPROVED" | "REJECTED" | "PENDING";
 export type MyParticipationStatus = "HOST" | "MEMBER" | "PENDING" | "NONE";
 
-// 3. 유저 관련
+// 3) 유저 관련
+
+/**
+ * ✅ 서버 Raw 유저 요약 (서버 불안정/타입 혼재 대응)
+ */
+export type UserSummaryRaw = {
+  id: Id;
+  nickname: string;
+  avatarUrl?: string | null;
+};
+
+/**
+ * ✅ UI 유저 요약 (id는 문자열로 정규화된 상태)
+ * - 화면/상태관리/캐시 키에서 안정적으로 사용 가능
+ */
 export type UserSummary = {
-  id: string;
+  id: NormalizedId;
   nickname: string;
   avatarUrl?: string | null;
 };
 
 /**
  * ✅ UserReputation
- * - 미팅 도메인에서 HostSummary = UserSummary & UserReputation 형태로 합성하므로
- *   서버/프론트에서 실제로 쓰는 지표(avgRate, orgTime)를 공통 타입으로 분리합니다.
  */
 export type UserReputation = {
   avgRate: number;
@@ -38,61 +72,81 @@ export type UserReputation = {
 };
 
 // 백엔드에서 내려오는 원본 프로필 타입 (변환 전)
+export type ServerGender = "남" | "여";
+
 export interface ServerProfile {
   id: string;
   nickname: string;
   profileImageUrl?: string;
   birth: string;
-  gender: "남" | "여"; // 👈 서버는 한글
+  gender: ServerGender; // 서버는 한글
   avgRate: number;
   orgTime: number;
 }
 
-// 프론트엔드 내부에서 쓸 유저 객체
+// 프론트 내부에서 쓸 유저 객체 (변환 후)
 export interface UserProfile {
   id: string;
   nickname: string;
   profileImageUrl?: string;
   birth: string;
-  gender: Gender; // 👈 프론트는 영문
+  gender: Gender; // 프론트는 영문
   avgRate: number;
   orgTime: number;
 }
 
 /**
- * ✅ Location
- * - 기존 Post는 locationName/latitude/longitude로 흩어져 있고,
- *   미팅 도메인은 location 객체를 기대합니다.
- * - "왜": 리스트/상세/폼 간 이동 시 변환을 최소화하려면 공통 shape가 필요합니다.
+ * ✅ Location (UI 기준)
+ * - 불안정한 서버에서 좌표가 없을 수도 있으므로 null 허용(기본값 규칙에 의한 안정화 가능)
+ * - 지도 기능이 꼭 필요하면 API 레이어에서 null 여부를 먼저 검사하는 흐름이 안전합니다.
  */
 export type Location = {
-  name: string; // 표시 이름(= 기존 Post.locationName)
-  latitude: number;
-  longitude: number;
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
   address?: string | null;
 };
 
 /**
- * ✅ Capacity / CapacityInput
- * - 미팅 도메인은 capacity.current가 있는 읽기 모델(Capacity)과
- *   upsert용 쓰기 모델(CapacityInput)을 분리해 사용합니다.
- * - "왜": 서버가 current를 결정하는 경우가 많고(참여자 수), 폼에서는 max만 다루는 게 일반적입니다.
+ * ✅ Location Raw (서버 응답 다양성 수용)
+ * - 일부 서버는 lat/lng, 일부는 latitude/longitude 등 다양한 키를 사용
+ */
+export type LocationRaw = Partial<{
+  name: string;
+  latitude: number;
+  longitude: number;
+  lat: number;
+  lng: number;
+  address: string | null;
+}>;
+
+/**
+ * ✅ Capacity (UI 기준, current/max는 기본값(0)으로라도 항상 존재하도록 정리 권장)
  */
 export type Capacity = {
   current: number;
   max: number;
 };
 
+/**
+ * ✅ CapacityInput (요청/폼 전송 기준)
+ */
 export type CapacityInput = {
   max: number;
-  /**
-   * 일부 API가 current를 요구/허용하는 경우(예: 호스트 포함 초기값) 대비.
-   * 서버가 무시하더라도 타입 레벨에서 막지 않도록 optional로 둡니다.
-   */
   current?: number;
 };
 
-// 4. 게시글
+/**
+ * ✅ Capacity Raw (서버 응답 다양성 수용)
+ * - max 대신 total을 주는 서버 대응
+ */
+export type CapacityRaw = Partial<{
+  current: number;
+  max: number;
+  total: number;
+}>;
+
+// 4) 게시글 (기존 유지)
 export interface Post {
   id: number;
   category: PostCategory;
@@ -102,10 +156,6 @@ export interface Post {
   writerNickname: string;
   writerImageUrl?: string;
 
-  /**
-   * 기존 모델은 ISODateString으로 되어 있지만 실제로는 DateTime 문자열이 내려올 수 있어
-   * 도메인별로 ISODateTimeString을 쓰더라도 여기서는 string alias라 충돌 없이 공존합니다.
-   */
   meetingTime: ISODateString;
 
   locationName: string;
@@ -121,7 +171,7 @@ export interface Post {
   myParticipationStatus: MyParticipationStatus;
 }
 
-// 5. 기타
+// 5) 기타 (기존 유지)
 export interface Applicant {
   postId: number;
   userId: string;
