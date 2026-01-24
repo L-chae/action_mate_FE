@@ -1,25 +1,30 @@
-// src/features/meetings/model/mappers.ts
-import type { PostCreateRequest, PostUpdateRequest } from "@/shared/api/schemas";
-import type { Post, PostCategory, PostState } from "@/shared/model/types";
-import { normalizeId } from "@/shared/model/types";
-import { ensureArray } from "@/shared/model/mappers";
+// src/features/meetings/model/mapper.ts
+import type {
+  ApplicantDTO,
+  MeetingPostDTO,
+  PostCategoryDTO,
+  PostCreateRequestDTO,
+  PostUpdateRequestDTO,
+} from "./dto";
 import type {
   CategoryKey,
-  HotMeetingItem,
   MeetingPost,
   MeetingUpsert,
   MembershipStatus,
+  Participant,
   PostStatus,
-} from "@/features/meetings/model/types";
-import { MEETING_UI_DEFAULTS } from "@/features/meetings/model/types";
+} from "./types";
 
 /**
- * 서버에서는 "모임"이 /posts(Post)로 표현됩니다.
- * 따라서 Post -> MeetingPost(UI)로 정규화하는 mapper가 핵심입니다.
+ * ✅ Meetings Mapper
+ * - 서버 DTO <-> UI 모델 변환을 여기서만 처리
+ * - 서버 누락 필드(평점/횟수/참여일 등)는 기본값 규칙으로 채움
  */
 
-export const mapPostCategoryToCategoryKey = (cat: PostCategory): CategoryKey => {
-  switch (cat) {
+const nowIso = () => new Date().toISOString();
+
+const toCategoryKey = (c: PostCategoryDTO): CategoryKey => {
+  switch (c) {
     case "운동":
       return "SPORTS";
     case "오락":
@@ -27,14 +32,13 @@ export const mapPostCategoryToCategoryKey = (cat: PostCategory): CategoryKey => 
     case "식사":
       return "MEAL";
     case "자유":
-      return "ETC";
     default:
       return "ETC";
   }
 };
 
-export const mapCategoryKeyToPostCategory = (key: CategoryKey): PostCategory => {
-  switch (key) {
+export const toPostCategory = (c: CategoryKey): PostCategoryDTO => {
+  switch (c) {
     case "SPORTS":
       return "운동";
     case "GAMES":
@@ -42,20 +46,15 @@ export const mapCategoryKeyToPostCategory = (key: CategoryKey): PostCategory => 
     case "MEAL":
       return "식사";
     case "STUDY":
-      // 서버에 STUDY가 없으므로 자유로 매핑(정책)
-      return "자유";
     case "ETC":
     default:
       return "자유";
   }
 };
 
-export const mapPostStateToPostStatus = (state: PostState): PostStatus => {
-  // 이름은 같고 순서만 달라 실질적으로 동일
-  return state as unknown as PostStatus;
-};
+const toPostStatus = (s: MeetingPostDTO["state"]): PostStatus => s;
 
-const mapMyParticipationToMembershipStatus = (v: Post["myParticipationStatus"] | undefined): MembershipStatus => {
+const toMembershipStatus = (v?: MeetingPostDTO["myParticipationStatus"]): MembershipStatus => {
   switch (v) {
     case "HOST":
       return "HOST";
@@ -63,159 +62,139 @@ const mapMyParticipationToMembershipStatus = (v: Post["myParticipationStatus"] |
       return "MEMBER";
     case "PENDING":
       return "PENDING";
-    case "NONE":
     default:
       return "NONE";
   }
 };
 
-const computeCanJoin = (post: Post): { canJoin: boolean; reason?: string } => {
-  if (post.state !== "OPEN") return { canJoin: false, reason: "모집 중이 아닙니다." };
-  if (post.myParticipationStatus && post.myParticipationStatus !== "NONE") {
-    return { canJoin: false, reason: "이미 참여 상태입니다." };
-  }
-
-  const max = typeof post.capacity === "number" ? post.capacity : 0;
-  const current = typeof post.currentCount === "number" ? post.currentCount : 0;
-  if (max > 0 && current >= max) return { canJoin: false, reason: "정원이 가득 찼습니다." };
-
+const calcCanJoin = (dto: MeetingPostDTO) => {
+  if (dto.state !== "OPEN") return { canJoin: false, reason: "모집 중이 아닙니다." };
+  const total = typeof dto.capacity === "number" ? dto.capacity : 0;
+  const current = typeof dto.currentCount === "number" ? dto.currentCount : 0;
+  if (total > 0 && current >= total) return { canJoin: false, reason: "정원이 가득 찼습니다." };
   return { canJoin: true };
 };
 
-/**
- * ✅ Post(서버) -> MeetingPost(UI)
- * - UI에서 바로 써도 깨지지 않도록 기본값/표준화 적용
- */
-export const mapPostToMeetingPost = (post: Post): MeetingPost => {
-  const title = post.title?.trim() ? post.title : MEETING_UI_DEFAULTS.title;
-  const locationName = post.locationName?.trim() ? post.locationName : MEETING_UI_DEFAULTS.locationName;
+export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
+  const id = String(dto.id);
+  const category = toCategoryKey(dto.category);
 
-  const capacityMax = typeof post.capacity === "number" ? post.capacity : MEETING_UI_DEFAULTS.capacity.max;
-  const capacityCurrent =
-    typeof post.currentCount === "number" ? post.currentCount : MEETING_UI_DEFAULTS.capacity.current;
+  const total = typeof dto.capacity === "number" ? Math.max(1, dto.capacity) : 0;
+  const current = typeof dto.currentCount === "number" ? Math.max(0, dto.currentCount) : 0;
 
-  const { canJoin, reason } = computeCanJoin(post);
+  const membershipStatus = toMembershipStatus(dto.myParticipationStatus);
+  const canJoinInfo = calcCanJoin(dto);
 
   return {
-    id: normalizeId(post.id),
-    status: mapPostStateToPostStatus(post.state),
+    id,
+    category,
+    title: dto.title ?? "",
+    content: dto.content ?? undefined,
+    meetingTime: dto.meetingTime,
 
-    category: mapPostCategoryToCategoryKey(post.category),
-    title,
-    content: post.content ?? "",
-
-    meetingTime: post.meetingTime,
-
-    // 서버 Post에는 durationMinutes 개념이 없음
-    durationMinutes: undefined,
-
+    // location: lat/lng + latitude/longitude 동시 제공(코드 혼재 방어)
     location: {
-      name: locationName,
-      latitude: typeof post.latitude === "number" ? post.latitude : null,
-      longitude: typeof post.longitude === "number" ? post.longitude : null,
-      address: null,
-    },
+      name: dto.locationName ?? "",
+      lat: dto.latitude,
+      lng: dto.longitude,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      address: undefined,
+    } as any,
 
+    // capacity: total/current 중심 + max도 같이 제공(코드 혼재 방어)
     capacity: {
-      current: Math.max(0, Math.trunc(capacityCurrent)),
-      max: Math.max(0, Math.trunc(capacityMax)),
-    },
+      total: total || 0,
+      max: total || 0,
+      current,
+    } as any,
 
-    joinMode: post.joinMode,
-
-    // 서버가 주는 텍스트가 없어 UI에서 필요 시 파생
+    joinMode: dto.joinMode,
+    status: toPostStatus(dto.state),
     meetingTimeText: undefined,
     distanceText: undefined,
 
-    // 서버에 평판 데이터 없음 → 0 기본값으로 "UI 타입 보장"
-    host: {
-      id: normalizeId(post.writerId),
-      nickname: post.writerNickname ?? "알 수 없음",
-      avatarUrl: post.writerImageUrl ?? null,
-      avgRate: 0,
-      orgTime: 0,
-    },
+    host: dto.writerId
+      ? ({
+          id: dto.writerId,
+          nickname: dto.writerNickname ?? dto.writerId,
+          avatarUrl: dto.writerImageUrl ?? null,
+          avgRate: 0,
+          orgTime: 0,
+        } as any)
+      : undefined,
 
     myState: {
-      membershipStatus: mapMyParticipationToMembershipStatus(post.myParticipationStatus),
-      canJoin,
-      reason,
+      membershipStatus,
+      canJoin: membershipStatus === "NONE" ? canJoinInfo.canJoin : false,
+      reason: membershipStatus === "NONE" ? canJoinInfo.reason : undefined,
     },
+
+    conditions: undefined,
+    items: undefined,
   };
 };
 
-export const mapPostsToMeetingPosts = (value: Post | Post[] | null | undefined): MeetingPost[] =>
-  ensureArray(value).map(mapPostToMeetingPost);
-
-/**
- * ✅ Hot(Post[]) -> HotMeetingItem[]
- * - badge 규칙: 남은 자리 2 이하 => "HOT"
- */
-export const mapPostToHotMeetingItem = (post: Post): HotMeetingItem => {
-  const meeting = mapPostToMeetingPost(post);
-  const remaining = meeting.capacity.max - meeting.capacity.current;
+export const toPostCreateRequest = (data: MeetingUpsert): PostCreateRequestDTO => {
+  const total = Number((data.capacity as any)?.total ?? (data.capacity as any)?.max ?? 0);
+  const capacity = Number.isFinite(total) && total > 0 ? total : undefined;
 
   return {
-    id: meeting.id, // 서버에 별도 hot-item id가 없으므로 meetingId를 재사용(정책)
-    meetingId: meeting.id,
-    badge: remaining <= 2 ? "HOT" : "",
-    title: meeting.title,
-    location: meeting.location,
-    capacity: meeting.capacity,
+    category: toPostCategory(data.category),
+    title: data.title,
+    content: data.content ?? "",
+    meetingTime: data.meetingTime,
+
+    locationName: (data.location as any)?.name ?? "",
+    latitude: Number((data.location as any)?.lat ?? (data.location as any)?.latitude ?? 0),
+    longitude: Number((data.location as any)?.lng ?? (data.location as any)?.longitude ?? 0),
+
+    capacity,
+    joinMode: data.joinMode,
   };
 };
 
-export const mapHotPostsToHotMeetingItems = (posts: Post[] | null | undefined): HotMeetingItem[] =>
-  ensureArray(posts).map(mapPostToHotMeetingItem);
+export const toPostUpdateRequest = (patch: Partial<MeetingUpsert>): PostUpdateRequestDTO => {
+  const total = (patch.capacity as any)?.total ?? (patch.capacity as any)?.max;
+  const capacity =
+    typeof total === "number" && Number.isFinite(total) && total > 0 ? total : undefined;
 
-/**
- * ✅ MeetingUpsert(UI) -> PostCreateRequest(서버)
- * - 서버는 좌표를 number로 요구: latitude/longitude가 null이면 호출 전에 막는 게 안전
- * - 여기서는 "최소한의 안전장치"로 null이면 0을 넣되, 실서비스에선 유효성 검사로 차단 권장
- */
-export const mapMeetingUpsertToPostCreateRequest = (data: MeetingUpsert): PostCreateRequest => ({
-  category: mapCategoryKeyToPostCategory(data.category),
-  title: data.title,
-  content: data.content ?? "",
-  meetingTime: data.meetingTime,
+  const lat = (patch.location as any)?.lat ?? (patch.location as any)?.latitude;
+  const lng = (patch.location as any)?.lng ?? (patch.location as any)?.longitude;
 
-  locationName: data.location.name,
-  latitude: data.location.latitude ?? 0,
-  longitude: data.location.longitude ?? 0,
+  return {
+    category: patch.category ? toPostCategory(patch.category) : undefined,
+    title: patch.title,
+    content: patch.content,
+    meetingTime: patch.meetingTime,
 
-  capacity: data.capacity.max,
-  joinMode: data.joinMode,
-});
+    locationName: (patch.location as any)?.name,
+    latitude: typeof lat === "number" ? lat : undefined,
+    longitude: typeof lng === "number" ? lng : undefined,
 
-/**
- * ✅ Partial<MeetingUpsert>(UI) -> PostUpdateRequest(서버)
- * - undefined는 보내지 않음(서버가 null/빈값으로 덮어쓰는 사고 방지)
- */
-export const mapMeetingPatchToPostUpdateRequest = (patch: Partial<MeetingUpsert>): PostUpdateRequest => {
-  const req: PostUpdateRequest = {};
+    capacity,
+    joinMode: patch.joinMode,
+  };
+};
 
-  if (patch.category) req.category = mapCategoryKeyToPostCategory(patch.category);
-  if (typeof patch.title === "string") req.title = patch.title;
-  if (typeof patch.content === "string") req.content = patch.content;
-  if (typeof patch.meetingTime === "string") req.meetingTime = patch.meetingTime;
-
-  if (patch.location) {
-    if (typeof patch.location.name === "string") req.locationName = patch.location.name;
-    if (typeof patch.location.latitude === "number") req.latitude = patch.location.latitude;
-    if (typeof patch.location.longitude === "number") req.longitude = patch.location.longitude;
+export const toMembershipStatusFromApplicant = (dto: ApplicantDTO): MembershipStatus => {
+  switch (dto.state) {
+    case "APPROVED":
+      return "MEMBER";
+    case "REJECTED":
+      return "REJECTED";
+    case "PENDING":
+    default:
+      return "PENDING";
   }
+};
 
-  if (patch.capacity) {
-    if (typeof patch.capacity.max === "number") req.capacity = patch.capacity.max;
-    if (typeof patch.capacity.current === "number") {
-      // 서버 스펙에 currentCount 업데이트 필드가 없으므로 무시(정책)
-      // 필요 시 백엔드에 patch 지원 요청 권장
-    }
-  }
-
-  if (patch.joinMode) req.joinMode = patch.joinMode;
-
-  // MeetingUpsert에는 status/state가 없으므로 여기서는 다루지 않음
-
-  return req;
+export const toParticipant = (dto: ApplicantDTO): Participant => {
+  return {
+    id: dto.userId,
+    nickname: dto.userId, // 서버에 닉네임/프로필이 없으므로 기본값
+    avatarUrl: null,
+    status: toMembershipStatusFromApplicant(dto),
+    appliedAt: nowIso(), // 서버에 신청시간이 없으므로 기본값(실서비스면 서버 필드 추가 권장)
+  };
 };

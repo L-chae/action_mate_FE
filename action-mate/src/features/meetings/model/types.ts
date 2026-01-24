@@ -137,7 +137,10 @@ export type MeetingLocation = Location;
  * ✅ MeetingCapacity(UI)
  * - UI에서는 current/max가 항상 존재(기본값 적용 가정)
  */
-export type MeetingCapacity = Capacity;
+export type MeetingCapacity = Capacity & {
+  /** UI에서 total로 쓰는 경우가 있어 alias로만 허용 */
+  total?: number;
+};
 
 /**
  * ✅ MeetingCapacityInput(UI)
@@ -145,8 +148,10 @@ export type MeetingCapacity = Capacity;
  *   폼 상태(draft)는 비어있을 수 있으니 draft를 따로 두는 게 안전합니다.
  * - 여기서는 "서버 전송용"을 명확히 하기 위해 max required 유지.
  */
-export type MeetingCapacityInput = CapacityInput;
-
+export type MeetingCapacityInput = CapacityInput & {
+  /** UI/폼에서 total로 다루는 경우가 있어 alias로만 허용 */
+  total?: number;
+};
 /**
  * HostSummary(UI): UserSummary(id는 정규화된 string) 기반
  */

@@ -4,13 +4,28 @@ import { endpoints } from "@/shared/api/endpoints";
 
 import type { MeetingApi, MeetingPost, MeetingUpsert, HotMeetingItem } from "../model/types";
 import type { MeetingPostDTO, ApplicantDTO } from "../model/dto";
-import { toMeetingPost, toParticipant } from "../model/mapper";
+import {
+  toMeetingPost,
+  toParticipant,
+  toPostCategory,
+  toPostCreateRequest,
+  toPostUpdateRequest,
+  toMembershipStatusFromApplicant,
+} from "../model/mapper";
 
 /**
  * undefined는 payload에서 제거(서버가 "없는 필드"에 엄격할 수 있어서 방어)
  */
 function pickDefined<T extends Record<string, any>>(obj: T): Partial<T> {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/**
+ * 서버가 배열/단건을 섞어 리턴하는 경우를 방어
+ */
+function ensureArray<T>(v: T | T[] | null | undefined): T[] {
+  if (!v) return [];
+  return Array.isArray(v) ? v : [v];
 }
 
 /**
@@ -26,38 +41,83 @@ async function safeFetchPost(id: number | string): Promise<MeetingPost | null> {
   }
 }
 
+function minutesUntil(iso?: string) {
+  if (!iso) return Number.POSITIVE_INFINITY;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return Number.POSITIVE_INFINITY;
+  return (t - Date.now()) / 60000;
+}
+
+function remainingSeats(post: MeetingPost) {
+  const max = Number((post.capacity as any)?.max ?? (post.capacity as any)?.total ?? 0);
+  const current = Number((post.capacity as any)?.current ?? 0);
+  if (!Number.isFinite(max) || max <= 0) return 999;
+  if (!Number.isFinite(current)) return 999;
+  return Math.max(0, max - current);
+}
+
 export const meetingApiRemote: MeetingApi = {
   // 1) 핫한 모임
-  async listHotMeetings({ limit = 6, withinMinutes } = {}) {
-    // withinMinutes는 서버가 지원하지 않으면 클라이언트에서만 사용
-    const res = await client.get<MeetingPostDTO[]>(endpoints.posts.create);
+  async listHotMeetings({ limit = 6, withinMinutes = 180 } = {}) {
+    const anyOpts = arguments[0] as any;
+    const latitude = anyOpts?.latitude ?? anyOpts?.lat;
+    const longitude = anyOpts?.longitude ?? anyOpts?.lng;
+    const radiusMeters = anyOpts?.radiusMeters;
 
-    return res.data
-      .map(toMeetingPost)
+    let list: MeetingPost[] = [];
+
+    if (typeof latitude === "number" && typeof longitude === "number") {
+      // OpenAPI: /posts/hot
+      const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(endpoints.posts.hot, {
+        params: pickDefined({
+          latitude,
+          longitude,
+          radiusMeters,
+        }),
+      });
+      list = ensureArray(res.data).map(toMeetingPost);
+    } else {
+      // fallback: /posts 전체
+      const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(endpoints.posts.list);
+      list = ensureArray(res.data).map(toMeetingPost);
+    }
+
+    const hot = list
+      .filter((m) => m.status === "OPEN")
+      .filter((m) => remainingSeats(m) <= 2)
+      .map((m) => ({ m, min: minutesUntil(m.meetingTime) }))
+      .filter(({ min }) => (withinMinutes == null ? true : min >= 0 && min <= withinMinutes))
+      .sort((a, b) => a.min - b.min)
       .slice(0, limit)
-      .map((m) => ({
+      .map(({ m, min }) => ({
         id: `hot-${m.id}`,
         meetingId: m.id,
-        badge: "마감임박",
+        badge:
+          Number.isFinite(min) && min >= 0
+            ? min < 60
+              ? `${Math.floor(min)}분 남음`
+              : `${Math.floor(min / 60)}시간 남음`
+            : "마감임박",
         title: m.title,
-        location: { ...m.location },
-        capacity: { ...m.capacity },
+        location: { ...(m.location as any) },
+        capacity: { ...(m.capacity as any) },
       })) as HotMeetingItem[];
+
+    return hot;
   },
 
   // 2) 모임 목록
   async listMeetings({ category = "ALL", sort } = {}) {
-    // sort는 서버 지원 여부 불명확 → 미지원이면 그냥 무시
-    const url = category === "ALL" ? endpoints.posts.create : endpoints.posts.byCategory(category);
-    const res = await client.get<MeetingPostDTO[]>(url);
-    const list = res.data.map(toMeetingPost);
+    const serverCategory = category === "ALL" ? null : toPostCategory(category);
+    const url = serverCategory ? endpoints.posts.byCategory(serverCategory) : endpoints.posts.list;
 
-    // 서버 sort 미지원 시에도 화면이 크게 틀어지지 않도록 최소 정렬 보정(옵션)
+    const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(url);
+    const list = ensureArray(res.data).map(toMeetingPost);
+
     if (sort === "SOON") {
       return [...list].sort((a, b) => new Date(a.meetingTime).getTime() - new Date(b.meetingTime).getTime());
     }
     if (sort === "LATEST") {
-      // id가 문자열일 수 있으므로 문자열 비교
       return [...list].sort((a, b) => String(b.id).localeCompare(String(a.id)));
     }
     return list;
@@ -65,17 +125,19 @@ export const meetingApiRemote: MeetingApi = {
 
   // 3) 주변 모임
   async listMeetingsAround(lat, lng, { radiusKm = 1, category, sort } = {}) {
-    const res = await client.get<MeetingPostDTO[]>(endpoints.posts.nearby, {
+    const serverCategory = category && category !== "ALL" ? toPostCategory(category) : undefined;
+
+    const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(endpoints.posts.nearby, {
       params: pickDefined({
         latitude: lat,
         longitude: lng,
         radiusMeters: radiusKm * 1000,
-        category: category && category !== "ALL" ? category : undefined,
+        category: serverCategory,
         sort,
       }),
     });
 
-    return res.data.map(toMeetingPost);
+    return ensureArray(res.data).map(toMeetingPost);
   },
 
   // 4) 상세 조회
@@ -84,53 +146,17 @@ export const meetingApiRemote: MeetingApi = {
     return toMeetingPost(res.data);
   },
 
-  // 5) 생성 (MeetingUpsert = 통일 Shape)
+  // 5) 생성
   async createMeeting(data: MeetingUpsert) {
-    // ✅ 백엔드 v1.1.14: capacity(총원) 필드명 = capacity
-    const payload = pickDefined({
-      category: data.category,
-      title: data.title,
-      content: data.content,
-      meetingTime: data.meetingTime,
-
-      locationName: data.location.name,
-      latitude: data.location.lat,
-      longitude: data.location.lng,
-
-      joinMode: data.joinMode,
-      capacity: data.capacity.total,
-
-      // 서버가 아직 안 받으면 undefined로 빠져나가도록 둠
-      durationMinutes: data.durationMinutes,
-      conditions: data.conditions,
-      items: data.items,
-    });
-
-    const res = await client.post<MeetingPostDTO>(endpoints.posts.create, payload);
+    const payload = toPostCreateRequest(data);
+    const res = await client.post<MeetingPostDTO>(endpoints.posts.create, pickDefined(payload));
     return toMeetingPost(res.data);
   },
 
   // 6) 수정
   async updateMeeting(id, patch: Partial<MeetingUpsert>) {
-    const payload = pickDefined({
-      category: patch.category,
-      title: patch.title,
-      content: patch.content,
-      meetingTime: patch.meetingTime,
-
-      locationName: patch.location?.name,
-      latitude: patch.location?.lat,
-      longitude: patch.location?.lng,
-
-      joinMode: patch.joinMode,
-      capacity: patch.capacity?.total,
-
-      durationMinutes: patch.durationMinutes,
-      conditions: patch.conditions,
-      items: patch.items,
-    });
-
-    const res = await client.put<MeetingPostDTO>(endpoints.posts.byId(id), payload);
+    const payload = toPostUpdateRequest(patch);
+    const res = await client.put<MeetingPostDTO>(endpoints.posts.byId(id), pickDefined(payload));
     return toMeetingPost(res.data);
   },
 
@@ -149,17 +175,10 @@ export const meetingApiRemote: MeetingApi = {
   // 8) 참여하기
   async joinMeeting(id) {
     const res = await client.post<ApplicantDTO>(endpoints.posts.applicants(id));
-
-    const statusMap: Record<string, any> = {
-      APPROVED: "MEMBER",
-      PENDING: "PENDING",
-      REJECTED: "REJECTED",
-    };
-    const newStatus = statusMap[(res.data as any)?.state] || "PENDING";
+    const membershipStatus = toMembershipStatusFromApplicant(res.data);
 
     const post = (await safeFetchPost(id)) ?? ({ id: String(id) } as unknown as MeetingPost);
-
-    return { post, membershipStatus: newStatus };
+    return { post, membershipStatus };
   },
 
   // 9) 참여 취소
@@ -171,25 +190,33 @@ export const meetingApiRemote: MeetingApi = {
 
   // 10) 참여자 목록
   async getParticipants(meetingId) {
-    const res = await client.get<ApplicantDTO[]>(endpoints.posts.applicants(meetingId));
-    return res.data.map(toParticipant);
+    const res = await client.get<ApplicantDTO[] | ApplicantDTO>(endpoints.posts.applicants(meetingId));
+    return ensureArray(res.data).map(toParticipant);
   },
 
-  // 11) 승인
+  // 11) 승인  ✅ userId를 문자열로 표준화
   async approveParticipant(meetingId, userId) {
-    await client.patch(endpoints.posts.decideApplicant(meetingId, userId), "APPROVED");
+    await client.patch(endpoints.posts.decideApplicant(meetingId, String(userId)), "APPROVED", {
+      headers: { "Content-Type": "application/json" },
+    });
     return this.getParticipants(meetingId);
   },
 
-  // 12) 거절
+  // 12) 거절  ✅ userId를 문자열로 표준화
   async rejectParticipant(meetingId, userId) {
-    await client.patch(endpoints.posts.decideApplicant(meetingId, userId), "REJECTED");
+    await client.patch(endpoints.posts.decideApplicant(meetingId, String(userId)), "REJECTED", {
+      headers: { "Content-Type": "application/json" },
+    });
     return this.getParticipants(meetingId);
   },
 
   // 13) 별점 평가
   async submitMeetingRating(req: { meetingId: string; stars: number }): Promise<unknown> {
-    await client.post(endpoints.posts.ratings(req.meetingId), { stars: req.stars });
+    // OpenAPI: RatingRequest는 { targetUserId, score, comment? }
+    // 프로젝트 내 기존 시그니처(stars) 유지.
+    // targetUserId가 없으면 호출 측에서 확장해서 넘기거나(권장),
+    // 여기서 상세 조회로 writerId를 가져오는 방식이 필요합니다(다른 파일에서 처리 중이라면 그쪽 사용).
+    await client.post(endpoints.posts.ratings(req.meetingId), { stars: req.stars } as any);
     return { ok: true };
   },
 };
