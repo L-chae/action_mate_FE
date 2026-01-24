@@ -2,16 +2,16 @@
 import type { DMMessage, DMThread } from "../model/types";
 
 /**
- * ✅ DM 목업 원본 전용
- * - DM이 Meeting과 연결되도록 relatedMeetingId를 meetings seed id(101, 104...)에 맞춤
- * - UI에서 정렬/표시가 안정적으로 되도록 createdAt/type/threadId를 가능한 채워둡니다.
+ * DM 목업 데이터
+ * - UI 안정성을 위해 threadId/type/createdAt/isRead를 채워둠
+ * - relatedMeetingId는 meetings seed id(예: 101, 104...)와 맞춤
  */
 
 const now = Date.now();
 const minAgo = (m: number) => new Date(now - m * 60_000).toISOString();
 const hourAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
 
-// --- Mock Threads ---
+// Threads
 export const DM_THREADS_SEED: DMThread[] = [
   {
     id: "t1",
@@ -66,7 +66,7 @@ export const DM_THREADS_SEED: DMThread[] = [
   },
 ];
 
-// --- Mock Messages ---
+// Messages
 export const DM_MESSAGES_SEED: Record<string, DMMessage[]> = {
   t1: [
     {

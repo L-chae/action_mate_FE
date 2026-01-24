@@ -23,7 +23,10 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 // ✅ Model & Constants
 import type { MeetingPost, Comment } from "@/features/meetings/model/types";
 import { getMeetingStatusTokens } from "@/features/meetings/model/constants";
-import { meetingTimeTextFromIso } from "@/features/meetings/utils/timeText";
+import { meetingTimeTextFromIso } from "@/shared/utils/timeText";
+
+// ✅ [추가] 공통 온도 계산기
+import { calculateMannerTemp } from "@/shared/utils/mannerCalculator";
 
 // -------------------------------------------------------------------------
 // Helper Functions
@@ -258,24 +261,27 @@ export function DetailContent({
     return post.meetingTime ? meetingTimeTextFromIso(post.meetingTime) : "";
   }, [post.meetingTime]);
 
-  // ✅ 지도 좌표 (MeetingPost.location 기반)
+  // ✅ 지도 좌표: lat/lng -> latitude/longitude
   const map = useMemo(() => {
-    const lat = post.location?.lat;
-    const lng = post.location?.lng;
+    const lat = post.location?.latitude;
+    const lng = post.location?.longitude;
     const ok = isValidLatLng(lat, lng);
     return { lat: Number(lat), lng: Number(lng), ok };
-  }, [post.location?.lat, post.location?.lng]);
+  }, [post.location?.latitude, post.location?.longitude]);
 
   const hostAvatarUrl = post.host?.avatarUrl || null;
 
-  // ✅ 인원 정보 (MeetingPost.capacity 기반)
+  // ✅ 인원 정보
   const capacityCurrent = post.capacity?.current ?? 0;
   const capacityTotal = post.capacity?.total ?? 0;
   const remaining = Math.max(0, capacityTotal - capacityCurrent);
 
-  // ✅ reply/edit 표기용 닉네임 (Comment.author 기반)
+  // ✅ reply/edit 표기용 닉네임
   const replyNickname = replyTarget ? getCommentAuthor(replyTarget).nickname : "";
   const editingLabel = editingComment ? "댓글 수정 중" : "";
+
+  // ✅ [수정] 공통 유틸로 온도 계산 (기본값 2.25점 = 36.5도)
+const mannerTemp = calculateMannerTemp(post.host?.avgRate);
 
   return (
     <ScrollView
@@ -348,8 +354,9 @@ export function DetailContent({
               </View>
             </View>
 
-            <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-              매너 {post.host?.mannerTemperature ?? 36.5}°C
+            {/* ✅ [수정] 공통 유틸로 계산된 온도 표시 */}
+         <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
+              매너 {mannerTemp}°C
             </Text>
           </View>
 

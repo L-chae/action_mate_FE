@@ -8,7 +8,7 @@ import { Badge } from "@/shared/ui/Badge";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
 import type { MeetingPost } from "@/features/meetings/model/types";
-import { meetingTimeTextFromIso } from "@/features/meetings/utils/timeText";
+import { meetingTimeTextFromIso } from "@/shared/utils/timeText";
 
 type Pill = { bg: string; fg: string };
 type IconName = keyof typeof Ionicons.glyphMap;

@@ -15,7 +15,7 @@ import {
   TextInput,
   TouchableWithoutFeedback,
   View,
-  UIManager,
+  // UIManager, // ❌ [삭제] 경고 원인 제거
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
@@ -89,12 +89,14 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
   const scrollViewRef = useRef<ScrollView>(null);
   const titleRef = useRef<TextInput>(null);
 
-  // ✅ Android LayoutAnimation enable
+  // ❌ [삭제] Android LayoutAnimation 경고 유발 코드 제거
+  /*
   useEffect(() => {
     if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
+  */
 
   // --- Form State ---
   const [title, setTitle] = useState("");
@@ -129,11 +131,16 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
 
     setSelectedDate(iv.meetingTime ? new Date(iv.meetingTime) : null);
 
-    if (iv.location?.lat && iv.location?.lng) {
+    // ✅ [수정] 좌표 필드명 혼재 대응 (lat vs latitude)
+    // MeetingUpsert 타입이 latitude/longitude를 쓸 가능성이 높음
+    const lat = (iv.location as any)?.lat ?? (iv.location as any)?.latitude;
+    const lng = (iv.location as any)?.lng ?? (iv.location as any)?.longitude;
+
+    if (lat && lng) {
       setPickedLocation({
         addressText: iv.location?.name || "위치 정보",
-        lat: iv.location.lat,
-        lng: iv.location.lng,
+        lat: Number(lat),
+        lng: Number(lng),
       });
     } else {
       setPickedLocation(null);
@@ -187,12 +194,16 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
 
       location: {
         name: pickedLocation.addressText,
-        lat: pickedLocation.lat,
-        lng: pickedLocation.lng,
-      },
+        // ✅ [중요] 타입 정의에 맞춰 latitude/longitude로 매핑
+        // 만약 타입 정의가 lat/lng라면 여기를 lat: ..., lng: ... 로 써야 함
+        // 하지만 DetailContent 에러를 볼 때 latitude/longitude가 표준임.
+        latitude: pickedLocation.lat,
+        longitude: pickedLocation.lng,
+      } as any, 
 
-      capacity: {
-        total: capacityTotal,
+  capacity: {
+        max: capacityTotal,   // ✅ 필수 속성 추가
+        total: capacityTotal, // (선택) 호환성을 위해 유지
       },
 
       content: content.trim(),

@@ -1,3 +1,4 @@
+// src/features/dm/DMThreadScreen.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   StyleSheet,
@@ -27,17 +28,27 @@ import ChatBubble from "./ui/ChatBubble";
 import { getDMMessages, sendDMMessage, getDMThread, markDMThreadRead } from "./api/dmApi";
 import type { DMMessage, DMThread } from "./model/types";
 
+function toStrParam(v: string | string[] | undefined): string {
+  const s = Array.isArray(v) ? v[0] : v;
+  return String(s ?? "").trim();
+}
+
 export default function DMThreadScreen() {
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
   const expoRouter = useRouter();
 
-  const params = useLocalSearchParams<{ threadId?: string | string[] }>();
-  const threadId = useMemo(() => {
-    const raw = params.threadId;
-    const v = Array.isArray(raw) ? raw[0] : raw;
-    return String(v ?? "").trim();
-  }, [params.threadId]);
+  const params = useLocalSearchParams<{
+    threadId?: string | string[];
+    nickname?: string | string[];
+    meetingId?: string | string[];
+    meetingTitle?: string | string[];
+  }>();
+
+  const threadId = useMemo(() => toStrParam(params.threadId), [params.threadId]);
+  const paramNickname = useMemo(() => toStrParam(params.nickname), [params.nickname]);
+  const paramMeetingId = useMemo(() => toStrParam(params.meetingId), [params.meetingId]);
+  const paramMeetingTitle = useMemo(() => toStrParam(params.meetingTitle), [params.meetingTitle]);
 
   const [thread, setThread] = useState<DMThread | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>([]);
@@ -52,39 +63,42 @@ export default function DMThreadScreen() {
   const translateY = useRef(new Animated.Value(0)).current;
   const bottomSafe = Math.max(insets.bottom, 8);
 
-  const title = thread?.otherUser?.nickname ?? "대화";
+  const title = thread?.otherUser?.nickname || paramNickname || "대화";
 
-  const scrollToBottom = useCallback((animated: boolean) => {
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
-  }, []);
+  const scrollToBottom = useCallback(
+    (animated: boolean) => {
+      requestAnimationFrame(() => {
+        if (!messages.length) return;
+        listRef.current?.scrollToEnd({ animated });
+      });
+    },
+    [messages.length],
+  );
 
   // 1) 데이터 로드
   useEffect(() => {
     if (!threadId) return;
 
     let mounted = true;
+
     const load = async () => {
       try {
         setLoading(true);
 
-        const [th, msgs] = await Promise.all([
-          getDMThread(threadId),
-          getDMMessages(threadId),
-        ]);
-
+        const [th, msgs] = await Promise.all([getDMThread(threadId), getDMMessages(threadId)]);
         if (!mounted) return;
 
         setThread(th);
         setMessages(msgs);
 
-        // 읽음 처리 실패는 화면 동작과 분리 (UX 안정)
+        // 읽음 처리 실패는 화면 동작과 분리(UX 안정)
         markDMThreadRead(threadId).catch(() => {});
       } catch (e) {
         console.error(e);
       } finally {
         if (mounted) {
           setLoading(false);
-          scrollToBottom(false);
+          requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
         }
       }
     };
@@ -93,7 +107,7 @@ export default function DMThreadScreen() {
     return () => {
       mounted = false;
     };
-  }, [threadId, scrollToBottom]);
+  }, [threadId]);
 
   // 2) 키보드 핸들링
   useEffect(() => {
@@ -132,29 +146,65 @@ export default function DMThreadScreen() {
     };
   }, [insets.bottom, translateY, scrollToBottom]);
 
+  const relatedMeetingId = thread?.relatedMeetingId || (paramMeetingId ? paramMeetingId : undefined);
+  const relatedMeetingTitle =
+    thread?.relatedMeetingTitle || thread?.relatedMeeting?.title || (paramMeetingTitle ? paramMeetingTitle : undefined);
+
+  const goMeeting = useCallback(() => {
+    if (!relatedMeetingId) return;
+    const id = encodeURIComponent(String(relatedMeetingId));
+    expoRouter.push(`/meetings/${id}` as any);
+  }, [expoRouter, relatedMeetingId]);
+
   const handleSend = useCallback(async () => {
     if (!threadId) return;
-    if (!text.trim() || sending) return;
+    if (sending) return;
 
     const content = text.trim();
+    if (!content) return;
+
+    // 왜 optimistic?:
+    // - 네트워크가 느릴 때도 입력/전송 UX가 끊기지 않게 "즉시" 붙여줌
+    const optimistic: DMMessage = {
+      id: `local_${Date.now()}` as any,
+      threadId: threadId as any,
+      type: "TEXT",
+      text: content,
+      senderId: "me",
+      createdAt: new Date().toISOString() as any,
+      isRead: true,
+    };
+
     setText("");
     setSending(true);
+    setMessages((prev) => [...prev, optimistic]);
+    scrollToBottom(true);
 
     try {
-      const newMsg = await sendDMMessage(threadId, content);
-      setMessages((prev) => [...prev, newMsg]);
+      const saved = await sendDMMessage(threadId, content);
+
+      // 마지막 optimistic를 saved로 교체(중복 방지)
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === optimistic.id);
+        if (idx === -1) return [...prev, saved];
+        const next = [...prev];
+        next[idx] = saved;
+        return next;
+      });
+
       scrollToBottom(true);
     } catch (e) {
       console.error(e);
+
+      // 실패 시 optimistic 제거 + 텍스트 복구
+      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       setText(content);
     } finally {
       setSending(false);
     }
   }, [threadId, text, sending, scrollToBottom]);
 
-  const renderMessage = useCallback(({ item }: { item: DMMessage }) => {
-    return <ChatBubble message={item} />;
-  }, []);
+  const renderMessage = useCallback(({ item }: { item: DMMessage }) => <ChatBubble message={item} />, []);
 
   const onComposerLayout = (e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
@@ -167,19 +217,8 @@ export default function DMThreadScreen() {
       paddingTop: 16,
       paddingBottom: composerHeight + bottomSafe + 12 + keyboardLift,
     }),
-    [composerHeight, bottomSafe, keyboardLift]
+    [composerHeight, bottomSafe, keyboardLift],
   );
-
-  const relatedMeetingId = thread?.relatedMeetingId;
-  const relatedMeetingTitle = (thread as any)?.relatedMeetingTitle;
-
-  const goMeeting = useCallback(() => {
-    if (!relatedMeetingId) return;
-
-    // ✅ 문자열/숫자 혼합, 특수문자 대비
-    const id = encodeURIComponent(String(relatedMeetingId));
-    expoRouter.push(`/meetings/${id}` as any);
-  }, [expoRouter, relatedMeetingId]);
 
   return (
     <>
@@ -204,10 +243,7 @@ export default function DMThreadScreen() {
             >
               <View style={{ flex: 1 }}>
                 <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>연결된 모임글</Text>
-                <Text
-                  style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 2 }]}
-                  numberOfLines={1}
-                >
+                <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 2 }]} numberOfLines={1}>
                   {relatedMeetingTitle ?? "모임 상세로 이동"}
                 </Text>
               </View>
@@ -227,7 +263,15 @@ export default function DMThreadScreen() {
               keyExtractor={(item) => String(item.id)}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={listContentStyle}
-              onContentSizeChange={() => scrollToBottom(false)}
+              onContentSizeChange={() => {
+                // 전송/초기 로딩 때만 아래로 붙는 느낌 유지
+                requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+              }}
+              ListEmptyComponent={
+                <View style={{ paddingTop: 60, alignItems: "center" }}>
+                  <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>대화를 시작해보세요.</Text>
+                </View>
+              }
             />
           )}
 
@@ -266,11 +310,7 @@ export default function DMThreadScreen() {
                 { backgroundColor: text.trim() ? t.colors.primary : t.colors.neutral[200] },
               ]}
             >
-              {sending ? (
-                <ActivityIndicator size="small" color="white" />
-              ) : (
-                <Ionicons name="arrow-up" size={20} color="white" />
-              )}
+              {sending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="arrow-up" size={20} color="white" />}
             </Pressable>
           </Animated.View>
         </View>

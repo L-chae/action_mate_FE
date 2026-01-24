@@ -1,4 +1,4 @@
-// src/features/meetings/model/mapper.ts
+// src/features/meetings/model/mappers.ts
 import type {
   ApplicantDTO,
   MeetingPostDTO,
@@ -14,14 +14,20 @@ import type {
   Participant,
   PostStatus,
 } from "./types";
-
+import { nowIso } from "@/shared/utils/timeText";
 /**
- * ✅ Meetings Mapper
+ * ✅ Meetings Mapper (Single Source of Truth)
  * - 서버 DTO <-> UI 모델 변환을 여기서만 처리
  * - 서버 누락 필드(평점/횟수/참여일 등)는 기본값 규칙으로 채움
  */
 
-const nowIso = () => new Date().toISOString();
+
+const num = (v: unknown, fallback = 0) => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const str = (v: unknown, fallback = "") => (typeof v === "string" ? v : fallback);
 
 const toCategoryKey = (c: PostCategoryDTO): CategoryKey => {
   switch (c) {
@@ -52,7 +58,7 @@ export const toPostCategory = (c: CategoryKey): PostCategoryDTO => {
   }
 };
 
-const toPostStatus = (s: MeetingPostDTO["state"]): PostStatus => s;
+const toPostStatus = (s: MeetingPostDTO["state"]): PostStatus => s as PostStatus;
 
 const toMembershipStatus = (v?: MeetingPostDTO["myParticipationStatus"]): MembershipStatus => {
   switch (v) {
@@ -69,18 +75,22 @@ const toMembershipStatus = (v?: MeetingPostDTO["myParticipationStatus"]): Member
 
 const calcCanJoin = (dto: MeetingPostDTO) => {
   if (dto.state !== "OPEN") return { canJoin: false, reason: "모집 중이 아닙니다." };
-  const total = typeof dto.capacity === "number" ? dto.capacity : 0;
-  const current = typeof dto.currentCount === "number" ? dto.currentCount : 0;
+
+  const total = num(dto.capacity, 0);
+  const current = num(dto.currentCount, 0);
+
+  // total이 0이면 "무제한/미정" 같은 케이스일 수 있어, 꽉참 판정은 total>0일 때만
   if (total > 0 && current >= total) return { canJoin: false, reason: "정원이 가득 찼습니다." };
-  return { canJoin: true };
+  return { canJoin: true as const };
 };
 
 export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
   const id = String(dto.id);
   const category = toCategoryKey(dto.category);
 
-  const total = typeof dto.capacity === "number" ? Math.max(1, dto.capacity) : 0;
-  const current = typeof dto.currentCount === "number" ? Math.max(0, dto.currentCount) : 0;
+  const total = num(dto.capacity, 0);
+  const safeMax = total > 0 ? Math.max(1, total) : 0;
+  const safeCurrent = Math.max(0, num(dto.currentCount, 0));
 
   const membershipStatus = toMembershipStatus(dto.myParticipationStatus);
   const canJoinInfo = calcCanJoin(dto);
@@ -88,29 +98,30 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
   return {
     id,
     category,
-    title: dto.title ?? "",
-    content: dto.content ?? undefined,
-    meetingTime: dto.meetingTime,
+    title: str(dto.title, ""),
+    content: dto.content ? dto.content : undefined,
+    meetingTime: str(dto.meetingTime, nowIso()),
 
-    // location: lat/lng + latitude/longitude 동시 제공(코드 혼재 방어)
+    // ✅ location: lat/lng + latitude/longitude 동시 제공(코드 혼재 방어)
     location: {
-      name: dto.locationName ?? "",
-      lat: dto.latitude,
-      lng: dto.longitude,
-      latitude: dto.latitude,
-      longitude: dto.longitude,
+      name: str(dto.locationName, ""),
+      lat: num(dto.latitude, 0),
+      lng: num(dto.longitude, 0),
+      latitude: num(dto.latitude, 0),
+      longitude: num(dto.longitude, 0),
       address: undefined,
     } as any,
 
-    // capacity: total/current 중심 + max도 같이 제공(코드 혼재 방어)
+    // ✅ capacity: max/current 중심 + total alias 유지(코드 혼재 방어)
     capacity: {
-      total: total || 0,
-      max: total || 0,
-      current,
+      max: safeMax,
+      total: safeMax, // alias
+      current: safeCurrent,
     } as any,
 
     joinMode: dto.joinMode,
     status: toPostStatus(dto.state),
+
     meetingTimeText: undefined,
     distanceText: undefined,
 
@@ -126,8 +137,9 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
 
     myState: {
       membershipStatus,
+      // ✅ 이미 참여 상태면 canJoin은 false로 고정(중복 참여/재요청 방지)
       canJoin: membershipStatus === "NONE" ? canJoinInfo.canJoin : false,
-      reason: membershipStatus === "NONE" ? canJoinInfo.reason : undefined,
+      reason: membershipStatus === "NONE" ? (canJoinInfo as any).reason : undefined,
     },
 
     conditions: undefined,
@@ -136,8 +148,11 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
 };
 
 export const toPostCreateRequest = (data: MeetingUpsert): PostCreateRequestDTO => {
-  const total = Number((data.capacity as any)?.total ?? (data.capacity as any)?.max ?? 0);
-  const capacity = Number.isFinite(total) && total > 0 ? total : undefined;
+  const total = num((data.capacity as any)?.total ?? (data.capacity as any)?.max, 0);
+  const capacity = total > 0 ? total : undefined;
+
+  const lat = num((data.location as any)?.lat ?? (data.location as any)?.latitude, 0);
+  const lng = num((data.location as any)?.lng ?? (data.location as any)?.longitude, 0);
 
   return {
     category: toPostCategory(data.category),
@@ -145,9 +160,9 @@ export const toPostCreateRequest = (data: MeetingUpsert): PostCreateRequestDTO =
     content: data.content ?? "",
     meetingTime: data.meetingTime,
 
-    locationName: (data.location as any)?.name ?? "",
-    latitude: Number((data.location as any)?.lat ?? (data.location as any)?.latitude ?? 0),
-    longitude: Number((data.location as any)?.lng ?? (data.location as any)?.longitude ?? 0),
+    locationName: str((data.location as any)?.name, ""),
+    latitude: lat,
+    longitude: lng,
 
     capacity,
     joinMode: data.joinMode,
@@ -156,8 +171,7 @@ export const toPostCreateRequest = (data: MeetingUpsert): PostCreateRequestDTO =
 
 export const toPostUpdateRequest = (patch: Partial<MeetingUpsert>): PostUpdateRequestDTO => {
   const total = (patch.capacity as any)?.total ?? (patch.capacity as any)?.max;
-  const capacity =
-    typeof total === "number" && Number.isFinite(total) && total > 0 ? total : undefined;
+  const capacity = typeof total === "number" && Number.isFinite(total) && total > 0 ? total : undefined;
 
   const lat = (patch.location as any)?.lat ?? (patch.location as any)?.latitude;
   const lng = (patch.location as any)?.lng ?? (patch.location as any)?.longitude;

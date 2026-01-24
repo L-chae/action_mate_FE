@@ -30,10 +30,6 @@ import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, CategoryKey } from "@/features/meetings/model/types";
 import { MapMarker, getCategoryMeta } from "./ui/MapMarker";
 
-// Android LayoutAnimation
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const MAP_STYLE = [
   { featureType: "poi", elementType: "labels.icon", stylers: [{ visibility: "off" }] },

@@ -45,18 +45,6 @@ export async function clearRefreshToken() {
   await deleteItem(KEY_REFRESH);
 }
 
-// --- Auth Tokens (All) ---
-export async function clearAuthTokens() {
-  await Promise.all([clearAccessToken(), clearRefreshToken(), clearCurrentUserId()]);
-}
-
-/**
- * 토큰을 한 번에 설정(로그인/갱신 응답 처리에 편리)
- */
-export async function setAuthTokens(tokens: { accessToken: string; refreshToken: string }) {
-  await Promise.all([setAccessToken(tokens.accessToken), setRefreshToken(tokens.refreshToken)]);
-}
-
 // --- Current User ID (Client Side Session) ---
 export async function setCurrentUserId(userId: string) {
   await setItem(KEY_CURRENT_USER_ID, userId);
@@ -66,6 +54,39 @@ export async function getCurrentUserId(): Promise<string | null> {
 }
 export async function clearCurrentUserId() {
   await deleteItem(KEY_CURRENT_USER_ID);
+}
+
+/**
+ * 토큰을 한 번에 설정(로그인/갱신 응답 처리에 편리)
+ */
+export async function setAuthTokens(tokens: { accessToken: string; refreshToken: string }) {
+  await Promise.all([setAccessToken(tokens.accessToken), setRefreshToken(tokens.refreshToken)]);
+}
+
+/**
+ * ✅ 토큰만 정리(access/refresh)
+ * - "로그아웃"과 "인증 실패"를 구분해서 처리할 때 유용합니다.
+ * - 예: refresh 실패 시 세션까지 지우는지(=logout 처리) 정책은 호출부가 선택
+ */
+export async function clearTokens() {
+  await Promise.all([clearAccessToken(), clearRefreshToken()]);
+}
+
+/**
+ * ✅ 세션 정리(tokens + currentUserId)
+ * - 로그인 상태 판단에 쓰는 키(currentUserId)까지 같이 지워야
+ *   hydrate/store가 "유령 로그인" 상태로 착각하지 않습니다.
+ */
+export async function clearSession() {
+  await Promise.all([clearTokens(), clearCurrentUserId()]);
+}
+
+/**
+ * ✅ 기존 이름 호환 유지
+ * - 기존 코드가 clearAuthTokens()에 "세션까지 정리"를 기대하므로 의미를 유지합니다.
+ */
+export async function clearAuthTokens() {
+  await clearSession();
 }
 
 /**

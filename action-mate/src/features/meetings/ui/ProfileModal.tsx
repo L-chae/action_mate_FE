@@ -6,15 +6,18 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors"; 
 import type { HostSummary } from "../model/types";
 
-// 🔥 [수정] 대문자로 변경: MannerTemperatureBar
+// ✅ [추가] 공통 온도 계산기
+import { calculateMannerTemp } from "@/shared/utils/mannerCalculator";
+
 function MannerTemperatureBar({ temp }: { temp: number }) {
   const t = useAppTheme();
   // 36.5도 기준
   const isHigh = temp >= 36.5;
   const color = isHigh ? t.colors.primary : t.colors.textSub;
   
-  // 0~100도 범위 퍼센트
-  const widthPercent = Math.min(100, Math.max(0, (temp / 100) * 100)); 
+  // 32~42도 범위를 0~100%로 매핑 (시각적 바를 위해)
+  // 공식: (현재온도 - 최저32) / (최고42 - 최저32) * 100
+  const widthPercent = Math.min(100, Math.max(0, ((temp - 32) / 10) * 100)); 
   const trackColor = t.colors.overlay?.[12] ?? t.colors.border;
 
   return (
@@ -52,11 +55,15 @@ export function ProfileModal({
   const fallbackBg = user.avatarUrl ? "transparent" : t.colors.primary; 
   const fallbackText = "#FFFFFF";
 
-  // ✅ 별점 계산
-  const rawRating = ((user.mannerTemperature - 32) / 10) * 5;
-  const rating = Math.max(0, Math.min(5, Number(rawRating.toFixed(1))));
+  // ✅ [수정] 평점 기반으로 데이터 정제
+  const avgRate = Number(user.avgRate ?? 0); // 기본값 0
+  const rating = Math.max(0, Math.min(5, Number(avgRate.toFixed(1))));
+  
+  // ✅ [수정] 공통 유틸로 온도 계산
+  const mannerTempStr = calculateMannerTemp(avgRate);
+  const mannerTemp = Number(mannerTempStr);
 
-  // ✅ 아이콘 배경색
+  // 아이콘 배경색
   const iconCircleStar = withAlpha(ratingColor, 0.15);
   const iconCircleTemp = withAlpha(t.colors.primary, 0.15);
 
@@ -87,7 +94,8 @@ export function ProfileModal({
             {user.nickname}
           </Text>
           <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, marginTop: 8, textAlign: 'center', lineHeight: 20, paddingHorizontal: 10 }]}>
-            {`"${user.intro || "안녕하세요! 같이 즐겁게 활동해요."}"`}
+            {/* intro가 HostSummary에 없을 수도 있으니 안전하게 처리 */}
+            {`"${(user as any).intro || "안녕하세요! 같이 즐겁게 활동해요."}"`}
           </Text>
 
           {/* 3. 스탯 정보 (별점 / 매너온도) */}
@@ -113,7 +121,7 @@ export function ProfileModal({
               </View>
               <Text style={[t.typography.labelMedium, { marginTop: 8, color: t.colors.textSub }]}>매너온도</Text>
               <Text style={[t.typography.titleMedium, { color: t.colors.textMain, marginTop: 2, fontWeight: "700" }]}>
-                {user.mannerTemperature}°C
+                {mannerTempStr}°C
               </Text>
             </View>
 
@@ -121,8 +129,7 @@ export function ProfileModal({
 
           {/* 4. 매너 온도 바 (시각적 표시) */}
           <View style={[styles.tempBox, { backgroundColor: boxBg }]}>
-            {/* ✅ [수정] 대문자 컴포넌트 사용 */}
-            <MannerTemperatureBar temp={user.mannerTemperature} />
+            <MannerTemperatureBar temp={mannerTemp} />
           </View>
 
         </View>

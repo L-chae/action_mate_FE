@@ -1,21 +1,33 @@
 // src/features/auth/api/authApi.local.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { User, SignupInput, LoginInput, AuthApi, ResetRequestResult } from "@/features/auth/model/types";
-import { setAccessToken, setRefreshToken, clearAuthTokens } from "@/shared/api/authToken";
 import type { Id } from "@/shared/model/types";
+import {
+  clearAuthTokens,
+  getCurrentUserId,
+  setAuthTokens,
+  setCurrentUserId,
+} from "@/shared/api/authToken";
 
-// ⚠️ 로컬 목업용: 비밀번호 평문 저장 (실서비스 금지)
+/**
+ * Local(Mock) AuthApi
+ *
+ * 설계 의도(왜 이렇게?):
+ * - Remote/Local의 "세션 저장 위치"를 통일(SecureStore 기반 authToken.ts)
+ *   → hydrate/로그아웃 로직이 환경에 따라 달라지는 문제를 제거
+ * - Mock 계정의 id를 loginId와 동일하게 맞춰 서버 모델과 괴리를 줄임
+ *
+ * ⚠️ 로컬 목업은 개발 편의용이며 비밀번호 평문 저장(실서비스 금지)
+ */
+
 type StoredUser = User & { password: string };
 
 const KEY_USERS = "localAuth:users";
-const KEY_CURRENT_LOGIN_ID = "localAuth:currentLoginId";
 
-// ✅ 안전한 정규화 함수 (undefined/number/string 혼재 방어)
+// 비교용 정규화(대소문자/공백 혼재 방어)
 const normKey = (v?: Id | string) => String(v ?? "").trim().toLowerCase();
 
-// ----------------------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------------------
+let seedOncePromise: Promise<void> | null = null;
 
 async function readJSON<T>(key: string, fallback: T): Promise<T> {
   const raw = await AsyncStorage.getItem(key);
@@ -31,7 +43,6 @@ async function writeJSON(key: string, value: unknown) {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
 
-// id 또는 loginId로 유저 찾기(실무에서 흔히 섞여 들어와도 안 깨지게)
 function findUserIndexByIdOrLoginId(users: StoredUser[], idOrLoginId: Id): number {
   const key = normKey(idOrLoginId);
   if (!key) return -1;
@@ -41,84 +52,77 @@ function findUserIndexByIdOrLoginId(users: StoredUser[], idOrLoginId: Id): numbe
   if (byId !== -1) return byId;
 
   // 2) loginId
-  return users.findIndex((u) => u.loginId && normKey(u.loginId) === key);
+  return users.findIndex((u) => normKey(u.loginId) === key);
 }
 
-// ----------------------------------------------------------------------
-// ✅ 1. 시드 데이터 (개발용 계정) + 데이터 마이그레이션
-// ----------------------------------------------------------------------
+/**
+ * 개발용 시드 데이터
+ * - "한 번만" 실행되도록 락을 둬서 동시에 여러 API가 불려도 중복 seed를 방지
+ */
+async function ensureSeeded(): Promise<void> {
+  seedOncePromise =
+    seedOncePromise ??
+    (async () => {
+      const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+      const isCorrupted = users.some((u) => !u.loginId);
 
-export async function seedMockUsers(): Promise<void> {
-  const users = await readJSON<StoredUser[]>(KEY_USERS, []);
+      if (users.length === 0 || isCorrupted) {
+        const demo: StoredUser[] = [
+          {
+            // ✅ 서버 모델과 동일: id === loginId
+            id: "user01",
+            loginId: "user01",
+            nickname: "테니스왕",
+            password: "1234",
+            gender: "male",
+            birthDate: "1995-06-15",
+            avatarUrl: null,
+          },
+          {
+            id: "test01",
+            loginId: "test01",
+            nickname: "당근조아",
+            password: "1234",
+            gender: "female",
+            birthDate: "1999-12-25",
+            avatarUrl: null,
+          },
+        ];
 
-  // 🚨 데이터 정합성 체크
-  const isCorrupted = users.some((u) => !u.loginId);
+        await writeJSON(KEY_USERS, demo);
+      }
+    })();
 
-  if (users.length === 0 || isCorrupted) {
-    if (isCorrupted) {
-      console.log("⚠️ 구버전 데이터가 감지되어 초기화합니다.");
-    }
-
-    const demo: StoredUser[] = [
-      {
-        id: "u_seed_01",
-        loginId: "user01",
-        nickname: "테니스왕",
-        password: "1234",
-        gender: "male",
-        birthDate: "1995-06-15",
-        avatarUrl: null,
-      },
-      {
-        id: "u_seed_02",
-        loginId: "test01",
-        nickname: "당근조아",
-        password: "1234",
-        gender: "female",
-        birthDate: "1999-12-25",
-        avatarUrl: null,
-      },
-    ];
-
-    await writeJSON(KEY_USERS, demo);
-  }
+  return seedOncePromise;
 }
-
-// ----------------------------------------------------------------------
-// ✅ 2. AuthApi 구현
-// ----------------------------------------------------------------------
 
 const authApi: AuthApi = {
-  /**
-   * ✅ 아이디로 유저 조회
-   */
   async getUserByLoginId(loginId: string): Promise<User | null> {
+    await ensureSeeded();
+
     const target = normKey(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    const found = users.find((u) => u.loginId && normKey(u.loginId) === target);
+    const found = users.find((u) => normKey(u.loginId) === target);
 
     if (!found) return null;
     const { password: _pw, ...user } = found;
     return user;
   },
 
-  /**
-   * ✅ 아이디 중복 확인
-   * - true: 사용 가능 (중복 없음)
-   * - false: 사용 불가 (중복 있음)
-   */
   async checkLoginIdAvailability(loginId: string): Promise<boolean> {
+    await ensureSeeded();
+
     const target = normKey(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    const exists = users.some((u) => u.loginId && normKey(u.loginId) === target);
+    const exists = users.some((u) => normKey(u.loginId) === target);
     return !exists;
   },
 
-  /**
-   * ✅ 회원가입
-   */
   async signup(input: SignupInput): Promise<User> {
-    const loginId = normKey(input.loginId);
+    await ensureSeeded();
+
+    const loginId = input.loginId.trim();
+    const loginKey = normKey(loginId);
     const nickname = input.nickname.trim();
 
     if (!loginId) throw new Error("아이디를 입력해주세요.");
@@ -128,13 +132,13 @@ const authApi: AuthApi = {
     if (!input.birthDate) throw new Error("생년월일을 입력해주세요.");
 
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-
-    if (users.some((u) => u.loginId && normKey(u.loginId) === loginId)) {
+    if (users.some((u) => normKey(u.loginId) === loginKey)) {
       throw new Error("이미 사용 중인 아이디예요.");
     }
 
     const newUser: User = {
-      id: `u_${Date.now()}`,
+      // ✅ 서버 모델과 일치: id === loginId (다른 기능과의 괴리 최소화)
+      id: loginId,
       loginId,
       nickname,
       gender: input.gender,
@@ -146,31 +150,34 @@ const authApi: AuthApi = {
     return newUser;
   },
 
-  /**
-   * ✅ 로그인
-   */
   async login(input: LoginInput): Promise<User> {
+    await ensureSeeded();
+
     const target = normKey(input.loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-
-    const found = users.find((u) => u.loginId && normKey(u.loginId) === target);
+    const found = users.find((u) => normKey(u.loginId) === target);
 
     if (!found) throw new Error("존재하지 않는 아이디예요.");
     if (found.password !== input.password) throw new Error("비밀번호가 일치하지 않아요.");
 
     const { password: _pw, ...user } = found;
 
-    // mock 환경에서도 토큰/리프레시를 넣어두면 API 레이어/가드 로직이 덜 흔들립니다.
-    await Promise.all([setAccessToken(`mock_access_${Date.now()}`), setRefreshToken(`mock_refresh_${Date.now()}`)]);
-    await authApi.setCurrentLoginId(user.loginId);
+    // 왜 토큰을 저장?:
+    // - mock 환경에서도 API 레이어/가드 로직이 동일하게 동작하도록 최소한의 토큰을 제공
+    await Promise.all([
+      setAuthTokens({
+        accessToken: `mock_access_${Date.now()}`,
+        refreshToken: `mock_refresh_${Date.now()}`,
+      }),
+      setCurrentUserId(user.loginId),
+    ]);
 
     return user;
   },
 
-  /**
-   * ✅ 유저 정보 수정
-   */
   async updateUser(id: Id, patch: Partial<User>): Promise<User> {
+    await ensureSeeded();
+
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
     const idx = findUserIndexByIdOrLoginId(users, id);
 
@@ -178,7 +185,8 @@ const authApi: AuthApi = {
 
     const existing = users[idx];
 
-    // 식별자/비밀번호는 덮어쓰기 방지
+    // 왜 막나?:
+    // - id/loginId는 세션/관계키로 쓰이는 경우가 많아서 변경 허용 시 데이터 정합성이 쉽게 깨짐
     const sanitizedPatch: Partial<User> = { ...patch };
     delete (sanitizedPatch as any).id;
     delete (sanitizedPatch as any).loginId;
@@ -199,6 +207,10 @@ const authApi: AuthApi = {
   },
 
   async updatePassword(loginId: string, newPassword: string): Promise<void> {
+    await ensureSeeded();
+
+    if (!newPassword || newPassword.length < 4) throw new Error("비밀번호는 4자 이상으로 입력해주세요.");
+
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
     const idx = findUserIndexByIdOrLoginId(users, loginId);
     if (idx === -1) throw new Error("사용자를 찾을 수 없습니다.");
@@ -208,6 +220,8 @@ const authApi: AuthApi = {
   },
 
   async requestPasswordReset(loginId: string): Promise<ResetRequestResult> {
+    await ensureSeeded();
+
     const user = await authApi.getUserByLoginId(loginId);
     if (!user) throw new Error("가입되지 않은 아이디입니다.");
     return { code: "123456" };
@@ -222,19 +236,19 @@ const authApi: AuthApi = {
   },
 
   // ----------------------------------------------------------------------
-  // Session
+  // Session (Remote와 동일한 저장소 사용)
   // ----------------------------------------------------------------------
 
   async getCurrentLoginId(): Promise<string | null> {
-    return AsyncStorage.getItem(KEY_CURRENT_LOGIN_ID);
+    return getCurrentUserId();
   },
 
   async setCurrentLoginId(loginId: string): Promise<void> {
-    await AsyncStorage.setItem(KEY_CURRENT_LOGIN_ID, normKey(loginId));
+    await setCurrentUserId(loginId);
   },
 
   async clearCurrentLoginId(): Promise<void> {
-    await AsyncStorage.removeItem(KEY_CURRENT_LOGIN_ID);
+    // clearAuthTokens()는 tokens + currentUserId까지 정리(=세션 정리)
     await clearAuthTokens();
   },
 };

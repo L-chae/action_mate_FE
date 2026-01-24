@@ -12,10 +12,11 @@ import { mapGenderToServerGender, mapServerGenderToGender } from "@/shared/model
 import type { LoginInput, SignupInput, User } from "@/features/auth/model/types";
 
 /**
- * Auth/User 쪽은 "서버 스키마와 프론트 모델의 필드명이 다름"이 핵심 리스크입니다.
- * - login: loginId -> 서버는 id
- * - signup: gender(영문) -> 서버는 한글(남/여)
- * - user profile: profileImageUrl -> 프론트는 avatarUrl로 쓰는 경우가 많음
+ * Auth/User mapper
+ *
+ * 설계 의도(왜 이렇게?):
+ * - 서버 스키마 변화(필드명/nullable/타입 혼재)를 한 지점에서 흡수
+ * - 화면/스토어는 UI 모델(User)만 사용하도록 강제하여 변경 영향 최소화
  */
 
 export const mapLoginInputToLoginRequest = (input: LoginInput): LoginRequest => ({
@@ -38,14 +39,16 @@ export const mapSignupInputToSignupRequest = (input: SignupInput): SignupRequest
 
 export const mapExistsResponseToAvailability = (res: ExistsResponse): boolean => !res.exists;
 
+const toNumberOrZero = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
 export const mapUserProfileResponseToSharedUserProfile = (res: ApiUserProfileResponse): SharedUserProfile => ({
   id: res.id,
   nickname: res.nickname ?? "알 수 없음",
   profileImageUrl: res.profileImageUrl,
   birth: res.birth ?? "",
   gender: mapServerGenderToGender(res.gender, "male"),
-  avgRate: typeof res.avgRate === "number" ? res.avgRate : 0,
-  orgTime: typeof res.orgTime === "number" ? res.orgTime : 0,
+  avgRate: toNumberOrZero(res.avgRate),
+  orgTime: toNumberOrZero(res.orgTime),
 });
 
 /**
@@ -53,6 +56,7 @@ export const mapUserProfileResponseToSharedUserProfile = (res: ApiUserProfileRes
  * - 서버 /users/{userId}/profile 응답을 기반으로 UI에서 안정적으로 쓰는 User로 변환
  */
 export const mapUserProfileResponseToAuthUser = (res: ApiUserProfileResponse): User => ({
+  // UI에서 안정적으로 쓰기 위해 id는 문자열로 정규화
   id: normalizeId(res.id),
   nickname: res.nickname ?? "알 수 없음",
   avatarUrl: res.profileImageUrl ?? null,

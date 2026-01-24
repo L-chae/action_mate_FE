@@ -1,3 +1,4 @@
+// ✅ 파일 경로: src/features/home/HomeScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -35,8 +36,21 @@ import { useAuthStore } from "@/features/auth/model/authStore";
 function shouldHideInHomeList(status: MeetingPost["status"] | undefined) {
   if (!status) return false;
   return status === "FULL" || status === "ENDED";
-  // 취소도 숨기려면:
-  // return status === "FULL" || status === "ENDED" || status === "CANCELED";
+}
+
+/**
+ * ✅ Capacity 호환 처리
+ * - 프로젝트가 { max, current } 로 표준화되어도
+ * - 기존 목업/서버가 { total, current } 로 내려와도 UI가 깨지지 않게 흡수
+ */
+function getCapacityMax(cap: any): number {
+  const raw = cap?.max ?? cap?.total ?? cap?.capacity;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+function getCapacityCurrent(cap: any): number {
+  const n = Number(cap?.current ?? 0);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
 export default function HomeScreen() {
@@ -87,7 +101,7 @@ export default function HomeScreen() {
         setRefreshing(false);
       }
     },
-    [cat]
+    [cat],
   );
 
   // 최초 로드 + 카테고리 변경 시 로드
@@ -95,9 +109,7 @@ export default function HomeScreen() {
     fetchData();
   }, [fetchData]);
 
-  // ✅ “상세 -> 뒤로가기”로 돌아올 때 즉시 갱신 (포커스 기반)
-  // - 의도: Home은 이미 마운트되어 있으므로 focus 시점에 서버 상태(참여/정원 등)를 다시 동기화
-  // - 과도한 중복 호출 방지를 위해 짧은 디바운스(예: 800ms) 적용
+  // ✅ “상세 -> 뒤로가기”로 돌아올 때 즉시 갱신
   const lastFocusFetchAtRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
@@ -105,9 +117,8 @@ export default function HomeScreen() {
       if (now - lastFocusFetchAtRef.current < 800) return;
       lastFocusFetchAtRef.current = now;
 
-      // “조용한” 갱신: 전체 로딩 스피너 대신 isRefresh=true로 처리
       fetchData(true);
-    }, [fetchData])
+    }, [fetchData]),
   );
 
   const onRefresh = () => {
@@ -120,9 +131,7 @@ export default function HomeScreen() {
   const trackBg = t.colors.border;
   const stickyBg = t.colors.background;
 
-  const sections = useMemo(() => {
-    return [{ key: "meetings", title: "meetings", data: items }];
-  }, [items]);
+  const sections = useMemo(() => [{ title: "meetings", data: items }], [items]);
 
   const ListHeader = useMemo(() => {
     return (
@@ -152,13 +161,13 @@ export default function HomeScreen() {
               paddingBottom: 24,
             }}
             renderItem={({ item }) => {
-              const total = Math.max(1, item.capacity?.total ?? 1);
-              const current = Math.max(0, item.capacity?.current ?? 0);
-              const progress = Math.min(1, current / total);
+              const max = getCapacityMax((item as any).capacity);
+              const current = getCapacityCurrent((item as any).capacity);
+              const progress = Math.min(1, current / max);
               const targetId = item.meetingId || item.id;
 
               return (
-                <Card onPress={() => router.push(`/meetings/${targetId}`)} style={styles.hotCard} padded>
+                <Card onPress={() => router.push(`/meetings/${targetId}` as any)} style={styles.hotCard} padded>
                   <Badge label={item.badge} tone="error" size="sm" style={{ marginBottom: 12 }} />
 
                   <View style={{ gap: 4, marginBottom: 16 }}>
@@ -169,7 +178,7 @@ export default function HomeScreen() {
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Ionicons name="location-outline" size={14} color={t.colors.textSub} />
                       <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
-                        {item.location?.name ?? ""}
+                        {(item as any).location?.name ?? ""}
                       </Text>
                     </View>
                   </View>
@@ -180,7 +189,7 @@ export default function HomeScreen() {
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
                       <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>참여 인원</Text>
                       <Text style={[t.typography.labelSmall, { color: t.colors.primary }]}>
-                        {current}/{total}
+                        {current}/{max}
                       </Text>
                     </View>
 
@@ -220,21 +229,21 @@ export default function HomeScreen() {
         <CategoryChips value={cat} onChange={setCat} />
       </View>
     );
-  }, [stickyBg, dividerColor, t.spacing.pagePaddingH, isDark, cat]);
+  }, [stickyBg, dividerColor, t, isDark, cat]);
 
   return (
     <AppLayout padded={false}>
       <TopBar
         logo={{ leftText: "Action", rightText: "Mate", iconName: "flash" }}
         showNoti
-        showNotiDot
+        showNotiDot={false}
         onPressNoti={() => router.push("/notifications" as any)}
         showBorder
       />
 
       <SectionList
         sections={sections}
-        keyExtractor={(item) => String(item.id)}
+        keyExtractor={(item) => String((item as any).id)}
         renderItem={({ item }) => (
           <View style={{ paddingHorizontal: t.spacing.pagePaddingH }}>
             <MeetingCard item={item} />
@@ -267,7 +276,7 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       />
 
-      <Fab onPress={() => router.push("/meetings/create")} iconName="add" />
+      <Fab onPress={() => router.push("/meetings/create" as any)} iconName="add" />
     </AppLayout>
   );
 }

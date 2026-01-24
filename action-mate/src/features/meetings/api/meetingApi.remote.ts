@@ -11,7 +11,7 @@ import {
   toPostCreateRequest,
   toPostUpdateRequest,
   toMembershipStatusFromApplicant,
-} from "../model/mapper";
+} from "../model/mappers";
 
 /**
  * undefined는 payload에서 제거(서버가 "없는 필드"에 엄격할 수 있어서 방어)
@@ -59,10 +59,12 @@ function remainingSeats(post: MeetingPost) {
 export const meetingApiRemote: MeetingApi = {
   // 1) 핫한 모임
   async listHotMeetings({ limit = 6, withinMinutes = 180 } = {}) {
-    const anyOpts = arguments[0] as any;
+    const anyOpts = (arguments[0] ?? {}) as any;
     const latitude = anyOpts?.latitude ?? anyOpts?.lat;
     const longitude = anyOpts?.longitude ?? anyOpts?.lng;
-    const radiusMeters = anyOpts?.radiusMeters;
+    const radiusMeters =
+      anyOpts?.radiusMeters ??
+      (typeof anyOpts?.radiusKm === "number" ? anyOpts.radiusKm * 1000 : undefined);
 
     let list: MeetingPost[] = [];
 
@@ -194,7 +196,7 @@ export const meetingApiRemote: MeetingApi = {
     return ensureArray(res.data).map(toParticipant);
   },
 
-  // 11) 승인  ✅ userId를 문자열로 표준화
+  // 11) 승인
   async approveParticipant(meetingId, userId) {
     await client.patch(endpoints.posts.decideApplicant(meetingId, String(userId)), "APPROVED", {
       headers: { "Content-Type": "application/json" },
@@ -202,7 +204,7 @@ export const meetingApiRemote: MeetingApi = {
     return this.getParticipants(meetingId);
   },
 
-  // 12) 거절  ✅ userId를 문자열로 표준화
+  // 12) 거절
   async rejectParticipant(meetingId, userId) {
     await client.patch(endpoints.posts.decideApplicant(meetingId, String(userId)), "REJECTED", {
       headers: { "Content-Type": "application/json" },
@@ -212,10 +214,6 @@ export const meetingApiRemote: MeetingApi = {
 
   // 13) 별점 평가
   async submitMeetingRating(req: { meetingId: string; stars: number }): Promise<unknown> {
-    // OpenAPI: RatingRequest는 { targetUserId, score, comment? }
-    // 프로젝트 내 기존 시그니처(stars) 유지.
-    // targetUserId가 없으면 호출 측에서 확장해서 넘기거나(권장),
-    // 여기서 상세 조회로 writerId를 가져오는 방식이 필요합니다(다른 파일에서 처리 중이라면 그쪽 사용).
     await client.post(endpoints.posts.ratings(req.meetingId), { stars: req.stars } as any);
     return { ok: true };
   },
