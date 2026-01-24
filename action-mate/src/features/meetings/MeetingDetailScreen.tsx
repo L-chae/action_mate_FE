@@ -23,6 +23,7 @@ import { useFocusEffect } from "@react-navigation/native";
 // ✅ Store & API
 import { useAuthStore } from "@/features/auth/model/authStore";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
+import { findDMThreadByMeetingId } from "@/features/dm/api/dmApi"; // ✅ [추가] 채팅방 조회 API
 import type { MeetingPost, Comment, Participant } from "@/features/meetings/model/types";
 
 // ✅ UI & Hooks
@@ -35,7 +36,7 @@ import { ProfileModal } from "@/features/meetings/ui/ProfileModal";
 import { DetailContent } from "./ui/DetailContent";
 import { BottomBar } from "./ui/BottomBar";
 
-// Mock Data (✅ Comment 타입: { id, content, createdAt, parentId?, author: UserSummary })
+// Mock Data
 const MOCK_COMMENTS: Comment[] = [
   {
     id: "c1",
@@ -52,7 +53,6 @@ const MOCK_COMMENTS: Comment[] = [
   },
 ];
 
-// ✅ 헤더 높이 상수 (AppLayout 헤더 높이와 일치해야 덜컹거리지 않음)
 const TOPBAR_HEIGHT = 56;
 
 export default function MeetingDetailScreen() {
@@ -62,7 +62,6 @@ export default function MeetingDetailScreen() {
   const params = useLocalSearchParams();
   const meetingId = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  // 내 정보
   const me = useAuthStore((s) => s.user);
   const currentUserId = me?.id ? String(me.id) : "guest";
 
@@ -73,29 +72,26 @@ export default function MeetingDetailScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
-  // UI State
   const [bottomBarHeight, setBottomBarHeight] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // Comments State
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [replyTarget, setReplyTarget] = useState<Comment | null>(null);
   const [editingComment, setEditingComment] = useState<Comment | null>(null);
 
-  // --- Refs ---
   const inputRef = useRef<TextInput | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const contentHeightRef = useRef(0);
   const scrollViewHeightRef = useRef(0);
   const stickToBottomRef = useRef(true);
-
-  // --- Keyboard Logic ---
-  const { isKeyboardVisible } = useKeyboardAwareScroll(() => {
-    // 키보드가 나타날 때 스크롤을 맨 아래로 부드럽게 이동
+  
+const { isKeyboardVisible } = useKeyboardAwareScroll({
+  onShow: () => {
     stickToBottomRef.current = true;
     scrollToBottomSoon(true);
-  });
+  },
+});
 
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) =>
@@ -108,22 +104,18 @@ export default function MeetingDetailScreen() {
     };
   }, []);
 
-  // --- Computed Values ---
   const isAuthor = post?.host?.id === currentUserId || post?.host?.id === "me";
   const membership = post?.myState?.membershipStatus ?? "NONE";
   const canJoin = post?.myState?.canJoin ?? post?.status === "OPEN";
   const pendingCount = participants.filter((p) => p.status === "PENDING").length;
 
-  // ✅ 하단 패딩 계산 (자연스러운 스크롤을 위해 중요)
   const contentBottomPadding =
     (isKeyboardVisible ? 0 : bottomBarHeight) +
     20 +
     (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
 
-  // ✅ 키보드 오프셋 계산 (헤더 높이 + 노치 영역 고려)
   const keyboardVerticalOffset = Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : 0;
 
-  // 호스트 정보 동기화
   const displayHost = useMemo(() => {
     if (!post?.host) return null;
     if (isAuthor && me) {
@@ -132,13 +124,11 @@ export default function MeetingDetailScreen() {
     return post.host;
   }, [post?.host, isAuthor, me]);
 
-  // 본문 표시용 데이터
   const displayPost = useMemo(() => {
     if (!post) return null;
     return { ...post, host: displayHost ?? post.host };
   }, [post, displayHost]);
 
-  // --- Scroll Helpers ---
   const scrollToBottomSoon = (animated = true) => {
     setTimeout(() => {
       if (scrollViewRef.current) {
@@ -151,12 +141,10 @@ export default function MeetingDetailScreen() {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
     const distanceFromBottom =
       contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
-    // 사용자가 스크롤을 올렸는지 감지 (24px 여유)
     stickToBottomRef.current = distanceFromBottom < 24;
   };
 
   const scrollComposerToKeyboard = () => {
-    // 인풋창이 키보드에 가려지지 않게 스크롤 조정
     const node = findNodeHandle(inputRef.current);
     const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
     if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
@@ -170,17 +158,13 @@ export default function MeetingDetailScreen() {
     }
   };
 
-  // --- Data Loading ---
   const loadInitialData = useCallback(async () => {
     if (!meetingId) return;
     try {
       const m = await meetingApi.getMeeting(meetingId as string);
       setPost(m);
-
-      // ✅ Comment 타입이 postId/authorNickname 등을 가지지 않으므로 단순 Mock 주입
       setComments(MOCK_COMMENTS);
 
-      // ✅ HOST만 참여자 로드
       if (m.myState?.membershipStatus === "HOST" || m.host?.id === currentUserId) {
         const parts = await meetingApi.getParticipants(String(m.id) as any);
         setParticipants(parts);
@@ -201,7 +185,6 @@ export default function MeetingDetailScreen() {
     }, [loadInitialData])
   );
 
-  // --- Handlers ---
   const handleCancelInputMode = () => {
     setReplyTarget(null);
     setEditingComment(null);
@@ -240,6 +223,50 @@ export default function MeetingDetailScreen() {
       },
     ]);
   };
+
+  // ✅ [추가] 대화방 입장 로직
+  const handleEnterChat = useCallback(async () => {
+    if (!post) return;
+
+    // 1. 호스트 본인은 채팅 목록으로 (1:N 채팅이므로 특정 방 지정 불가)
+    if (post.myState?.membershipStatus === "HOST") {
+      router.push("/(tabs)/dm");
+      return;
+    }
+
+    try {
+      // 2. 멤버: 이미 있는 방이 있는지 확인
+      const existingThread = await findDMThreadByMeetingId(post.id);
+
+      if (existingThread) {
+        // [CASE A] 기존 방 이동
+        router.push({
+          pathname: "/dm/[threadId]",
+          params: {
+            threadId: existingThread.id,
+            nickname: existingThread.otherUser.nickname,
+            meetingTitle: post.title,
+          },
+        } as any);
+      } else {
+        // [CASE B] 새 방 생성 (임시 ID로 진입)
+        // DMThreadScreen에서 메시지 전송 시 실제 방이 생성됨
+        router.push({
+          pathname: "/dm/[threadId]",
+          params: {
+            threadId: `new_${post.id}_${post.host?.id}`, 
+            meetingId: post.id,
+            meetingTitle: post.title,
+            nickname: post.host?.nickname,
+            opponentId: post.host?.id,
+          },
+        } as any);
+      }
+    } catch (e) {
+      console.error("채팅방 입장 실패:", e);
+      Alert.alert("알림", "채팅방 연결에 실패했습니다.");
+    }
+  }, [post, router]);
 
   const handleSubmitComment = () => {
     if (!commentText.trim()) return;
@@ -380,7 +407,6 @@ export default function MeetingDetailScreen() {
           }
         />
 
-        {/* ✅ 키보드 회피 뷰 설정 (iOS/Android 분기) */}
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={keyboardVerticalOffset}
@@ -430,7 +456,8 @@ export default function MeetingDetailScreen() {
             isKeyboardVisible={isKeyboardVisible}
             onJoin={handleJoin}
             onCancelJoin={handleCancelJoin}
-            onEnterChat={() => router.push(`/dm/${post.id}` as any)}
+            // ✅ [연결] 채팅 입장 함수 연결
+            onEnterChat={handleEnterChat}
             onManage={() => router.push(`/meetings/manage/${post.id}` as any)}
             onLayoutHeight={setBottomBarHeight}
           />

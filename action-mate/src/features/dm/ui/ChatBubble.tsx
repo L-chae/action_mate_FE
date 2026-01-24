@@ -1,4 +1,5 @@
-import React from "react";
+// src/features/dm/ui/ChatBubble.tsx
+import React, { useMemo } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
@@ -12,16 +13,21 @@ export default function ChatBubble({ message }: ChatBubbleProps) {
   const t = useAppTheme();
   const isMe = message.senderId === "me";
 
+  // ✅ 렌더마다 Date 파싱/포맷 비용을 줄이기 위해 메모이제이션
+  const timeText = useMemo(() => {
+    const d = new Date(message.createdAt);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  }, [message.createdAt]);
+
   return (
     <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
-      {/* 상대방일 경우 프로필 아이콘 표시 */}
       {!isMe && (
         <View style={[styles.avatarUrl, { backgroundColor: t.colors.neutral[200] }]}>
           <Ionicons name="person" size={16} color={t.colors.neutral[400]} />
         </View>
       )}
 
-      {/* 말풍선 본문 */}
       <View
         style={[
           styles.bubble,
@@ -35,12 +41,8 @@ export default function ChatBubble({ message }: ChatBubbleProps) {
         </Text>
       </View>
 
-      {/* 시간 표시 */}
       <Text style={[t.typography.labelSmall, styles.timeText, { color: t.colors.neutral[400] }]}>
-        {new Date(message.createdAt).toLocaleTimeString("ko-KR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
+        {timeText}
       </Text>
     </View>
   );

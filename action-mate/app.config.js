@@ -1,4 +1,4 @@
-import 'dotenv/config'; // .env 로드
+import "dotenv/config"; // .env 로드
 
 export default {
   expo: {
@@ -27,14 +27,20 @@ export default {
         backgroundImage: "./assets/images/android-icon-background.png",
         monochromeImage: "./assets/images/android-icon-monochrome.png",
       },
+
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
-      softwareKeyboardLayoutMode: "resize", 
+      softwareKeyboardLayoutMode: "resize",
       config: {
         googleMaps: {
           apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
         },
       },
+    },
+
+    // ✅ 여기! expo 루트(expo:) 안에 둬야 적용됨
+    androidStatusBar: {
+      translucent: false,
     },
 
     web: {
@@ -73,6 +79,7 @@ export default {
       ],
       "@react-native-community/datetimepicker",
     ],
+
     experiments: {
       typedRoutes: true,
       reactCompiler: true,

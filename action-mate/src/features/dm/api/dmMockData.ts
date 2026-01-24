@@ -1,15 +1,23 @@
 // src/features/dm/api/dmMockData.ts
 import type { DMMessage, DMThread } from "../model/types";
+// ✅ 모임 데이터를 가져와서 참조 (경로는 실제 파일 위치에 맞춰 조정하세요)
+import { MOCK_MEETINGS_SEED } from "@/features/meetings/mocks/meetingMockData"; 
 
 /**
  * DM 목업 데이터
  * - UI 안정성을 위해 threadId/type/createdAt/isRead를 채워둠
- * - relatedMeetingId는 meetings seed id(예: 101, 104...)와 맞춤
+ * - relatedMeetingId는 meetings seed id와 동기화
  */
 
 const now = Date.now();
 const minAgo = (m: number) => new Date(now - m * 60_000).toISOString();
 const hourAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
+
+// ✅ 헬퍼: 모임 ID로 제목 찾기 (데이터 불일치 방지)
+const getMeetingTitle = (id: string) => {
+  const m = MOCK_MEETINGS_SEED.find((item: any) => String(item.id) === id);
+  return m?.title ?? "삭제된 모임";
+};
 
 // Threads
 export const DM_THREADS_SEED: DMThread[] = [
@@ -28,7 +36,8 @@ export const DM_THREADS_SEED: DMThread[] = [
     unreadCount: 1,
     updatedAt: minAgo(5),
     relatedMeetingId: "101",
-    relatedMeetingTitle: "🏸 배드민턴 2게임만 (초보 환영)",
+    // ✅ 하드코딩 제거 -> 실제 데이터 참조
+    relatedMeetingTitle: getMeetingTitle("101"), 
   },
   {
     id: "t2",
@@ -45,7 +54,8 @@ export const DM_THREADS_SEED: DMThread[] = [
     unreadCount: 0,
     updatedAt: hourAgo(2),
     relatedMeetingId: "104",
-    relatedMeetingTitle: "🎲 보드게임 가볍게 한 판",
+    // ✅ 참조
+    relatedMeetingTitle: getMeetingTitle("104"),
   },
   {
     id: "t3",
@@ -62,11 +72,12 @@ export const DM_THREADS_SEED: DMThread[] = [
     unreadCount: 2,
     updatedAt: minAgo(35),
     relatedMeetingId: "110",
-    relatedMeetingTitle: "🍝 동탄 타임테라스 파스타",
+    // ✅ 참조
+    relatedMeetingTitle: getMeetingTitle("110"),
   },
 ];
 
-// Messages
+// Messages (여기는 변경 없음)
 export const DM_MESSAGES_SEED: Record<string, DMMessage[]> = {
   t1: [
     {
