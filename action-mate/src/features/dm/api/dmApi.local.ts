@@ -1,8 +1,10 @@
+// src/features/dm/api/dmApi.local.ts
 import type { DMMessage, DMThread } from "../model/types";
 import { DM_MESSAGES_SEED, DM_THREADS_SEED } from "./dmMockData";
 
 /**
  * ✅ Local API Service (Fake Server Logic)
+ * - UI가 깨지지 않도록 "마지막 메시지/updatedAt/unreadCount"를 항상 보장합니다.
  */
 
 // --- Helpers ---
@@ -12,7 +14,17 @@ const toTimeMs = (iso?: string) => (iso ? new Date(iso).getTime() : 0);
 function ensureLastMessage(threadId: string, msgs: DMMessage[] | undefined): DMMessage {
   const list = msgs ?? [];
   const last = [...list].sort((a, b) => toTimeMs(b.createdAt) - toTimeMs(a.createdAt))[0];
-  if (last) return last;
+
+  if (last) {
+    // ✅ seed가 threadId/type을 안 넣어도 UI에서 안정적으로 쓰도록 보정
+    return {
+      ...last,
+      threadId,
+      type: last.type ?? "TEXT",
+      createdAt: last.createdAt || new Date().toISOString(),
+      isRead: typeof last.isRead === "boolean" ? last.isRead : true,
+    };
+  }
 
   // seed가 비었어도 스레드가 깨지지 않게 최소 시스템 메시지 생성
   return {
@@ -26,16 +38,25 @@ function ensureLastMessage(threadId: string, msgs: DMMessage[] | undefined): DMM
   };
 }
 
-// 1. 메모리 DB 초기화 (원본 보호)
+// 1) 메모리 DB 초기화 (원본 보호)
 let _MESSAGES: Record<string, DMMessage[]> = Object.fromEntries(
-  Object.entries(DM_MESSAGES_SEED).map(([k, v]) => [k, v.map((m) => ({ ...m }))])
+  Object.entries(DM_MESSAGES_SEED).map(([k, v]) => [
+    k,
+    v.map((m) => ({
+      ...m,
+      threadId: m.threadId ?? k,
+      type: m.type ?? "TEXT",
+      createdAt: m.createdAt || new Date().toISOString(),
+      isRead: typeof m.isRead === "boolean" ? m.isRead : true,
+    })),
+  ])
 );
 
 let _THREADS: DMThread[] = DM_THREADS_SEED.map((t) => {
   const last = ensureLastMessage(t.id, _MESSAGES[t.id]);
   return {
     ...t,
-    otherUser: { ...t.otherUser },
+    otherUser: { ...t.otherUser, avatarUrl: t.otherUser.avatarUrl ?? null },
     lastMessage: { ...last },
     unreadCount: t.unreadCount ?? 0,
     updatedAt: t.updatedAt ?? last.createdAt,
@@ -69,12 +90,12 @@ export const dmLocalService = {
     await delay(150);
     const th = findThread(threadId);
     if (!th) throw new Error("Thread not found");
-    return { ...th };
+    return { ...th, otherUser: { ...th.otherUser }, lastMessage: { ...th.lastMessage } };
   },
 
   async findThreadByMeetingId(meetingId: string): Promise<DMThread | null> {
     await delay();
-    const th = _THREADS.find((t) => t.relatedMeetingId === meetingId);
+    const th = _THREADS.find((t) => String(t.relatedMeetingId ?? "") === String(meetingId));
     return th ? { ...th } : null;
   },
 
@@ -86,6 +107,7 @@ export const dmLocalService = {
 
   async sendMessage(threadId: string, text: string): Promise<DMMessage> {
     await delay();
+
     const newMessage: DMMessage = {
       id: Date.now().toString(),
       threadId,
