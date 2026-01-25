@@ -1,5 +1,5 @@
 // src/features/meetings/ui/DetailContent.tsx
-import React, { memo, useCallback, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import {
   Image,
@@ -30,8 +30,12 @@ import { calculateMannerTemp } from "@/shared/utils/mannerCalculator";
 // 1) Constants
 // -------------------------------------------------------------------------
 const ICON_SIZE = { S: 16, M: 20, L: 24, XL: 30 } as const;
-const AVATAR_SIZE = 40;
-const COMMENT_PAGE_SIZE = 20;
+const AVATAR_SIZE = 40; // host avatar
+const COMMENT_AVATAR_SIZE = 32; // ✅ 댓글 아바타는 더 작게 (공간 절약)
+
+// ✅ "더 보기" 기준은 "최상위 댓글(스레드) 개수"로 잡아야
+//    대댓글만 덩그러니 노출되는 UI(목업)가 발생하지 않음.
+const COMMENT_THREAD_PAGE_SIZE = 20;
 
 type Theme = any;
 type IonIconName = ComponentProps<typeof Ionicons>["name"];
@@ -184,10 +188,6 @@ function getCapacityInfo(post: MeetingPost, t: Theme) {
 
 /**
  * ✅ StatusPillToken(프로젝트 타입)에 맞춰 “안전한 토큰”으로 정규화
- * - 문제 원인: StatusPillToken.iconName이 string | undefined 인데
- *   MetaChip은 string(필수)로 가정하며 map 콜백 타입이 불일치 발생
- * - 해결: MetaChip이 받을 토큰을 StatusPillToken 기반으로 받고,
- *   iconName이 없으면 렌더에서 제외(=null)해서 런타임/타입 모두 안전
  */
 function isValidIoniconName(name: unknown): name is IonIconName {
   return typeof name === "string" && name.length > 0;
@@ -196,6 +196,74 @@ function isValidIoniconName(name: unknown): name is IonIconName {
 function normalizeStatusTokens(tokens?: StatusPillToken[] | null) {
   if (!tokens || tokens.length === 0) return [];
   return tokens.filter(Boolean);
+}
+
+function safeTimeValue(iso?: string) {
+  if (!iso) return 0;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * ✅ 댓글을 "스레드(부모-자식)" 기준으로 정렬/평탄화
+ * - 왜: 목업 데이터는 parentId로 대댓글 구조를 갖는데,
+ *       단순 slice/render 시 "대댓글만 보이는" 상황이 발생하기 쉬움.
+ * - 정책:
+ *   - 최상위(부모) 댓글: 최신순(내림차순)
+ *   - 대댓글: 해당 부모 아래에서 오래된순(오름차순)로 자연스럽게 이어지도록
+ */
+type FlatComment = { item: Comment; parent: Comment | null; depth: number };
+
+function buildThreadedComments(all: Comment[]) {
+  const byId = new Map<string, Comment>();
+  all.forEach((c) => byId.set(String((c as any).id ?? ""), c));
+
+  const childrenByParent = new Map<string, Comment[]>();
+  const roots: Comment[] = [];
+
+  for (const c of all) {
+    const pid = String((c as any)?.parentId ?? "");
+    const hasParent = !!(pid && byId.has(pid));
+    if (!hasParent) {
+      roots.push(c);
+      continue;
+    }
+    const arr = childrenByParent.get(pid) ?? [];
+    arr.push(c);
+    childrenByParent.set(pid, arr);
+  }
+
+  // 정렬: root 최신순, child 오래된순
+  roots.sort((a, b) => safeTimeValue((b as any).createdAt) - safeTimeValue((a as any).createdAt));
+  for (const [pid, arr] of childrenByParent.entries()) {
+    arr.sort((a, b) => safeTimeValue((a as any).createdAt) - safeTimeValue((b as any).createdAt));
+    childrenByParent.set(pid, arr);
+  }
+
+  return { roots, byId, childrenByParent };
+}
+
+function flattenThreads(
+  roots: Comment[],
+  byId: Map<string, Comment>,
+  childrenByParent: Map<string, Comment[]>,
+  visibleRootCount: number
+): FlatComment[] {
+  const flat: FlatComment[] = [];
+  const visibleRoots = roots.slice(0, visibleRootCount);
+
+  const visit = (node: Comment, depth: number) => {
+    const pid = String((node as any)?.parentId ?? "");
+    const parent = pid && byId.has(pid) ? (byId.get(pid) as Comment) : null;
+
+    flat.push({ item: node, parent, depth });
+
+    const children = childrenByParent.get(String((node as any).id ?? "")) ?? [];
+    for (const child of children) visit(child, depth + 1);
+  };
+
+  for (const r of visibleRoots) visit(r, 0);
+  return flat;
 }
 
 const createStyles = (t: Theme) => {
@@ -302,13 +370,20 @@ const createStyles = (t: Theme) => {
       backgroundColor: cardBg,
     },
 
-    section: { paddingHorizontal: PADDING_H, marginBottom: 26 },
-    sectionTitle: { marginBottom: 12, color: t.colors.textMain },
+    section: { paddingHorizontal: PADDING_H, marginBottom: 22 },
+    sectionTitle: { marginBottom: 10, color: t.colors.textMain },
+
     contentBubble: { padding: 16, borderRadius: 12, backgroundColor: contentBubbleBg },
-    conditionBox: { marginHorizontal: PADDING_H, padding: 14, borderRadius: 12, backgroundColor: conditionBg, marginBottom: 16 },
+    conditionBox: {
+      marginHorizontal: PADDING_H,
+      padding: 14,
+      borderRadius: 12,
+      backgroundColor: conditionBg,
+      marginBottom: 16,
+    },
 
     emptyBox: {
-      padding: 22,
+      padding: 18,
       alignItems: "center",
       borderWidth: 1,
       borderColor: t.colors.disabled,
@@ -317,35 +392,38 @@ const createStyles = (t: Theme) => {
       backgroundColor: subtleBg,
     },
     loadMoreBtn: {
-      paddingVertical: 10,
+      paddingVertical: 9,
       alignItems: "center",
       backgroundColor: subtleBg,
       borderRadius: 10,
-      marginTop: 8,
+      marginTop: 6,
       borderWidth: 1,
       borderColor: borderColor,
     },
     loadMoreText: { fontSize: 12, fontWeight: "800", color: t.colors.textSub },
 
-    commentWrap: { marginBottom: 14 },
-    replyWrap: { marginLeft: 46, marginBottom: 14, position: "relative" },
+    // ✅ 댓글 간격/들여쓰기 축소
+    commentWrap: { marginBottom: 10 },
+
+    // ✅ replyWrap을 "기본 스타일"로 두고, 실제 들여쓰기는 inline으로 depth에 따라 조정
+    replyWrapBase: { marginBottom: 10, position: "relative" },
     replyLine: {
       position: "absolute",
-      left: -16,
-      top: 8,
-      width: 16,
-      height: 24,
+      left: -12,
+      top: 6,
+      width: 12,
+      height: 20,
       borderLeftWidth: 2,
       borderBottomWidth: 2,
       borderBottomLeftRadius: 10,
       borderColor: t.colors.divider,
-      opacity: 0.5,
+      opacity: 0.45,
     },
 
     commentAvatar: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+      width: COMMENT_AVATAR_SIZE,
+      height: COMMENT_AVATAR_SIZE,
+      borderRadius: COMMENT_AVATAR_SIZE / 2,
       backgroundColor: subtleBg,
       overflow: "hidden",
       marginRight: 10,
@@ -355,32 +433,35 @@ const createStyles = (t: Theme) => {
       alignItems: "center",
     },
 
+    // ✅ 버블 패딩/라운딩 축소
     commentBubble: {
       flex: 1,
-      padding: 12,
-      borderRadius: 14,
+      padding: 10,
+      borderRadius: 12,
       backgroundColor: commentBubbleBg,
       borderWidth: 1,
       borderColor: "transparent",
     },
     commentBubbleReply: { backgroundColor: replyBubbleBg },
 
-    actionRow: { flexDirection: "row", marginTop: 10 },
-    actionBtn: { flexDirection: "row", alignItems: "center", paddingVertical: 2, marginRight: 12 },
-    actionText: { fontSize: 11, fontWeight: "700", color: t.colors.textSub },
+    // ✅ 액션을 한 줄(헤더)로 올리기 위한 스타일
+    commentHeaderRight: { flexDirection: "row", alignItems: "center", gap: 6 },
+    headerBtn: { flexDirection: "row", alignItems: "center", paddingVertical: 2, paddingHorizontal: 4 },
+    headerBtnText: { fontSize: 11, fontWeight: "800", color: t.colors.textSub },
+    headerBtnDangerText: { fontSize: 11, fontWeight: "800", color: t.colors.error },
 
     composer: {
-      marginTop: 14,
+      marginTop: 10,
       borderWidth: 1,
       borderColor: borderColor,
-      borderRadius: 20,
+      borderRadius: 18,
       backgroundColor: cardBg,
       overflow: "hidden",
     },
-    composerHeader: { flexDirection: "row", justifyContent: "space-between", padding: 10, backgroundColor: subtleBg },
+    composerHeader: { flexDirection: "row", justifyContent: "space-between", padding: 9, backgroundColor: subtleBg },
     composerBody: { flexDirection: "row", alignItems: "flex-end", padding: 8 },
-    input: { flex: 1, minHeight: 40, maxHeight: 110, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15 },
-    sendBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: "center", alignItems: "center", marginLeft: 8 },
+    input: { flex: 1, minHeight: 38, maxHeight: 110, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15 },
+    sendBtn: { width: 34, height: 34, borderRadius: 17, justifyContent: "center", alignItems: "center", marginLeft: 8 },
   });
 };
 
@@ -559,7 +640,7 @@ const MapCard = memo(function MapCard({
           </Text>
 
           {post.address || post.distanceText ? (
-            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 2 }]} numberOfLines={1}>
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 2 }]} numberOfLines={2}>
               {[post.address ?? undefined, post.distanceText].filter(Boolean).join(" · ")}
             </Text>
           ) : null}
@@ -585,6 +666,8 @@ const CommentRow = memo(function CommentRow({
   post,
   currentUserId,
   actions,
+  parent,
+  depth,
 }: {
   t: Theme;
   s: ReturnType<typeof createStyles>;
@@ -592,14 +675,20 @@ const CommentRow = memo(function CommentRow({
   post: MeetingPost;
   currentUserId: string;
   actions: CommentActions;
+  parent: Comment | null;
+  depth: number;
 }) {
   const { id, nickname, avatarUrl, isHost } = useMemo(() => getAuthorInfo(item, post.host?.id), [item, post.host?.id]);
-
   const isMine = useMemo(() => String(id) === String(currentUserId), [id, currentUserId]);
-  const replyMeta = useMemo(() => parseReplyPrefix(item.content), [item.content]);
 
-  const isReply = !!replyMeta;
-  const content = replyMeta ? replyMeta.body : item.content;
+  // ✅ parentId 구조 기반으로 "대댓글" 판정/표시 (목업 데이터가 가장 잘 드러나도록)
+  const isThreadReply = depth > 0;
+
+  // ✅ content에 @prefix가 있으면 우선적으로 사용, 없으면 parent 기반으로 표시
+  const replyMetaFromText = useMemo(() => parseReplyPrefix((item as any)?.content), [item]);
+  const parentNickname = useMemo(() => (parent ? getAuthorInfo(parent, post.host?.id).nickname : null), [parent, post.host?.id]);
+  const replyTargetLabel = replyMetaFromText?.target ?? parentNickname;
+  const content = replyMetaFromText ? replyMetaFromText.body : (item as any)?.content;
 
   const onPressAuthor = useCallback(() => {
     if (typeof actions.onPressAuthor === "function" && id) {
@@ -607,19 +696,26 @@ const CommentRow = memo(function CommentRow({
     }
   }, [actions, id, nickname, avatarUrl]);
 
+  // ✅ depth가 늘어날수록 들여쓰기를 자연스럽게(과도하게 벌어지지 않도록 완만하게 증가)
+  const indent = isThreadReply ? 34 + Math.max(0, depth - 1) * 18 : 0;
+
   return (
-    <View style={isReply ? s.replyWrap : s.commentWrap}>
-      {isReply ? <View style={s.replyLine} /> : null}
+    <View style={isThreadReply ? [s.replyWrapBase, { marginLeft: indent }] : s.commentWrap}>
+      {isThreadReply ? <View style={s.replyLine} /> : null}
 
       <View style={s.rowTop}>
         <Pressable onPress={onPressAuthor} disabled={typeof actions.onPressAuthor !== "function"} hitSlop={8}>
           <View style={s.commentAvatar}>
-            {avatarUrl ? <Image source={{ uri: avatarUrl }} style={s.fullSize} /> : <Ionicons name="person" size={18} color={t.colors.textSub} />}
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={s.fullSize} />
+            ) : (
+              <Ionicons name="person" size={18} color={t.colors.textSub} />
+            )}
           </View>
         </Pressable>
 
         <View style={{ flex: 1 }}>
-          <View style={[s.commentBubble, isReply ? s.commentBubbleReply : null]}>
+          <View style={[s.commentBubble, isThreadReply ? s.commentBubbleReply : null]}>
             <View style={s.rowBetween}>
               <View style={s.rowCenter}>
                 <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>{nickname}</Text>
@@ -629,39 +725,42 @@ const CommentRow = memo(function CommentRow({
                   </View>
                 ) : null}
               </View>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{timeAgo(item.createdAt)}</Text>
+
+              <View style={s.commentHeaderRight}>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{timeAgo((item as any).createdAt)}</Text>
+
+                <Pressable onPress={() => actions.onReply(item)} style={s.headerBtn} hitSlop={8}>
+                  <Ionicons name="chatbubble-outline" size={13} color={t.colors.textSub} style={{ marginRight: 3 }} />
+                  <Text style={s.headerBtnText}>답글</Text>
+                </Pressable>
+
+                {isMine ? (
+                  <>
+                    <Pressable onPress={() => actions.onEdit(item)} style={s.headerBtn} hitSlop={8}>
+                      <Ionicons name="create-outline" size={13} color={t.colors.textSub} style={{ marginRight: 3 }} />
+                      <Text style={s.headerBtnText}>수정</Text>
+                    </Pressable>
+                    <Pressable onPress={() => actions.onDelete(String((item as any).id))} style={s.headerBtn} hitSlop={8}>
+                      <Ionicons name="trash-outline" size={13} color={t.colors.error} style={{ marginRight: 3 }} />
+                      <Text style={s.headerBtnDangerText}>삭제</Text>
+                    </Pressable>
+                  </>
+                ) : null}
+              </View>
             </View>
 
-            {isReply ? (
-              <View style={[s.rowCenter, { marginTop: 6 }]}>
+            {replyTargetLabel ? (
+              <View style={[s.rowCenter, { marginTop: 4 }]}>
                 <Ionicons name="return-down-forward" size={12} color={t.colors.textSub} style={{ marginRight: 4 }} />
                 <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
-                  @{replyMeta!.target}에게 답글
+                  @{replyTargetLabel}에게 답글
                 </Text>
               </View>
             ) : null}
 
-            <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 8, lineHeight: 20 }]}>{content}</Text>
-
-            <View style={s.actionRow}>
-              <Pressable onPress={() => actions.onReply(item)} style={s.actionBtn} hitSlop={8}>
-                <Ionicons name="chatbubble-outline" size={14} color={t.colors.textSub} style={{ marginRight: 4 }} />
-                <Text style={s.actionText}>답글</Text>
-              </Pressable>
-
-              {isMine ? (
-                <>
-                  <Pressable onPress={() => actions.onEdit(item)} style={s.actionBtn} hitSlop={8}>
-                    <Ionicons name="create-outline" size={14} color={t.colors.textSub} style={{ marginRight: 4 }} />
-                    <Text style={s.actionText}>수정</Text>
-                  </Pressable>
-                  <Pressable onPress={() => actions.onDelete(String(item.id))} style={s.actionBtn} hitSlop={8}>
-                    <Ionicons name="trash-outline" size={14} color={t.colors.error} style={{ marginRight: 4 }} />
-                    <Text style={[s.actionText, { color: t.colors.error }]}>삭제</Text>
-                  </Pressable>
-                </>
-              ) : null}
-            </View>
+            <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: 6, lineHeight: 20 }]}>
+              {content || ""}
+            </Text>
           </View>
         </View>
       </View>
@@ -700,9 +799,6 @@ export function DetailContent({
   const s = useMemo(() => createStyles(t), [t.mode]);
 
   const { meta, right } = useMemo(() => getMeetingStatusTokens(post), [post]);
-
-  // ✅ 핵심: StatusPillToken[] 그대로 map 하되,
-  // iconName이 없으면 “칩을 아예 렌더하지 않음”으로 타입/런타임 둘 다 안전
   const metaTokens = useMemo(() => normalizeStatusTokens(meta), [meta]);
   const rightTokens = useMemo(() => normalizeStatusTokens(right), [right]);
 
@@ -732,10 +828,28 @@ export function DetailContent({
       .catch(() => Linking.openURL(webUrl));
   }, [post.location, post.address]);
 
-  const [visibleCount, setVisibleCount] = useState(COMMENT_PAGE_SIZE);
+  // ✅ "모임 상세 진입 시" 댓글 노출 개수는 초기화되어야 목업/UI 검증이 편함
+  const [visibleRootCount, setVisibleRootCount] = useState(COMMENT_THREAD_PAGE_SIZE);
+  useEffect(() => {
+    setVisibleRootCount(COMMENT_THREAD_PAGE_SIZE);
+  }, [String((post as any)?.id ?? "")]);
 
-  const visibleComments = useMemo(() => comments.slice(0, visibleCount), [comments, visibleCount]);
-  const canLoadMore = comments.length > visibleCount;
+  // ✅ 댓글 스레드 정렬/평탄화 (목업 데이터가 ‘대댓글 구조’로 자연스럽게 보이도록)
+  const threadData = useMemo(() => buildThreadedComments(comments), [comments]);
+  const totalRootCount = threadData.roots.length;
+
+  // visibleRootCount가 줄어든 데이터(예: 다른 게시글)에서 과하게 남아있지 않도록 보정
+  useEffect(() => {
+    if (visibleRootCount > totalRootCount) setVisibleRootCount(Math.max(COMMENT_THREAD_PAGE_SIZE, totalRootCount));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalRootCount]);
+
+  const visibleFlatComments = useMemo(
+    () => flattenThreads(threadData.roots, threadData.byId, threadData.childrenByParent, visibleRootCount),
+    [threadData, visibleRootCount]
+  );
+
+  const canLoadMore = totalRootCount > visibleRootCount;
 
   const commentActions: CommentActions = useMemo(
     () => ({
@@ -748,8 +862,8 @@ export function DetailContent({
   );
 
   const onPressLoadMore = useCallback(() => {
-    setVisibleCount((v) => Math.min(v + COMMENT_PAGE_SIZE, comments.length));
-  }, [comments.length]);
+    setVisibleRootCount((v) => Math.min(v + COMMENT_THREAD_PAGE_SIZE, totalRootCount));
+  }, [totalRootCount]);
 
   return (
     <ScrollView
@@ -771,32 +885,14 @@ export function DetailContent({
 
           {metaTokens.map((m: StatusPillToken, i: number) => {
             if (!m) return null;
-            if (!isValidIoniconName(m.iconName)) return null; // ✅ iconName undefined 방어
-            return (
-              <MetaChip
-                key={`m-${i}`}
-                t={t}
-                s={s}
-                iconName={m.iconName}
-                label={m.label}
-                tone={m.tone}
-              />
-            );
+            if (!isValidIoniconName((m as any).iconName)) return null;
+            return <MetaChip key={`m-${i}`} t={t} s={s} iconName={(m as any).iconName} label={(m as any).label} tone={(m as any).tone} />;
           })}
 
           {rightTokens.map((m: StatusPillToken, i: number) => {
             if (!m) return null;
-            if (!isValidIoniconName(m.iconName)) return null; // ✅ iconName undefined 방어
-            return (
-              <MetaChip
-                key={`r-${i}`}
-                t={t}
-                s={s}
-                iconName={m.iconName}
-                label={m.label}
-                tone={m.tone}
-              />
-            );
+            if (!isValidIoniconName((m as any).iconName)) return null;
+            return <MetaChip key={`r-${i}`} t={t} s={s} iconName={(m as any).iconName} label={(m as any).label} tone={(m as any).tone} />;
           })}
         </View>
 
@@ -842,8 +938,18 @@ export function DetailContent({
           </View>
         ) : (
           <View>
-            {visibleComments.map((c: Comment) => (
-              <CommentRow key={String(c.id)} t={t} s={s} item={c} post={post} currentUserId={currentUserId} actions={commentActions} />
+            {visibleFlatComments.map(({ item, parent, depth }) => (
+              <CommentRow
+                key={String((item as any).id)}
+                t={t}
+                s={s}
+                item={item}
+                parent={parent}
+                depth={depth}
+                post={post}
+                currentUserId={currentUserId}
+                actions={commentActions}
+              />
             ))}
 
             {canLoadMore ? (

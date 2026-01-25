@@ -1,3 +1,4 @@
+// src/shared/ui/Button.tsx
 import React from "react";
 import {
   ActivityIndicator,
@@ -41,8 +42,10 @@ export function Button({
   const t = useAppTheme();
   const { colors, spacing, typography } = t;
 
+  // 의도: disabled와 loading을 동일하게 "비활성 상태"로 처리해 UX 일관성 유지
   const isDisabled = disabled || loading;
 
+  // 의도: 초반 앱에서 가장 많이 쓰는 3단계만 제공(과도한 스케일 확장 방지)
   const metrics = (() => {
     switch (size) {
       case "sm":
@@ -54,6 +57,7 @@ export function Button({
     }
   })();
 
+  // 의도: variant별 "배경/전경/테두리/눌림색"만 정의해 스타일 계산을 단순화
   const v = (() => {
     switch (variant) {
       case "secondary":
@@ -62,8 +66,7 @@ export function Button({
           fg: colors.textMain,
           borderColor: colors.border,
           borderWidth: spacing.borderWidth,
-          // pressedBg는 iOS/Android 공통으로 안정적
-          pressedBg: colors.overlay[6],
+          pressedBg: colors.overlay[6], // 공통 pressed 레이어
         };
       case "ghost":
         return {
@@ -79,7 +82,7 @@ export function Button({
           fg: WHITE,
           borderColor: colors.error,
           borderWidth: 0,
-          pressedBg: withAlpha(colors.error, 0.85), // 살짝 눌림 느낌(투명도)
+          pressedBg: withAlpha(colors.error, 0.85),
         };
       default:
         return {
@@ -103,6 +106,7 @@ export function Button({
           paddingHorizontal: metrics.px,
           borderRadius: metrics.radius,
 
+          // 의도: 상태 우선순위(Disabled > Pressed > Normal)로 시각/동작 일치
           backgroundColor: isDisabled
             ? colors.disabledBg
             : pressed

@@ -1,4 +1,4 @@
-//src/features/my/ui/MyMeetingRow.tsx
+// src/features/my/ui/MyMeetingRow.tsx
 import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -50,6 +50,7 @@ function statusLabel(s: PostStatus) {
 
 export default function MyMeetingRow({ item, onPress }: Props) {
   const t = useAppTheme();
+  const s = t.spacing;
 
   const ms: MembershipStatus = item.myState?.membershipStatus ?? "NONE";
 
@@ -59,7 +60,7 @@ export default function MyMeetingRow({ item, onPress }: Props) {
     return total > 0 && current >= total;
   })();
 
-  // OPEN인데도 정원 꽉 차면 FULL처럼 보여주기
+  // 의도: OPEN이지만 정원이 꽉 찬 경우 사용자에게는 FULL로 보이게
   const effectiveStatus: PostStatus =
     item.status === "OPEN" && isCapacityFull ? "FULL" : item.status;
 
@@ -79,33 +80,24 @@ export default function MyMeetingRow({ item, onPress }: Props) {
     ms === "REJECTED" ||
     ms === "CANCELED";
 
+  // 의도: "비활성"은 overlay로 살짝 눌러 톤만 바꾸고 구조는 그대로 유지
   const cardBg = isDisabled ? t.colors.overlay[6] : t.colors.surface;
-  const cardBorder = isDisabled ? t.colors.border : t.colors.border;
   const titleColor = isDisabled ? t.colors.textSub : t.colors.textMain;
 
   return (
     <Card
-      onPress={onPress}
+      onPress={isDisabled ? undefined : onPress}
       padded={false}
       style={[
         styles.card,
         {
           backgroundColor: cardBg,
-          borderColor: cardBorder,
-          opacity: isDisabled ? 0.86 : 1,
+          borderColor: t.colors.border,
+          opacity: isDisabled ? 0.9 : 1,
         },
       ]}
     >
-      <View
-        style={[
-          styles.inner,
-          {
-            paddingHorizontal: t.spacing.pagePaddingH,
-            paddingVertical: t.spacing.space[3],
-          },
-        ]}
-      >
-        {/* Title Row */}
+      <View style={[styles.inner, { paddingHorizontal: s.pagePaddingH, paddingVertical: s.space[3] }]}>
         <View style={styles.titleRow}>
           <Text style={[t.typography.titleMedium, { color: titleColor, flex: 1 }]} numberOfLines={1}>
             {item.title}
@@ -113,13 +105,11 @@ export default function MyMeetingRow({ item, onPress }: Props) {
           <Ionicons name="chevron-forward" size={18} color={t.colors.icon.muted} />
         </View>
 
-        {/* Badges */}
         <View style={styles.badgeRow}>
           {membershipBadge ? <Badge label={membershipBadge.label} tone={membershipBadge.tone} /> : null}
           {statusBadge ? <Badge label={statusBadge.label} tone={statusBadge.tone} /> : null}
         </View>
 
-        {/* Info */}
         <View style={styles.infoRow}>
           <View style={styles.infoLine}>
             <Ionicons name="location-outline" size={14} color={t.colors.icon.muted} />
@@ -149,8 +139,10 @@ export default function MyMeetingRow({ item, onPress }: Props) {
 
             <Ionicons name="people-outline" size={14} color={t.colors.icon.muted} />
             <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-              <Text style={{ color: t.colors.primary, fontWeight: "900" }}>{item.capacity?.current ?? 0}</Text>/
-              {item.capacity?.total ?? 0}명
+              <Text style={{ color: t.colors.primary, fontWeight: "900" }}>
+                {item.capacity?.current ?? 0}
+              </Text>
+              /{item.capacity?.total ?? 0}명
             </Text>
           </View>
         </View>
@@ -162,8 +154,8 @@ export default function MyMeetingRow({ item, onPress }: Props) {
 const styles = StyleSheet.create({
   card: { borderWidth: 1 },
   inner: { gap: 8 },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  badgeRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  titleRow: { flexDirection: "row", alignItems: "center" },
+  badgeRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
   infoRow: { gap: 6 },
-  infoLine: { flexDirection: "row", alignItems: "center", gap: 6 },
+  infoLine: { flexDirection: "row", alignItems: "center" },
 });

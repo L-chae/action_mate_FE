@@ -1,35 +1,38 @@
 // src/features/map/MapScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
   ActivityIndicator,
   Alert,
   LayoutAnimation,
   Platform,
+  Pressable,
+  StyleSheet,
+  Text,
   UIManager,
+  View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import MapView, { Circle, PROVIDER_GOOGLE, Region, MarkerPressEvent } from "react-native-maps";
+import MapView, {
+  Circle,
+  PROVIDER_GOOGLE,
+  type MarkerPressEvent,
+  type Region,
+} from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 import BottomSheet, { BottomSheetFlatList } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// ✅ Shared Components & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import type { Id } from "@/shared/model/types";
 import MultiCategoryChips from "@/shared/ui/MultiCategoryChips";
+import { withAlpha } from "@/shared/theme/colors";
 
-// ✅ Features & API
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type { MeetingPost, CategoryKey } from "@/features/meetings/model/types";
+import type { CategoryKey, MeetingPost } from "@/features/meetings/model/types";
 import { MapMarker, getCategoryMeta } from "./ui/MapMarker";
-
 
 const MAP_STYLE = [
   { featureType: "poi", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
@@ -58,8 +61,11 @@ function getLatLng(m?: MeetingPost) {
 
 export default function MapScreen() {
   const t = useAppTheme();
+  const s = t.spacing;
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const styles = useMemo(() => makeStyles(t), [t]);
 
   const mapRef = useRef<MapView>(null);
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -67,31 +73,41 @@ export default function MapScreen() {
   const regionRef = useRef<Region>(INITIAL_REGION);
   const lastLoadedRegionRef = useRef<Region>(INITIAL_REGION);
 
-  // ✅ 불필요한 리렌더 방지: dirty는 ref로 1회만 true 전환
+  // 의도: 지도 이동 중 setState 폭주 방지(한 번만 dirty 전환)
   const dirtyRef = useRef(false);
 
-  // ✅ 네트워크 경합 방지: 최신 요청만 반영
+  // 의도: 네트워크 경합 방지(최신 요청만 반영)
   const reqSeqRef = useRef(0);
 
   const [list, setList] = useState<MeetingPost[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
   const [locationPermission, setLocationPermission] = useState(false);
 
-  // ✅ 멀티 선택 필터 (빈 배열 = 전체)
+  // 멀티 선택 필터(빈 배열 = 전체)
   const [selectedCategories, setSelectedCategories] = useState<CategoryKey[]>([]);
 
   const [mapDirty, setMapDirty] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
 
-  // ✅ 바텀시트가 최대(90%)일 때 액션바 숨김
+  // 바텀시트가 최대로 올라가면 액션 영역 숨김
   const [sheetIndex, setSheetIndex] = useState(0);
   const snapPoints = useMemo(() => ["15%", "45%", "90%"], []);
   const hideSheetActions = sheetIndex >= 2;
 
+  useEffect(() => {
+    // 의도: Android에서 LayoutAnimation을 안전하게 사용
+    if (Platform.OS === "android") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (UIManager as any).setLayoutAnimationEnabledExperimental?.(true);
+    }
+  }, []);
+
   const loadMeetings = useCallback(async (lat: number, lng: number) => {
     const seq = ++reqSeqRef.current;
     setLoading(true);
+
     try {
       const data = await meetingApi.listMeetingsAround(lat, lng);
       if (seq !== reqSeqRef.current) return; // stale response ignore
@@ -114,6 +130,7 @@ export default function MapScreen() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
           setLocationPermission(true);
+
           const location = await Location.getCurrentPositionAsync({});
           const currentRegion: Region = {
             latitude: location.coords.latitude,
@@ -121,6 +138,7 @@ export default function MapScreen() {
             latitudeDelta: 0.015,
             longitudeDelta: 0.015,
           };
+
           regionRef.current = currentRegion;
           mapRef.current?.animateToRegion(currentRegion, 800);
           loadMeetings(currentRegion.latitude, currentRegion.longitude);
@@ -138,11 +156,11 @@ export default function MapScreen() {
   const onRegionChangeComplete = useCallback((r: Region) => {
     regionRef.current = r;
 
-    // ✅ dirty는 'false -> true'로 한 번만 전환(지도 이동 중 상태 업데이트 폭주 방지)
     if (dirtyRef.current) return;
 
     const latDiff = Math.abs(r.latitude - lastLoadedRegionRef.current.latitude);
     const lngDiff = Math.abs(r.longitude - lastLoadedRegionRef.current.longitude);
+
     if (latDiff > 0.005 || lngDiff > 0.005) {
       dirtyRef.current = true;
       setMapDirty(true);
@@ -151,8 +169,8 @@ export default function MapScreen() {
 
   const handleResearch = useCallback(() => {
     if (loading) return;
-    setSelectedId(null);
 
+    setSelectedId(null);
     const r = regionRef.current;
     loadMeetings(r.latitude, r.longitude);
 
@@ -192,13 +210,13 @@ export default function MapScreen() {
       Haptics.selectionAsync().catch(() => {});
     } catch (e) {
       console.error(e);
+      Alert.alert("오류", "현재 위치를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
       setGpsLoading(false);
     }
   }, [gpsLoading, locationPermission]);
 
   const meetingsById = useMemo(() => {
-    // why: 마커 클릭 시 list.find O(n) 반복을 줄이기 위함
     const m = new Map<string, MeetingPost>();
     for (const it of list) m.set(toIdString(it.id), it);
     return m;
@@ -216,14 +234,18 @@ export default function MapScreen() {
   }, [list, selectedCategories]);
 
   const markerList = useMemo(() => {
-    // ✅ 필터 적용 + 선택된 모임은 유지(사용자 맥락 유지)
+    // 의도: 필터 적용 중에도 선택된 항목은 유지(사용자 맥락 유지)
     if (selectedCategories.length === 0) return list;
+
     const base = filteredList;
-    if (selectedMeeting && !base.some((m) => toIdString(m.id) === toIdString(selectedMeeting.id))) {
+    if (
+      selectedMeeting &&
+      !base.some((m) => toIdString(m.id) === toIdString(selectedMeeting.id))
+    ) {
       return [selectedMeeting, ...base];
     }
     return base;
-  }, [list, filteredList, selectedCategories.length, selectedMeeting]);
+  }, [filteredList, list, selectedCategories.length, selectedMeeting]);
 
   const onChangeCategories = useCallback((next: CategoryKey[]) => {
     Haptics.selectionAsync().catch(() => {});
@@ -280,7 +302,7 @@ export default function MapScreen() {
     const labels = selectedCategories.map((c) => getCategoryMeta(c).label);
     if (labels.length <= 2) return `${labels.join(", ")} · ${total}개`;
     return `${labels.slice(0, 2).join(", ")} 외 ${labels.length - 2} · ${total}개`;
-  }, [selectedCategories, filteredList.length]);
+  }, [filteredList.length, selectedCategories]);
 
   const selectedCircle = useMemo(() => {
     if (!selectedMeeting) return null;
@@ -294,7 +316,7 @@ export default function MapScreen() {
         radius={100}
         strokeWidth={1}
         strokeColor={meta.color}
-        fillColor={meta.color + "22"}
+        fillColor={withAlpha(meta.color, 0.14)}
         zIndex={999}
       />
     );
@@ -307,13 +329,14 @@ export default function MapScreen() {
         isSelected={selectedId === toIdString(item.id)}
         onPress={() => onFocusItem(item)}
         onDetailPress={() => onGoToDetail(item.id)}
-        t={t}
       />
     ),
-    [onFocusItem, onGoToDetail, selectedId, t]
+    [onFocusItem, onGoToDetail, selectedId]
   );
 
   const keyExtractor = useCallback((m: MeetingPost) => toIdString(m.id), []);
+
+  const topOverlayPadTop = Math.max(insets.top, 10) + 6;
 
   return (
     <AppLayout padded={false}>
@@ -337,24 +360,24 @@ export default function MapScreen() {
           moveOnMarkerPress={false}
         >
           {selectedCircle}
-          {markerList.map((m) => (
-            <MapMarker
-              key={toIdString(m.id)}
-              meeting={m}
-              selected={selectedId === toIdString(m.id)}
-              onPress={onMarkerPress}
-            />
-          ))}
+          {markerList.map((m) => {
+            const id = toIdString(m.id);
+            return (
+              <MapMarker
+                key={id}
+                meeting={m}
+                selected={selectedId === id}
+                onPress={onMarkerPress}
+              />
+            );
+          })}
         </MapView>
 
-        {/* ✅ 상단 칩은 "항상 보이게" + safe-area 반영 => 잘림/겹침 방지 */}
+        {/* 상단 필터 칩: safe-area 반영(잘림/겹침 방지) */}
         <View
           style={[
             styles.topOverlay,
-            {
-              paddingTop: Math.max(insets.top, 10) + 6,
-              paddingBottom: 8,
-            },
+            { paddingTop: topOverlayPadTop, paddingBottom: s.space[2] },
           ]}
           pointerEvents="box-none"
         >
@@ -369,7 +392,6 @@ export default function MapScreen() {
           </View>
         </View>
 
-        {/* ✅ 바텀시트: 버튼/액션을 "목록 위"에 넣어 겹침 제거 + 최대 올리면 숨김 */}
         <BottomSheet
           ref={bottomSheetRef}
           index={0}
@@ -378,8 +400,8 @@ export default function MapScreen() {
           backgroundStyle={{ backgroundColor: t.colors.surface }}
           handleIndicatorStyle={{ backgroundColor: t.colors.border }}
         >
-          <View style={styles.sheetHeader}>
-            <Text style={[t.typography.titleSmall, { fontWeight: "800", color: t.colors.textMain }]}>
+          <View style={[styles.sheetHeader, { borderBottomColor: t.colors.border }]}>
+            <Text style={[t.typography.titleSmall, { color: t.colors.textMain, fontWeight: "800" }]}>
               {headerTitle}
             </Text>
           </View>
@@ -387,13 +409,14 @@ export default function MapScreen() {
           {!hideSheetActions && (
             <View style={[styles.sheetActions, { borderBottomColor: t.colors.border }]}>
               <View style={styles.sheetActionsCenter}>
-                {mapDirty && (
+                {mapDirty ? (
                   <Pressable
                     onPress={handleResearch}
                     disabled={loading}
                     style={({ pressed }) => [
                       styles.researchPill,
                       {
+                        borderColor: t.colors.border,
                         backgroundColor: t.colors.surface,
                         opacity: loading ? 0.82 : pressed ? 0.92 : 1,
                       },
@@ -410,6 +433,9 @@ export default function MapScreen() {
                       </View>
                     )}
                   </Pressable>
+                ) : (
+                  // 의도: 버튼이 사라질 때 레이아웃 점프 최소화
+                  <View style={{ height: 44 }} />
                 )}
               </View>
 
@@ -419,6 +445,7 @@ export default function MapScreen() {
                 style={({ pressed }) => [
                   styles.sheetGpsBtn,
                   {
+                    borderColor: t.colors.border,
                     backgroundColor: t.colors.surface,
                     opacity: gpsLoading ? 0.75 : pressed ? 0.9 : 1,
                   },
@@ -436,15 +463,21 @@ export default function MapScreen() {
           <BottomSheetFlatList
             data={filteredList}
             keyExtractor={keyExtractor}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              {
+                paddingBottom: Math.max(s.space[6], insets.bottom + s.space[3]),
+              },
+            ]}
             renderItem={renderItem}
-            ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+            ItemSeparatorComponent={() => <View style={{ height: s.space[3] }} />}
             ListEmptyComponent={
               <View style={styles.emptyState}>
-                <Text style={{ color: t.colors.textSub }}>조건에 맞는 모임이 없어요.</Text>
+                <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>
+                  조건에 맞는 모임이 없어요.
+                </Text>
               </View>
             }
-            // ✅ 실서비스 튜닝(리스트 성능)
             initialNumToRender={10}
             maxToRenderPerBatch={10}
             windowSize={7}
@@ -455,167 +488,187 @@ export default function MapScreen() {
       </View>
     </AppLayout>
   );
-}
 
-const ExpandableMeetingRow = React.memo(
-  ({
+  function ExpandableMeetingRow({
     item,
     isSelected,
     onPress,
     onDetailPress,
-    t,
   }: {
     item: MeetingPost;
     isSelected: boolean;
     onPress: () => void;
     onDetailPress: () => void;
-    t: any;
-  }) => {
+  }) {
     const meta = getCategoryMeta(item.category);
+
+    const chipBg = withAlpha(meta.color, t.mode === "dark" ? 0.22 : 0.14);
+    const pressedBg = t.colors.overlay[6];
 
     return (
       <Pressable
         onPress={onPress}
-        style={[
-          styles.card,
+        style={({ pressed }) => [
+          styles.meetingCard,
           {
-            backgroundColor: t.colors.surface,
+            backgroundColor: pressed ? pressedBg : t.colors.surface,
             borderColor: isSelected ? t.colors.primary : t.colors.border,
-            borderWidth: isSelected ? 1.5 : 1,
+            borderWidth: isSelected ? 1.5 : s.borderWidth,
           },
         ]}
       >
         <View style={styles.cardHeader}>
-          <View style={[styles.miniChip, { backgroundColor: meta.color + "15" }]}>
+          <View style={[styles.miniChip, { backgroundColor: chipBg }]}>
             <Ionicons name={meta.icon} size={10} color={meta.color} />
-            <Text style={{ color: meta.color, fontSize: 10, fontWeight: "800" }}>{meta.label}</Text>
+            <View style={{ width: 4 }} />
+            <Text style={[t.typography.labelSmall, { color: meta.color, fontWeight: "800" }]}>
+              {meta.label}
+            </Text>
           </View>
-          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{item.distanceText || "내 주변"}</Text>
-        </View>
 
-        <Text style={[t.typography.titleMedium, { fontWeight: "700", marginTop: 6, marginBottom: 4 }]} numberOfLines={1}>
-          {item.title}
-        </Text>
-
-        <View style={styles.rowCenter}>
-          <Ionicons name="location-outline" size={13} color={t.colors.textSub} />
-          <Text style={{ color: t.colors.textSub, fontSize: 13 }} numberOfLines={1}>
-            {item.location?.name}
+          <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]} numberOfLines={1}>
+            {item.distanceText || "내 주변"}
           </Text>
         </View>
 
-        {isSelected && (
-          <View style={styles.cardActionArea}>
-            <View style={styles.divider} />
+        <Text
+          style={[
+            t.typography.titleMedium,
+            { color: t.colors.textMain, fontWeight: "700", marginTop: s.space[2] },
+          ]}
+          numberOfLines={1}
+        >
+          {item.title}
+        </Text>
+
+        <View style={[styles.rowCenter, { marginTop: s.space[1] }]}>
+          <Ionicons name="location-outline" size={13} color={t.colors.icon.muted} />
+          <View style={{ width: 6 }} />
+          <Text style={[t.typography.bodySmall, { color: t.colors.textSub, flex: 1 }]} numberOfLines={1}>
+            {item.location?.name ?? "장소 미정"}
+          </Text>
+        </View>
+
+        {isSelected ? (
+          <View style={{ marginTop: s.space[3] }}>
+            <View style={{ height: 1, backgroundColor: t.colors.divider, marginBottom: s.space[2] }} />
             <Pressable
               onPress={onDetailPress}
-              style={({ pressed }) => [styles.detailBtn, { backgroundColor: t.colors.primary, opacity: pressed ? 0.9 : 1 }]}
+              style={({ pressed }) => [
+                styles.detailBtn,
+                {
+                  backgroundColor: pressed ? withAlpha(t.colors.primary, 0.9) : t.colors.primary,
+                },
+              ]}
             >
-              <Text style={{ color: "#FFF", fontWeight: "700", fontSize: 14 }}>상세보기</Text>
+              <Text style={[t.typography.labelLarge, { color: "#FFF", fontWeight: "700" }]}>상세보기</Text>
+              <View style={{ width: 6 }} />
               <Ionicons name="arrow-forward" size={16} color="#FFF" />
             </Pressable>
           </View>
-        )}
+        ) : null}
       </Pressable>
     );
   }
-);
+}
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  map: { width: "100%", height: "100%" },
+function makeStyles(t: ReturnType<typeof useAppTheme>) {
+  const s = t.spacing;
 
-  topOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 30,
-  },
+  return StyleSheet.create({
+    container: { flex: 1 },
+    map: { width: "100%", height: "100%" },
 
-  sheetHeader: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
+    topOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 30,
+    },
 
-  // ✅ 버튼을 "목록 위"에 고정 배치 (바텀시트 내부라 겹침 없음)
-  sheetActions: {
-    position: "relative",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  sheetActionsCenter: {
-    alignItems: "center",
-  },
-  sheetGpsBtn: {
-    position: "absolute",
-    right: 16,
-    top: 8,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 2 },
-  },
+    sheetHeader: {
+      paddingHorizontal: s.pagePaddingH,
+      paddingBottom: s.space[3],
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
 
-  rowCenter: { flexDirection: "row", alignItems: "center", gap: 6 },
+    sheetActions: {
+      paddingHorizontal: s.pagePaddingH,
+      paddingVertical: s.space[2],
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      position: "relative",
+      minHeight: 56,
+      justifyContent: "center",
+    },
+    sheetActionsCenter: { alignItems: "center", justifyContent: "center" },
 
-  researchPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 2 },
-  },
+    sheetGpsBtn: {
+      position: "absolute",
+      right: s.pagePaddingH,
+      top: s.space[2],
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: s.borderWidth,
+      // 최소한의 그림자(플랫폼별 차이는 감수하고 과하지 않게)
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOpacity: 0.10,
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 6,
+    },
 
-  listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 30,
-  },
-  emptyState: {
-    alignItems: "center",
-    paddingTop: 40,
-  },
+    rowCenter: { flexDirection: "row", alignItems: "center" },
 
-  card: {
-    borderRadius: 16,
-    padding: 14,
-    overflow: "hidden",
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  miniChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
+    researchPill: {
+      height: 44,
+      paddingHorizontal: s.space[4],
+      borderRadius: 999,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: s.borderWidth,
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOpacity: 0.10,
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 6,
+    },
 
-  cardActionArea: { marginTop: 12 },
-  divider: { height: 1, backgroundColor: "#EEE", marginBottom: 10 },
-  detailBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-});
+    listContent: {
+      paddingHorizontal: s.pagePaddingH,
+      paddingTop: s.space[4],
+    },
+    emptyState: { alignItems: "center", paddingTop: s.space[6] },
+
+    meetingCard: {
+      borderRadius: s.radiusLg,
+      padding: s.space[3],
+      overflow: "hidden",
+    },
+
+    cardHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+
+    miniChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: s.radiusSm,
+    },
+
+    detailBtn: {
+      height: 44,
+      borderRadius: s.radiusMd,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+    },
+  });
+}

@@ -1,24 +1,22 @@
 // src/features/my/MyScreen.tsx
-
-import { MaterialIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Modal,
   Alert,
-  type TextStyle,
-  type ViewStyle,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuthStore } from "@/features/auth/model/authStore";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
@@ -26,10 +24,9 @@ import { meetingApi } from "@/features/meetings/api/meetingApi";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
 import AppLayout from "@/shared/ui/AppLayout";
-import { Card } from "@/shared/ui/Card";
 import TopBar from "@/shared/ui/TopBar";
+import { Card } from "@/shared/ui/Card";
 
-// ✅ [추가] 공통 온도 계산기 Import
 import { calculateMannerTemp } from "@/shared/utils/mannerCalculator";
 
 import { myApi } from "./api/myApi";
@@ -41,13 +38,11 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-// ❌ 기존 avgRateToTemperature 함수 삭제됨 (공통 유틸 사용)
-
-function tempIconName(temp: number): keyof typeof MaterialIcons.glyphMap {
-  if (temp <= 35.5) return "ac-unit";
-  if (temp <= 36.5) return "sentiment-neutral";
-  if (temp <= 38.0) return "sentiment-satisfied";
-  return "whatshot";
+function mannerIconName(temp: number): keyof typeof Ionicons.glyphMap {
+  if (temp <= 35.5) return "snow-outline";
+  if (temp <= 36.5) return "cloud-outline";
+  if (temp <= 38.0) return "sunny-outline";
+  return "flame-outline";
 }
 
 type PillTone = { text: string; bg: string };
@@ -55,25 +50,78 @@ type GradientColors = readonly [string, string];
 
 /* ---------------- small ui ---------------- */
 
-function MenuRow({ label, onPress }: { label: string; onPress: () => void }) {
+function MenuRow({
+  icon,
+  label,
+  desc,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  desc?: string;
+  onPress: () => void;
+}) {
   const t = useAppTheme();
+  const s = t.spacing;
+
+  const pressedBg =
+    t.mode === "dark"
+      ? withAlpha(t.colors.textSub, 0.16)
+      : withAlpha(t.colors.textSub, 0.08);
+
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
       style={({ pressed }) => [
-        styles.menuRow,
-        { backgroundColor: pressed ? t.colors.overlay[6] : "transparent" },
+        {
+          minHeight: 64,
+          paddingHorizontal: s.pagePaddingH,
+          paddingVertical: s.space[3],
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          backgroundColor: pressed ? pressedBg : "transparent",
+        },
       ]}
     >
-      <Text style={[t.typography.bodyLarge, { color: t.colors.textMain }]}>{label}</Text>
-      <MaterialIcons name="chevron-right" size={22} color={t.colors.icon.muted} />
+      <View style={{ flex: 1, flexDirection: "row", alignItems: "center", minWidth: 0 }}>
+        <View
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 12,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.12),
+          }}
+        >
+          <Ionicons name={icon} size={18} color={t.colors.icon.default} />
+        </View>
+
+        <View style={{ width: s.space[3] }} />
+
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[t.typography.bodyLarge, { color: t.colors.textMain }]} numberOfLines={1}>
+            {label}
+          </Text>
+          {desc ? (
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 2 }]} numberOfLines={1}>
+              {desc}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      <Ionicons name="chevron-forward" size={18} color={t.colors.icon.muted} />
     </Pressable>
   );
 }
 
 function Divider() {
   const t = useAppTheme();
-  return <View style={{ height: 1, backgroundColor: t.colors.border }} />;
+  return <View style={{ height: 1, backgroundColor: t.colors.divider ?? t.colors.border }} />;
 }
 
 /* =========================
@@ -82,17 +130,21 @@ function Divider() {
 
 export default function MyScreen() {
   const t = useAppTheme();
+  const s = t.spacing;
+  const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  // store 타입이 프로젝트마다 다를 수 있어 런타임 안전성을 위해 최소 캐스팅만 사용
-  const logout = useAuthStore((s) => (s as any).logout as (() => Promise<void>) | undefined);
-  const user = useAuthStore((s) => ((s as any).user ?? (s as any).me) as any);
+  const styles = useMemo(() => makeStyles(t), [t]);
+
+  // 의도: store 타입이 프로젝트마다 다를 수 있어 최소 캐스팅으로만 안전하게 사용
+  const logout = useAuthStore((st) => (st as any).logout as (() => Promise<void>) | undefined);
+  const user = useAuthStore((st) => ((st as any).user ?? (st as any).me) as any);
   const userAvatarUrl = user?.avatarUrl ?? null;
 
   const [refreshing, setRefreshing] = useState(false);
   const [hasNoti, setHasNoti] = useState(false);
 
-  // ✅ 강하게 숨김: 계정 관리 모달
+  // 강하게 숨김: 계정 관리 모달
   const [accountModalOpen, setAccountModalOpen] = useState(false);
 
   const [profile, setProfile] = useState<MyProfile>({
@@ -101,7 +153,6 @@ export default function MyScreen() {
     avatarUrl: null,
   });
 
-  // ✅ 변경: MySummary = UserReputation(avgRate/orgTime)
   const [summary, setSummary] = useState<MySummary>({
     avgRate: 0,
     orgTime: 0,
@@ -133,10 +184,10 @@ export default function MyScreen() {
   }, [genderRaw]);
 
   const birthLabel = useMemo(() => {
-    const s = String(birthRaw ?? "").trim();
-    if (!s) return "";
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.split("-").join(".");
-    return s;
+    const v = String(birthRaw ?? "").trim();
+    if (!v) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v.split("-").join(".");
+    return v;
   }, [birthRaw]);
 
   const orgTimeLabel = useMemo(() => {
@@ -157,11 +208,11 @@ export default function MyScreen() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [p, s] = await Promise.all([myApi.getProfile(), myApi.getSummary()]);
+      const [p, sum] = await Promise.all([myApi.getProfile(), myApi.getSummary()]);
       setProfile(p);
 
-      const avgRate = clamp(Number((s as any)?.avgRate ?? 0), 0, 5);
-      const orgTime = Math.max(0, Number((s as any)?.orgTime ?? 0));
+      const avgRate = clamp(Number((sum as any)?.avgRate ?? 0), 0, 5);
+      const orgTime = Math.max(0, Number((sum as any)?.orgTime ?? 0));
 
       setSummary({
         avgRate: Number.isFinite(avgRate) ? avgRate : 0,
@@ -174,7 +225,6 @@ export default function MyScreen() {
 
   const checkHasNoti = useCallback(async () => {
     try {
-      // 서버/목업 모두에서 호출 가능하도록 기존 로직 유지
       await meetingApi.listMeetings({});
       setHasNoti(false);
     } catch {
@@ -191,7 +241,7 @@ export default function MyScreen() {
     useCallback(() => {
       loadAll();
       checkHasNoti();
-    }, [loadAll, checkHasNoti]),
+    }, [loadAll, checkHasNoti])
   );
 
   const onRefresh = useCallback(async () => {
@@ -204,13 +254,15 @@ export default function MyScreen() {
   }, [loadAll, checkHasNoti]);
 
   /* ---------------- manner ui ---------------- */
-const tempStr = calculateMannerTemp(summary.avgRate); 
+
+  const tempStr = calculateMannerTemp(summary.avgRate);
   const temp = Number(tempStr);
 
-const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.0";
+  const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.0";
 
   const pillTone: PillTone = useMemo(() => {
     const soft = (hex: string, a: number) => withAlpha(hex, a);
+
     if (temp <= 35.5) return { text: t.colors.info, bg: soft(t.colors.info, 0.12) };
     if (temp <= 36.5) return { text: t.colors.warning, bg: soft(t.colors.warning, 0.16) };
     if (temp <= 38.0) return { text: t.colors.primary, bg: soft(t.colors.primary, 0.14) };
@@ -219,14 +271,14 @@ const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.
 
   const grad: GradientColors = useMemo(() => {
     const start = (hex: string) => withAlpha(hex, 0.55);
+
     if (temp <= 35.5) return [start(t.colors.info), t.colors.info] as const;
     if (temp <= 36.5) return [start(t.colors.warning), t.colors.warning] as const;
     if (temp <= 38.0) return [start(t.colors.primary), t.colors.primary] as const;
     return [start(t.colors.error), t.colors.error] as const;
   }, [temp, t.colors]);
 
-  // 아이콘은 필요 시 확장 가능
-  const _iconName = useMemo(() => tempIconName(temp), [temp]);
+  const iconName = useMemo(() => mannerIconName(temp), [temp]);
 
   const ratio = useMemo(() => {
     const r = (temp - 32) / 10;
@@ -236,7 +288,7 @@ const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.
   useEffect(() => {
     Animated.timing(fillAnim, {
       toValue: ratio,
-      duration: 900,
+      duration: 850,
       useNativeDriver: false,
     }).start();
   }, [ratio, fillAnim]);
@@ -246,7 +298,11 @@ const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.
     outputRange: ["0%", "100%"],
   });
 
-  /* ---------------- mock withdraw ---------------- */
+  /* ---------------- actions ---------------- */
+
+  const goProfile = useCallback(() => {
+    router.push("/settings/profile" as any);
+  }, [router]);
 
   const handleMockWithdraw = useCallback(() => {
     Alert.alert("회원탈퇴", "탈퇴하면 계정 정보가 모두 삭제됩니다.\n정말 탈퇴하시겠어요?", [
@@ -266,26 +322,7 @@ const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.
     ]);
   }, [logout, router]);
 
-  /* ---------------- styles ---------------- */
-
-  const s = useMemo(
-    () =>
-      ({
-        scrollContent: {
-          paddingBottom: t.spacing.space[7],
-          paddingHorizontal: t.spacing.pagePaddingH,
-          paddingTop: t.spacing.pagePaddingV,
-        } as ViewStyle,
-        cardPadding: {
-          paddingVertical: t.spacing.space[3],
-          paddingHorizontal: t.spacing.space[3],
-        } as ViewStyle,
-        subLine: { marginTop: t.spacing.space[1] } as TextStyle,
-      }) as const,
-    [t],
-  );
-
-  /* ================= render ================= */
+  const sheetBottomPad = Math.max(insets.bottom, s.space[3]);
 
   return (
     <AppLayout padded={false}>
@@ -300,26 +337,25 @@ const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.
       />
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContentBase, s.scrollContent]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: s.space[6] }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* 프로필 카드 */}
-        <Card style={s.cardPadding}>
-          {/* 상단 */}
-          <View style={styles.topRow}>
-            <View style={styles.profileLeft}>
-              <Pressable onPress={() => router.push("/settings/profile" as any)}>
-                <View style={styles.avatarUrlWrap}>
+        {/* 프로필 카드: Card 톤을 그대로 사용(보더/라운드/패딩 일관성) */}
+        <Card padded={false}>
+          <View style={{ paddingHorizontal: s.pagePaddingH, paddingVertical: s.space[4] }}>
+            <View style={styles.topRow}>
+              <Pressable onPress={goProfile} style={styles.profileLeft} hitSlop={8}>
+                <View style={styles.avatarWrap}>
                   {displayAvatarUrl ? (
                     <Image
                       source={{ uri: displayAvatarUrl }}
-                      style={[styles.avatarUrl, { borderColor: t.colors.background }]}
+                      style={[styles.avatar, { borderColor: t.colors.background }]}
                     />
                   ) : (
                     <View
                       style={[
-                        styles.avatarUrl,
-                        styles.avatarUrlFallback,
+                        styles.avatar,
+                        styles.avatarFallback,
                         { backgroundColor: t.colors.primary },
                       ]}
                     >
@@ -329,77 +365,137 @@ const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.
                     </View>
                   )}
                 </View>
+
+                <View style={{ width: s.space[3] }} />
+
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={styles.nameLine}>
+                    <Text
+                      style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]}
+                      numberOfLines={1}
+                    >
+                      {displayNickname}
+                    </Text>
+
+                    <View style={[styles.tempPill, { backgroundColor: pillTone.bg }]}>
+                      <Ionicons name={iconName} size={12} color={pillTone.text} />
+                      <View style={{ width: 4 }} />
+                      <Text style={[t.typography.labelMedium, { color: pillTone.text }]}>
+                        {tempStr}℃
+                      </Text>
+                    </View>
+                  </View>
+
+                  {metaLine ? (
+                    <Text
+                      style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}
+                      numberOfLines={1}
+                    >
+                      {metaLine}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}
+                      numberOfLines={1}
+                    >
+                      프로필을 완성하면 추천이 더 정확해져요
+                    </Text>
+                  )}
+                </View>
               </Pressable>
 
-              <View style={{ marginLeft: t.spacing.space[3], flex: 1 }}>
-                <View style={styles.nameLine}>
-                  <Text style={t.typography.titleMedium}>{displayNickname}</Text>
-                  <View style={[styles.tempPill, { backgroundColor: pillTone.bg }]}>
-                    <Text style={[t.typography.labelMedium, { color: pillTone.text }]}>
-                      {/* ✅ 수정: 계산된 문자열 사용 */}
-                      {tempStr}℃
-                    </Text>
-                  </View>
-                </View>
-
-                {metaLine ? <Text style={[t.typography.bodySmall, s.subLine]}>{metaLine}</Text> : null}
+              <View style={styles.ratingRight}>
+                <Ionicons name="star" size={14} color={t.colors.ratingStar} />
+                <View style={{ width: 4 }} />
+                <Text style={[t.typography.labelMedium, { color: t.colors.ratingStar }]}>
+                  {ratingDisplay}
+                </Text>
               </View>
             </View>
 
-          <View style={styles.ratingRight}>
-              <Text style={[styles.star, { color: t.colors.ratingStar }]}>★</Text>
-              <Text style={[t.typography.labelMedium, { color: t.colors.ratingStar }]}>
-                {ratingDisplay} {/* 별점은 0.0으로 유지하되 온도는 36.5도 */}
-              </Text>
-            </View>
-          </View>
+            {/* 매너온도 바 */}
+            <View style={{ marginTop: s.space[4] }}>
+              <View style={[styles.barTrack, { backgroundColor: t.colors.border }]}>
+                <Animated.View style={[styles.barFill, { width: widthPct }]}>
+                  <LinearGradient colors={grad} style={StyleSheet.absoluteFillObject} />
+                </Animated.View>
+              </View>
 
-          {/* 매너온도 바 */}
-          <View style={{ marginTop: t.spacing.space[3] }}>
-            <View style={[styles.barTrack, { backgroundColor: t.colors.border }]}>
-              <Animated.View style={[styles.barFill, { width: widthPct }]}>
-                <LinearGradient colors={grad} style={StyleSheet.absoluteFillObject} />
-              </Animated.View>
+              <View style={styles.barMetaRow}>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>32℃</Text>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>42℃</Text>
+              </View>
             </View>
           </View>
         </Card>
 
-        {/* 메뉴 */}
-        <View style={{ marginTop: t.spacing.space[4] }}>
-          <Card padded={false}>
-            <MenuRow label="내가 만든 모임" onPress={() => router.push("/my/hosted" as any)} />
-            <Divider />
-            <MenuRow label="참여한 모임" onPress={() => router.push("/my/joined" as any)} />
-            <Divider />
-            <MenuRow label="설정" onPress={() => router.push("/settings" as any)} />
-          </Card>
-        </View>
+        {/* 메뉴 카드: row형 리스트를 Card 안에 고정 */}
+        <View style={{ height: s.space[4] }} />
 
-        {/* 강하게 숨김 링크 */}
-        <View style={{ marginTop: t.spacing.space[4], alignItems: "center" }}>
-          <Pressable onPress={() => setAccountModalOpen(true)} style={{ opacity: 0.35 }}>
-            <Text style={[t.typography.labelSmall, { textDecorationLine: "underline" }]}>
+        <Card padded={false} style={{ overflow: "hidden" }}>
+          <MenuRow
+            icon="calendar-outline"
+            label="내가 만든 모임"
+            desc="주최한 모임을 확인해요"
+            onPress={() => router.push("/my/hosted" as any)}
+          />
+          <Divider />
+          <MenuRow
+            icon="people-outline"
+            label="참여한 모임"
+            desc="참여/완료한 모임을 확인해요"
+            onPress={() => router.push("/my/joined" as any)}
+          />
+          <Divider />
+          <MenuRow
+            icon="settings-outline"
+            label="설정"
+            desc="알림/계정/앱 설정"
+            onPress={() => router.push("/settings" as any)}
+          />
+        </Card>
+
+        {/* 숨김 링크 */}
+        <View style={{ marginTop: s.space[4], alignItems: "center" }}>
+          <Pressable onPress={() => setAccountModalOpen(true)} style={{ opacity: 0.35 }} hitSlop={8}>
+            <Text style={[t.typography.labelSmall, { textDecorationLine: "underline", color: t.colors.textSub }]}>
               계정 관리
             </Text>
           </Pressable>
         </View>
 
         {/* 계정 관리 모달 */}
-        <Modal transparent visible={accountModalOpen} animationType="fade">
+        <Modal
+          transparent
+          visible={accountModalOpen}
+          animationType="fade"
+          onRequestClose={() => setAccountModalOpen(false)}
+        >
           <Pressable
             onPress={() => setAccountModalOpen(false)}
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.45)" }]}
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: t.colors.scrim }]}
           />
-          <View style={[styles.sheet, { backgroundColor: t.colors.surface }]}>
-            <Text style={t.typography.titleMedium}>계정 관리</Text>
 
-            <Pressable onPress={handleMockWithdraw} style={[styles.sheetBtn]}>
-              <Text style={[t.typography.labelLarge, { color: t.colors.error }]}>회원탈퇴</Text>
-            </Pressable>
+          <View style={[styles.sheetWrap, { paddingBottom: sheetBottomPad }]}>
+            <Card padded={false} style={styles.sheetCard}>
+              <View style={{ paddingHorizontal: s.pagePaddingH, paddingTop: s.space[4], paddingBottom: s.space[3] }}>
+                <Text style={[t.typography.titleMedium, { color: t.colors.textMain, textAlign: "center" }]}>
+                  계정 관리
+                </Text>
 
-            <Pressable onPress={() => setAccountModalOpen(false)} style={styles.sheetBtn}>
-              <Text style={t.typography.labelLarge}>닫기</Text>
-            </Pressable>
+                <View style={{ height: s.space[3] }} />
+
+                <Pressable onPress={handleMockWithdraw} style={styles.sheetBtn} hitSlop={6}>
+                  <Text style={[t.typography.labelLarge, { color: t.colors.error, fontWeight: "800" }]}>
+                    회원탈퇴
+                  </Text>
+                </Pressable>
+
+                <Pressable onPress={() => setAccountModalOpen(false)} style={styles.sheetBtn} hitSlop={6}>
+                  <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]}>닫기</Text>
+                </Pressable>
+              </View>
+            </Card>
           </View>
         </Modal>
       </ScrollView>
@@ -409,50 +505,82 @@ const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.
 
 /* ---------------- styles ---------------- */
 
-const styles = StyleSheet.create({
-  scrollContentBase: {},
+function makeStyles(t: ReturnType<typeof useAppTheme>) {
+  const s = t.spacing;
 
-  topRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  profileLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  return StyleSheet.create({
+    scrollContent: {
+      paddingHorizontal: s.pagePaddingH,
+      paddingTop: s.space[4],
+    },
 
-  avatarUrlWrap: { width: 56, height: 56 },
-  avatarUrl: { width: 56, height: 56, borderRadius: 28 },
-  avatarUrlFallback: { alignItems: "center", justifyContent: "center" },
+    topRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
 
-  nameLine: { flexDirection: "row", alignItems: "center", gap: 8 },
-  tempPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+    profileLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+      minWidth: 0,
+    },
 
-  ratingRight: { flexDirection: "row", alignItems: "center", gap: 4 },
-  star: { fontSize: 12 },
+    avatarWrap: { width: 56, height: 56 },
+    avatar: { width: 56, height: 56, borderRadius: 28, borderWidth: 1 },
+    avatarFallback: { alignItems: "center", justifyContent: "center", borderWidth: 0 },
 
-  barTrack: { height: 6, borderRadius: 999, overflow: "hidden" },
-  barFill: { height: "100%" },
+    nameLine: {
+      flexDirection: "row",
+      alignItems: "center",
+      minWidth: 0,
+    },
 
-  menuRow: {
-    height: 60,
-    paddingHorizontal: 18,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
+    tempPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 999,
+      marginLeft: s.space[2],
+    },
 
-  sheet: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 16,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-  },
-  sheetBtn: {
-    height: 46,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 12,
-  },
-});
+    ratingRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginLeft: s.space[3],
+    },
+
+    barTrack: { height: 6, borderRadius: 999, overflow: "hidden" },
+    barFill: { height: "100%" },
+    barMetaRow: {
+      marginTop: s.space[2],
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+
+    sheetWrap: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      paddingHorizontal: s.pagePaddingH,
+    },
+
+    sheetCard: {
+      borderRadius: s.radiusXl,
+      overflow: "hidden",
+    },
+
+    sheetBtn: {
+      height: 46,
+      borderRadius: s.radiusMd,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: s.space[2],
+      backgroundColor: t.colors.overlay[6],
+    },
+  });
+}

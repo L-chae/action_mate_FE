@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  FlatList,
+  LayoutAnimation,
+  Platform,
+  Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
+  UIManager,
   View,
-  Pressable,
 } from "react-native";
 import { useRouter } from "expo-router";
 
@@ -17,246 +20,268 @@ import { Badge } from "@/shared/ui/Badge";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type {
-  MeetingPost,
-  MembershipStatus,
-  PostStatus,
-} from "@/features/meetings/model/types";
+import type { MeetingPost, MembershipStatus } from "@/features/meetings/model/types";
 import { formatMeetingTime } from "@/shared/utils/formatTime";
 
-type AnyMembership = MembershipStatus | "NONE" | "HOST" | "REJECTED" | "CANCELED";
+// 안드로이드 LayoutAnimation 활성화
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// ----------------------------------------------------------------------
+// ✅ 1. Types & Constants
+// ----------------------------------------------------------------------
 
 type FilterKey = "ACTIVE" | "CANCELED" | "PENDING" | "ENDED";
+type AnyMembership = MembershipStatus | "NONE" | "HOST" | "REJECTED" | "CANCELED";
+
+type BadgeProps = {
+  label: string;
+  tone: "primary" | "error" | "neutral" | "warning";
+};
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "ACTIVE", label: "진행중" },
-  { key: "CANCELED", label: "취소됨" },
   { key: "PENDING", label: "승인 대기" },
+  { key: "CANCELED", label: "취소됨" },
   { key: "ENDED", label: "모임끝" },
 ];
 
-function toTimeValue(m: MeetingPost) {
-  const raw = (m as any)?.meetingTime ?? (m as any)?.startAt ?? (m as any)?.date;
-  if (!raw) return Number.POSITIVE_INFINITY;
-  const v = new Date(raw).getTime();
-  return Number.isFinite(v) ? v : Number.POSITIVE_INFINITY;
+// ----------------------------------------------------------------------
+// ✅ 2. Custom Hook: Data Logic
+// ----------------------------------------------------------------------
+
+function useJoinedMeetings() {
+  // 초기 로딩 true 설정 (깜빡임 방지)
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [allList, setAllList] = useState<MeetingPost[]>([]);
+
+  const fetchMeetings = useCallback(async (isRefresh = false) => {
+    if (!isRefresh) setIsLoading(true);
+    try {
+      const res = await meetingApi.listMeetings({});
+      
+      // '참여' 목록이므로 내가 HOST인 것은 제외
+      const filtered = (res ?? []).filter((m) => {
+        const ms = (m.myState?.membershipStatus ?? "NONE") as AnyMembership;
+        return ms !== "NONE" && ms !== "HOST";
+      });
+      
+      setAllList(filtered);
+    } catch (e) {
+      console.error("Failed to fetch joined meetings:", e);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMeetings();
+  }, [fetchMeetings]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchMeetings(true);
+  }, [fetchMeetings]);
+
+  return { allList, isLoading, refreshing, onRefresh };
 }
 
-/** ✅ 뱃지 라벨/톤: 진행중, 취소됨, 승인 대기, 모임끝 만 */
-function getMainBadge(m: MeetingPost) {
-  const ms = (m.myState?.membershipStatus ?? "NONE") as AnyMembership;
+// ----------------------------------------------------------------------
+// ✅ 3. Helper Components
+// ----------------------------------------------------------------------
 
-  // 승인 대기 최우선
-  if (ms === "PENDING") return { label: "승인 대기", tone: "warning" as const };
-
-  // 취소/거절
-  if (ms === "REJECTED" || ms === "CANCELED" || m.status === "CANCELED") {
-    return { label: "취소됨", tone: "error" as const };
-  }
-
-  // 모임끝
-  if (m.status === "ENDED") return { label: "모임끝", tone: "neutral" as const };
-
-  // ✅ 정원마감(FULL)도 진행중으로 통일
-  return { label: "진행중", tone: "primary" as const };
-}
-
-function isDisabled(m: MeetingPost) {
-  const ms = (m.myState?.membershipStatus ?? "NONE") as AnyMembership;
+/** 스켈레톤 로딩 UI */
+const ListSkeleton = () => {
+  const t = useAppTheme();
   return (
-    m.status === "ENDED" ||
-    m.status === "CANCELED" ||
-    ms === "REJECTED" ||
-    ms === "CANCELED"
+    <View style={{ paddingHorizontal: 20, gap: 12, marginTop: 10 }}>
+      {[1, 2, 3].map((i) => (
+        <View
+          key={i}
+          style={{
+            height: 100,
+            backgroundColor: t.colors.surface,
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: t.colors.border,
+            opacity: 0.5,
+          }}
+        />
+      ))}
+    </View>
   );
-}
+};
 
-/** ✅ 칩 바 (카테고리 칩 느낌) */
-function FilterChips({
-  value,
-  onChange,
-}: {
-  value: FilterKey;
-  onChange: (v: FilterKey) => void;
-}) {
+const FilterChips = React.memo(({ value, onChange }: { value: FilterKey; onChange: (v: FilterKey) => void }) => {
   const t = useAppTheme();
 
+  const handlePress = (key: FilterKey) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    onChange(key);
+  };
+
   return (
-    <View
+    <View style={[styles.chipsWrap, { borderColor: t.colors.border, backgroundColor: t.colors.background }]}>
+      <FlatList
+        horizontal
+        data={FILTERS}
+        keyExtractor={(item) => item.key}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipsScroll}
+        renderItem={({ item }) => {
+          const selected = value === item.key;
+          return (
+            <Pressable
+              onPress={() => handlePress(item.key)}
+              style={({ pressed }) => [
+                styles.chip,
+                {
+                  backgroundColor: selected ? t.colors.primary : t.colors.chipBg,
+                  borderWidth: selected ? 0 : 1,
+                  borderColor: selected ? "transparent" : t.colors.border,
+                  opacity: pressed ? 0.9 : 1,
+                  transform: [{ scale: pressed ? 0.98 : 1 }],
+                },
+              ]}
+            >
+              <Text style={[
+                t.typography.labelMedium,
+                { color: selected ? "#FFFFFF" : t.colors.textSub, fontWeight: selected ? "bold" : "600" }
+              ]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        }}
+      />
+    </View>
+  );
+});
+
+const JoinedMeetingItem = React.memo(({ item, onPress }: { item: MeetingPost; onPress: () => void }) => {
+  const t = useAppTheme();
+  
+  const ms = (item.myState?.membershipStatus ?? "NONE") as AnyMembership;
+  const isCanceled = ms === "REJECTED" || ms === "CANCELED" || item.status === "CANCELED";
+  const isEnded = item.status === "ENDED";
+  const isDisabled = isCanceled || isEnded;
+
+  let badge: BadgeProps = { label: "진행중", tone: "primary" };
+  if (ms === "PENDING") badge = { label: "승인 대기", tone: "warning" };
+  else if (isCanceled) badge = { label: "취소됨", tone: "error" };
+  else if (isEnded) badge = { label: "모임끝", tone: "neutral" };
+
+  const timeStr = item.meetingTimeText?.trim() || formatMeetingTime(item.meetingTime);
+  const joinMode = item.joinMode === "INSTANT" ? "선착순" : "승인제";
+
+  return (
+    <Card
+      onPress={isDisabled ? undefined : onPress}
       style={[
-        styles.chipsWrap,
+        styles.card,
         {
-          paddingHorizontal: t.spacing.pagePaddingH,
-          paddingTop: 10,
-          paddingBottom: 8,
-          borderBottomWidth: t.spacing.borderWidth,
-          borderBottomColor: t.colors.border,
-          backgroundColor: t.colors.background,
+          borderColor: t.colors.border,
+          backgroundColor: isDisabled ? t.colors.overlay[6] : t.colors.surface,
+          opacity: isDisabled ? 0.7 : 1,
+          elevation: isDisabled ? 0 : 2,
+          shadowColor: "#000",
+          shadowOpacity: isDisabled ? 0 : 0.05,
+          shadowOffset: { width: 0, height: 2 },
+          shadowRadius: 4,
         },
       ]}
     >
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {FILTERS.map((f) => {
-            const selected = value === f.key;
-            return (
-              <Pressable
-                key={f.key}
-                onPress={() => onChange(f.key)}
-                hitSlop={10}
-                style={({ pressed }) => [
-                  styles.chip,
-                  {
-                    backgroundColor: selected ? t.colors.primary : t.colors.chipBg,
-                    opacity: pressed ? 0.88 : 1,
-                    borderWidth: selected ? 0 : t.spacing.borderWidth,
-                    borderColor: selected ? "transparent" : t.colors.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    t.typography.labelMedium,
-                    {
-                      color: selected ? "#FFFFFF" : t.colors.textSub,
-                      fontWeight: selected ? "800" : "600",
-                    },
-                  ]}
-                >
-                  {f.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </ScrollView>
-    </View>
+      <View style={styles.cardHeader}>
+        <Text style={[t.typography.titleMedium, { flex: 1, marginRight: 8 }]} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Badge {...badge} />
+      </View>
+      <View style={styles.cardBody}>
+        <Text style={t.typography.bodySmall} numberOfLines={1}>
+          📍 {item.location?.name ?? "장소 미정"}
+        </Text>
+        <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
+          📅 {timeStr} · {joinMode} · 👥 {item.capacity?.current ?? 0}/{item.capacity?.total ?? 0}
+        </Text>
+      </View>
+    </Card>
   );
-}
+});
+
+// ----------------------------------------------------------------------
+// ✅ 4. Main Component
+// ----------------------------------------------------------------------
 
 export default function JoinedMeetingsScreen() {
   const t = useAppTheme();
   const router = useRouter();
-
-  const [refreshing, setRefreshing] = useState(false);
-  const [allJoined, setAllJoined] = useState<MeetingPost[]>([]);
   const [filter, setFilter] = useState<FilterKey>("ACTIVE");
 
-  const load = useCallback(async () => {
-    const all = await meetingApi.listMeetings({});
+  // Custom Hook 사용
+  const { allList, isLoading, refreshing, onRefresh } = useJoinedMeetings();
 
-    // ✅ "내가 참여/신청한" 것만: NONE/HOST 제외
-    const joinedOnly = (all ?? []).filter((m) => {
+  // 필터링 및 분류 로직 (Memoization)
+  const { displayList, endedSectionList } = useMemo(() => {
+    const getTimestamp = (m: MeetingPost) => (m.meetingTime ? new Date(m.meetingTime).getTime() : 0);
+    const sorted = [...allList].sort((a, b) => getTimestamp(a) - getTimestamp(b));
+
+    const pending: MeetingPost[] = [];
+    const canceled: MeetingPost[] = [];
+    const ended: MeetingPost[] = [];
+    const active: MeetingPost[] = [];
+
+    sorted.forEach((m) => {
       const ms = (m.myState?.membershipStatus ?? "NONE") as AnyMembership;
-      return ms !== "NONE" && ms !== "HOST";
+      
+      if (ms === "PENDING") {
+        pending.push(m);
+      } else if (ms === "REJECTED" || ms === "CANCELED" || m.status === "CANCELED") {
+        canceled.push(m);
+      } else if (m.status === "ENDED") {
+        ended.push(m);
+      } else if (ms === "MEMBER") {
+        // FULL 상태 등도 '참여중'이라면 여기에 포함
+        active.push(m);
+      }
     });
 
-    setAllJoined(joinedOnly);
-  }, []);
+    if (filter === "PENDING") return { displayList: pending, endedSectionList: [] };
+    if (filter === "CANCELED") return { displayList: canceled, endedSectionList: [] };
+    if (filter === "ENDED") return { displayList: ended, endedSectionList: [] };
 
-  useEffect(() => {
-    load().catch(console.error);
-  }, [load]);
+    // ACTIVE: 진행중 목록 + 하단 완료 목록
+    return { displayList: active, endedSectionList: ended };
+  }, [allList, filter]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await load();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [load]);
+  // FlatList 렌더러
+  const renderItem = useCallback(({ item }: { item: MeetingPost }) => (
+    <JoinedMeetingItem item={item} onPress={() => router.push(`/meetings/${item.id}`)} />
+  ), [router]);
 
-  /** ✅ 진행중 탭: "진행중 목록" + 아래 "완료된 모임" 섹션(맨 아래) */
-  const { primaryList, endedList } = useMemo(() => {
-    const msOf = (m: MeetingPost) =>
-      (m.myState?.membershipStatus ?? "NONE") as AnyMembership;
-
-    const sortAsc = (arr: MeetingPost[]) => arr.sort((a, b) => toTimeValue(a) - toTimeValue(b));
-
-    const pending = sortAsc(
-      allJoined.filter((m) => msOf(m) === "PENDING")
+  // 하단 완료 섹션 렌더러
+  const ListFooter = useMemo(() => {
+    if (filter !== "ACTIVE" || endedSectionList.length === 0) return null;
+    return (
+      <View style={styles.endedSection}>
+        <Text style={[t.typography.titleSmall, { color: t.colors.textSub, marginBottom: 12 }]}>
+          완료된 모임
+        </Text>
+        <View style={{ gap: 12 }}>
+          {endedSectionList.map((item) => (
+            <JoinedMeetingItem 
+              key={item.id} 
+              item={item} 
+              onPress={() => {}} 
+            />
+          ))}
+        </View>
+      </View>
     );
-
-    const canceled = sortAsc(
-      allJoined.filter(
-        (m) =>
-          msOf(m) === "REJECTED" ||
-          msOf(m) === "CANCELED" ||
-          m.status === "CANCELED"
-      )
-    );
-
-    const ended = sortAsc(allJoined.filter((m) => m.status === "ENDED"));
-
-    // ✅ 진행중 = MEMBER이면서 (ENDED/CANCELED 제외)
-    // FULL도 여기 포함 (진행중으로 표시)
-    const active = sortAsc(
-      allJoined.filter((m) => {
-        const ms = msOf(m);
-        if (ms !== "MEMBER") return false;
-        if (m.status === "ENDED" || m.status === "CANCELED") return false;
-        return true;
-      })
-    );
-
-    switch (filter) {
-      case "PENDING":
-        return { primaryList: pending, endedList: [] };
-      case "CANCELED":
-        return { primaryList: canceled, endedList: [] };
-      case "ENDED":
-        return { primaryList: ended, endedList: [] };
-      default:
-        // ACTIVE: 진행중 목록 + 완료된 모임(맨 아래 섹션)
-        return { primaryList: active, endedList: ended };
-    }
-  }, [allJoined, filter]);
-
-  const renderItem = useCallback(
-    (m: MeetingPost) => {
-      const badge = getMainBadge(m);
-      const disabled = isDisabled(m);
-
-      const joinModeText = (m as any).joinMode === "INSTANT" ? "선착순" : "승인제";
-      const timeText = (m as any).meetingTimeText?.trim()
-        ? (m as any).meetingTimeText
-        : formatMeetingTime((m as any).meetingTime);
-
-      return (
-        <Card
-          key={String((m as any).id)}
-          onPress={disabled ? undefined : () => router.push(`/meetings/${(m as any).id}`)}
-          style={[
-            styles.card,
-            {
-              borderColor: t.colors.border,
-              backgroundColor: disabled ? t.colors.overlay[6] : t.colors.surface,
-              opacity: disabled ? 0.45 : 1,
-            },
-          ]}
-        >
-          <View style={styles.topRow}>
-            <Text style={t.typography.titleMedium} numberOfLines={1}>
-              {(m as any).title}
-            </Text>
-            <Badge label={badge.label} tone={badge.tone} />
-          </View>
-
-          <View style={{ marginTop: 8, gap: 4 }}>
-            <Text style={t.typography.bodySmall} numberOfLines={1}>
-              {(m as any).location?.name ?? "장소 미정"}
-            </Text>
-            <Text style={t.typography.bodySmall} numberOfLines={1}>
-              {timeText} · {joinModeText} · {(m as any).capacity?.current ?? 0}/
-              {(m as any).capacity?.total ?? 0}명
-            </Text>
-          </View>
-        </Card>
-      );
-    },
-    [router, t]
-  );
+  }, [filter, endedSectionList, t]);
 
   return (
     <AppLayout padded={false}>
@@ -264,64 +289,82 @@ export default function JoinedMeetingsScreen() {
         title="참여한 모임"
         showBorder
         showBack
-        onPressBack={() => router.replace("/my")}
+        onPressBack={() => router.back()}
       />
 
       <FilterChips value={filter} onChange={setFilter} />
 
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: t.spacing.pagePaddingH,
-          paddingVertical: 14,
-          paddingBottom: t.spacing.space[7],
-        }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {primaryList.length === 0 && endedList.length === 0 ? (
-          <EmptyView title="목록이 비어있어요" description="조건에 맞는 모임이 없습니다." />
-        ) : (
-          <View style={{ gap: 12 }}>
-            {primaryList.map(renderItem)}
-
-            {/* ✅ 진행중 탭에서만: 완료된 모임 섹션을 맨 아래로 */}
-            {filter === "ACTIVE" && endedList.length > 0 ? (
-              <View style={{ marginTop: 6 }}>
-                <Text
-                  style={[
-                    t.typography.titleSmall,
-                    { color: t.colors.textSub, marginBottom: 10 },
-                  ]}
-                >
-                  완료된 모임
-                </Text>
-
-                <View style={{ gap: 12 }}>
-                  {endedList.map(renderItem)}
-                </View>
-              </View>
-            ) : null}
-          </View>
-        )}
-      </ScrollView>
+      {isLoading ? (
+        <ListSkeleton />
+      ) : (
+        <FlatList
+          data={displayList}
+          renderItem={renderItem}
+          keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: t.spacing.space[7] }]}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          
+          // ✅ EmptyView 깜빡임 방지: 로딩 중이 아니고 데이터가 없을 때만 표시
+          ListEmptyComponent={
+            endedSectionList.length === 0 ? (
+              <EmptyView 
+                title="참여한 모임이 없어요" 
+                description="새로운 모임에 참여해보세요!" 
+                style={{ marginTop: 40 }}
+                iconName="people-outline"
+              />
+            ) : null
+          }
+          ListFooterComponent={ListFooter}
+          
+          // 성능 최적화
+          initialNumToRender={10}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        />
+      )}
     </AppLayout>
   );
 }
 
 const styles = StyleSheet.create({
   chipsWrap: {
-    zIndex: 5,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    zIndex: 1,
+  },
+  chipsScroll: {
+    paddingHorizontal: 20,
+    gap: 8,
   },
   chip: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: 99,
   },
-
-  card: { paddingVertical: 14, paddingHorizontal: 14, borderWidth: 1 },
-  topRow: {
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  card: {
+    padding: 16,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  cardHeader: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    alignItems: "flex-start",
+    marginBottom: 10,
+  },
+  cardBody: {
+    gap: 6,
+  },
+  endedSection: {
+    marginTop: 24,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: "#F0F0F0",
   },
 });

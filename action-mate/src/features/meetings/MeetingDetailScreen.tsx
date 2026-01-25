@@ -28,6 +28,9 @@ import { meetingApi } from "@/features/meetings/api/meetingApi";
 import { findDMThreadByMeetingId } from "@/features/dm/api/dmApi";
 import type { Comment, MeetingPost, Participant } from "@/features/meetings/model/types";
 
+// ✅ MOCK (댓글 표시용)
+import { MEETING_COMMENTS_MOCK } from "@/features/meetings/mocks/meetingMockData";
+
 // ✅ UI & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
@@ -165,15 +168,21 @@ export default function MeetingDetailScreen() {
   }, [scrollToBottomSoon]);
 
   const loadInitialData = useCallback(async () => {
-    if (!meetingId) return;
+    // ✅ meetingId 없을 때 로딩만 걸어두지 않도록 방어
+    if (!meetingId) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
       const m = await meetingApi.getMeeting(meetingId);
       setPost(m);
 
-      // TODO: 댓글 API 연결 시 여기서 setComments 호출
-      // setComments(await meetingApi.getComments(m.id))
+      // ✅ 목업 댓글 주입 (API 연결 전 UI 확인용)
+      // - 화면에 “댓글/대댓글”이 즉시 보이도록
+      // - 필요하면 meetingId별로 분기해서 다른 댓글 세트로 바꿔도 됨
+      setComments(MEETING_COMMENTS_MOCK);
 
       const hostId = m.host?.id ? String(m.host.id) : "";
       if (m.myState?.membershipStatus === "HOST" || hostId === String(currentUserId)) {
@@ -192,6 +201,10 @@ export default function MeetingDetailScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // ✅ 다른 모임으로 들어왔을 때 입력 모드가 남아있지 않도록 초기화
+      setReplyTarget(null);
+      setEditingComment(null);
+      setCommentText("");
       loadInitialData();
     }, [loadInitialData])
   );
@@ -420,7 +433,7 @@ export default function MeetingDetailScreen() {
 
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={keyboardVerticalOffset}
+          keyboardVerticalOffset={Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : 0}
           style={{ flex: 1 }}
         >
           <DetailContent
@@ -446,11 +459,10 @@ export default function MeetingDetailScreen() {
               );
             }}
             onContentHeightChange={() => {
-              // 현재는 “스크롤 바닥 고정” 계산에 직접 쓰지 않지만,
-              // DetailContent 내부 API는 유지 (향후 sticky UX 개선 여지)
+              // DetailContent 내부 API 유지
             }}
             onScrollViewHeightChange={() => {
-              // 동일
+              // DetailContent 내부 API 유지
             }}
             onScroll={handleScroll}
             commentText={commentText}
@@ -462,7 +474,19 @@ export default function MeetingDetailScreen() {
             onSubmitComment={handleSubmitComment}
             onFocusComposer={() => {
               stickToBottomRef.current = true;
-              setTimeout(scrollComposerToKeyboard, 40);
+              setTimeout(() => {
+                const node = findNodeHandle(inputRef.current);
+                const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
+                if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
+                  responder.scrollResponderScrollNativeHandleToKeyboard(
+                    node,
+                    Platform.OS === "android" ? 20 : 12,
+                    true
+                  );
+                } else {
+                  scrollToBottomSoon(true);
+                }
+              }, 40);
             }}
           />
 

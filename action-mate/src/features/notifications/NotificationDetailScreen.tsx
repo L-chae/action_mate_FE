@@ -29,7 +29,9 @@ import type { MeetingPost, Participant } from "@/features/meetings/model/types";
 
 const CURRENT_USER_ID = "me";
 
-/** Participant에서 안전하게 userId / 표시이름을 뽑는 유틸 */
+type ActionState = { userId: string; kind: "approve" | "reject" } | null;
+
+/** Participant shape이 바뀌어도 화면이 깨지지 않게 "표시용" 값만 안전하게 추출 */
 function getParticipantUserId(p: Participant): string {
   const anyP = p as any;
   return String(anyP.userId ?? anyP.memberId ?? anyP.id ?? "");
@@ -46,6 +48,7 @@ function getParticipantLabel(p: Participant): string {
 export default function NotificationDetailScreen() {
   const t = useAppTheme();
   const s = t.spacing;
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -54,7 +57,7 @@ export default function NotificationDetailScreen() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [actionLoadingUserId, setActionLoadingUserId] = useState<string | null>(null);
+  const [action, setAction] = useState<ActionState>(null);
 
   const [meeting, setMeeting] = useState<MeetingPost | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -64,12 +67,23 @@ export default function NotificationDetailScreen() {
     return Boolean(hostId) && String(hostId) === CURRENT_USER_ID;
   }, [meeting]);
 
-  const pending = useMemo(() => participants.filter((p) => p.status === "PENDING"), [participants]);
+  const pending = useMemo(
+    () => participants.filter((p) => (p as any)?.status === "PENDING"),
+    [participants]
+  );
+
   const emptyPending = !loading && isHost && pending.length === 0;
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
-      if (!meetingId) return;
+      // 의도: 라우트 파라미터가 비었을 때 무한 로딩 방지
+      if (!meetingId) {
+        setMeeting(null);
+        setParticipants([]);
+        setLoading(false);
+        return;
+      }
+
       if (!opts?.silent) setLoading(true);
 
       try {
@@ -79,6 +93,7 @@ export default function NotificationDetailScreen() {
         const hostId = (m as any)?.host?.id;
         const host = Boolean(hostId) && String(hostId) === CURRENT_USER_ID;
 
+        // 의도: 호스트만 신청자 목록을 내려받도록 해서 불필요한 호출/노출 방지
         if (host) {
           const parts = await meetingApi.getParticipants(meetingId);
           setParticipants(parts);
@@ -111,27 +126,26 @@ export default function NotificationDetailScreen() {
   const onApprove = useCallback(
     async (userId: string) => {
       if (!isHost) return;
-      if (actionLoadingUserId) return;
+      if (action) return;
 
-      setActionLoadingUserId(userId);
+      setAction({ userId, kind: "approve" });
       try {
         const updated = await meetingApi.approveParticipant(meetingId, userId);
-        // approveParticipant가 "participants list"를 주는 형태라면 그대로 유지
         setParticipants(updated as any);
       } catch (e) {
         console.error(e);
         Alert.alert("오류", "수락 처리에 실패했습니다.");
       } finally {
-        setActionLoadingUserId(null);
+        setAction(null);
       }
     },
-    [isHost, meetingId, actionLoadingUserId]
+    [isHost, meetingId, action]
   );
 
   const onReject = useCallback(
     async (userId: string) => {
       if (!isHost) return;
-      if (actionLoadingUserId) return;
+      if (action) return;
 
       Alert.alert("거절할까요?", "이 참여 신청을 거절합니다.", [
         { text: "취소", style: "cancel" },
@@ -139,7 +153,7 @@ export default function NotificationDetailScreen() {
           text: "거절",
           style: "destructive",
           onPress: async () => {
-            setActionLoadingUserId(userId);
+            setAction({ userId, kind: "reject" });
             try {
               const updated = await meetingApi.rejectParticipant(meetingId, userId);
               setParticipants(updated as any);
@@ -147,20 +161,23 @@ export default function NotificationDetailScreen() {
               console.error(e);
               Alert.alert("오류", "거절 처리에 실패했습니다.");
             } finally {
-              setActionLoadingUserId(null);
+              setAction(null);
             }
           },
         },
       ]);
     },
-    [isHost, meetingId, actionLoadingUserId]
+    [isHost, meetingId, action]
   );
 
-  // ✅ 토큰 기반 summary 배경
-  const summaryBg = withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.08);
-  const summaryBorder = withAlpha(t.colors.primary, t.mode === "dark" ? 0.30 : 0.22);
+  // 의도: 요약 영역은 "브랜드 톤"만 살짝 주고, 라이트는 primaryLight를 우선 사용(예측 가능)
+  const summaryBg =
+    t.mode === "dark" ? withAlpha(t.colors.primary, 0.18) : t.colors.primaryLight;
+  const summaryBorder =
+    t.mode === "dark"
+      ? withAlpha(t.colors.primary, 0.30)
+      : withAlpha(t.colors.primary, 0.22);
 
-  // ✅ 공용 Empty Card (아이콘 + EmptyView 조합)
   const EmptyCard = useCallback(
     ({
       icon,
@@ -172,14 +189,17 @@ export default function NotificationDetailScreen() {
       desc: string;
     }) => (
       <Card style={{ marginTop: s.space[3] }}>
-        <View style={{ alignItems: "center", gap: s.space[2] }}>
+        <View style={styles.centerStack}>
           <Ionicons name={icon} size={28} color={t.colors.textSub} />
+          <View style={{ height: s.space[2] }} />
           <EmptyView title={title} description={desc} />
         </View>
       </Card>
     ),
     [s.space, t.colors.textSub]
   );
+
+  const refreshIconColor = t.colors.icon?.default ?? t.colors.textMain;
 
   return (
     <AppLayout padded={false}>
@@ -192,14 +212,25 @@ export default function NotificationDetailScreen() {
         showBorder
         showNoti={false}
         renderRight={() => (
-          <Pressable onPress={onRefresh} hitSlop={10} style={{ padding: s.space[1] }}>
-            <Ionicons name="refresh" size={22} color={t.colors.textMain} />
+          <Pressable
+            onPress={loading || refreshing ? undefined : onRefresh}
+            hitSlop={10}
+            style={{ padding: s.space[1], opacity: loading || refreshing ? 0.5 : 1 }}
+          >
+            <Ionicons name="refresh" size={22} color={refreshIconColor} />
           </Pressable>
         )}
       />
 
       <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={t.colors.primary}
+            colors={[t.colors.primary]}
+          />
+        }
         contentContainerStyle={{
           paddingHorizontal: s.pagePaddingH,
           paddingTop: s.space[4],
@@ -211,28 +242,39 @@ export default function NotificationDetailScreen() {
           <View style={styles.centerGrow}>
             <ActivityIndicator size="large" color={t.colors.primary} />
           </View>
+        ) : !meetingId ? (
+          <EmptyCard
+            icon="alert-circle-outline"
+            title="잘못된 접근이에요"
+            desc="알림 ID를 확인할 수 없습니다. 다시 시도해 주세요."
+          />
         ) : (
           <>
-            {/* ✅ 헤더 요약: Card 재사용 */}
+            {/* 요약 헤더: Card/Badge 토큰 기반으로 재사용 */}
             <Card style={{ backgroundColor: summaryBg, borderColor: summaryBorder }}>
-              <Text style={[t.typography.titleMedium, { color: t.colors.textMain }]} numberOfLines={1}>
+              <Text
+                style={[t.typography.titleMedium, { color: t.colors.textMain }]}
+                numberOfLines={1}
+              >
                 {meeting?.title ?? "모임"}
               </Text>
 
-              <View style={{ flexDirection: "row", alignItems: "center", marginTop: s.space[2] }}>
-                <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>
-                  대기 중 신청
-                </Text>
-                <View style={{ width: s.space[2] }} />
-                <Badge
-                  label={`${isHost ? pending.length : 0}건`}
-                  tone={isHost && pending.length > 0 ? "warning" : "neutral"}
-                  size="md"
-                />
+              <View style={{ marginTop: s.space[2] }}>
+                <View style={styles.rowCenter}>
+                  <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>
+                    대기 중 신청
+                  </Text>
+                  <View style={{ width: s.space[2] }} />
+                  <Badge
+                    label={`${isHost ? pending.length : 0}건`}
+                    tone={isHost && pending.length > 0 ? "warning" : "neutral"}
+                    size="md"
+                  />
+                </View>
               </View>
             </Card>
 
-            {/* ✅ 호스트가 아니면 여기서 끝 */}
+            {/* 호스트가 아니면 처리 UI는 숨김 */}
             {!isHost ? (
               <EmptyCard
                 icon="lock-closed-outline"
@@ -250,32 +292,59 @@ export default function NotificationDetailScreen() {
                 {pending.map((p, idx) => {
                   const uid = getParticipantUserId(p);
                   const name = getParticipantLabel(p);
-                  const acting = actionLoadingUserId === uid;
-                  const disableAll = !!actionLoadingUserId; // 동시에 여러건 처리 방지(원하면 제거)
+
+                  const actingApprove =
+                    action?.userId === uid && action.kind === "approve";
+                  const actingReject = action?.userId === uid && action.kind === "reject";
+
+                  // 의도: 동시에 여러건 처리 방지(초기 앱에서는 단순한 UX가 안전)
+                  const disableAll = !!action;
 
                   return (
-                    <View key={uid} style={{ marginBottom: idx === pending.length - 1 ? 0 : s.space[2] }}>
+                    <View
+                      key={uid ? `p-${uid}` : `p-idx-${idx}`}
+                      style={{
+                        marginBottom: idx === pending.length - 1 ? 0 : s.space[2],
+                      }}
+                    >
                       <Card padded={false} style={{ padding: s.space[4] }}>
-                        <View style={{ flexDirection: "row", alignItems: "center" }}>
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
+                        <View style={styles.rowTop}>
+                          <View style={styles.flex1Min0}>
+                            <Text
+                              style={[
+                                t.typography.labelLarge,
+                                { color: t.colors.textMain },
+                              ]}
+                              numberOfLines={1}
+                            >
                               {name}
                             </Text>
 
-                            <View style={{ flexDirection: "row", alignItems: "center", marginTop: s.space[1] }}>
-                              <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>상태:</Text>
+                            <View style={{ height: s.space[1] }} />
+
+                            <View style={styles.rowCenter}>
+                              <Text
+                                style={[
+                                  t.typography.bodySmall,
+                                  { color: t.colors.textSub },
+                                ]}
+                              >
+                                상태:
+                              </Text>
                               <View style={{ width: s.space[2] }} />
                               <Badge label="대기" tone="warning" size="sm" />
                             </View>
                           </View>
 
-                          <View style={{ flexDirection: "row", marginLeft: s.space[3] }}>
+                          <View style={{ width: s.space[3] }} />
+
+                          <View style={styles.actionsRow}>
                             <Button
                               title="거절"
                               variant="secondary"
                               size="sm"
                               disabled={disableAll}
-                              loading={acting}
+                              loading={actingReject}
                               onPress={() => onReject(uid)}
                               style={{ minWidth: 86 }}
                             />
@@ -285,7 +354,7 @@ export default function NotificationDetailScreen() {
                               variant="primary"
                               size="sm"
                               disabled={disableAll}
-                              loading={acting}
+                              loading={actingApprove}
                               onPress={() => onApprove(uid)}
                               style={{ minWidth: 86 }}
                             />
@@ -306,4 +375,10 @@ export default function NotificationDetailScreen() {
 
 const styles = StyleSheet.create({
   centerGrow: { flex: 1, justifyContent: "center", alignItems: "center" },
+  // gap 대신 명시적 spacing(View height/width)로 처리해 RN 버전 차이 리스크 감소
+  centerStack: { alignItems: "center" },
+  rowCenter: { flexDirection: "row", alignItems: "center" },
+  rowTop: { flexDirection: "row", alignItems: "center" },
+  flex1Min0: { flex: 1, minWidth: 0 },
+  actionsRow: { flexDirection: "row", alignItems: "center" },
 });

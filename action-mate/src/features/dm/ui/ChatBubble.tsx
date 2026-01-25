@@ -1,7 +1,6 @@
 // src/features/dm/ui/ChatBubble.tsx
-import React, { useMemo } from "react";
+import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import type { DMMessage } from "../model/types";
 
@@ -9,74 +8,46 @@ interface ChatBubbleProps {
   message: DMMessage;
 }
 
+const MY_ID = "me";
+
 export default function ChatBubble({ message }: ChatBubbleProps) {
   const t = useAppTheme();
-  const isMe = message.senderId === "me";
-
-  // ✅ 렌더마다 Date 파싱/포맷 비용을 줄이기 위해 메모이제이션
-  const timeText = useMemo(() => {
-    const d = new Date(message.createdAt);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-  }, [message.createdAt]);
+  // id 비교 시 타입 안전성을 위해 String 변환 추천
+  const isMe = String(message.senderId) === MY_ID;
 
   return (
-    <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
-      {!isMe && (
-        <View style={[styles.avatarUrl, { backgroundColor: t.colors.neutral[200] }]}>
-          <Ionicons name="person" size={16} color={t.colors.neutral[400]} />
-        </View>
-      )}
-
-      <View
+    <View
+      style={[
+        styles.bubble,
+        isMe
+          ? { 
+              backgroundColor: t.colors.primary, 
+              borderBottomRightRadius: 4 // 말풍선 꼬리 느낌 (오른쪽 아래 각지게)
+            }
+          : { 
+              backgroundColor: t.colors.neutral[100], 
+              borderBottomLeftRadius: 4 // 말풍선 꼬리 느낌 (왼쪽 아래 각지게)
+            },
+      ]}
+    >
+      <Text
         style={[
-          styles.bubble,
-          isMe
-            ? { backgroundColor: t.colors.primary, borderBottomRightRadius: 4 }
-            : { backgroundColor: t.colors.neutral[100], borderBottomLeftRadius: 4 },
+          t.typography.bodyMedium,
+          { color: isMe ? "white" : t.colors.textMain },
         ]}
       >
-        <Text style={[t.typography.bodyMedium, { color: isMe ? "white" : t.colors.textMain }]}>
-          {message.text}
-        </Text>
-      </View>
-
-      <Text style={[t.typography.labelSmall, styles.timeText, { color: t.colors.neutral[400] }]}>
-        {timeText}
+        {message.text}
       </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  msgRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    marginBottom: 12,
-  },
-  msgRowMe: {
-    flexDirection: "row-reverse",
-  },
-  msgRowOther: {
-    flexDirection: "row",
-  },
-  avatarUrl: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 8,
-  },
   bubble: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 18,
-    maxWidth: "70%",
-  },
-  timeText: {
-    marginHorizontal: 6,
-    marginBottom: 2,
-    fontSize: 10,
+    borderRadius: 18, // 기본적으로 둥글게
+    // maxWidth는 Parent(Screen)에서 이미 제한하고 있으므로(80% 등),
+    // 여기서는 내용물에 맞춰 늘어나도록 둠.
   },
 });

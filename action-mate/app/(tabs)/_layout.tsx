@@ -1,6 +1,5 @@
-// app/(tabs)/_layout.tsx
 import React from "react";
-import { Tabs, Redirect } from "expo-router";
+import { Tabs, Redirect, useSegments } from "expo-router"; 
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
@@ -11,9 +10,15 @@ const TAB_BAR_HEIGHT = 56;
 export default function TabsLayout() {
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
+  
+  // ✅ [수정] 반환값을 string[]으로 강제하여 TypeScript 오류 해결
+  const segments = useSegments() as string[]; 
 
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const hasHydrated = useAuthStore((s) => s.hasHydrated);
+
+  // 이제 includes 메서드가 정상적으로 작동합니다.
+  const hideTabBar = segments.includes("hosted") || segments.includes("joined");
 
   if (!hasHydrated) return null;
   if (!isLoggedIn) return <Redirect href="/(auth)/login" />;
@@ -31,6 +36,8 @@ export default function TabsLayout() {
           height: TAB_BAR_HEIGHT + insets.bottom,
           paddingBottom: insets.bottom,
           paddingTop: 6,
+          // 조건부 스타일 적용
+          display: hideTabBar ? "none" : "flex", 
         },
       }}
     >
@@ -65,7 +72,7 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
-        name="my/index"
+        name="my"
         options={{
           title: "마이페이지",
           tabBarIcon: ({ color, size, focused }) => (
@@ -77,8 +84,6 @@ export default function TabsLayout() {
           ),
         }}
       />
-      <Tabs.Screen name="my/joined" options={{ href: null }} />
-      <Tabs.Screen name="my/hosted" options={{ href: null }} />
     </Tabs>
   );
 }

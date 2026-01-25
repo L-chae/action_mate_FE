@@ -20,7 +20,7 @@ type Props = {
   tone?: Tone;
   size?: Size;
   style?: ViewStyle;
-  /** ✅ 둥근 태그(알약)로 통일: 기본 true */
+  // 의도: 초반 앱에서는 pill 형태로 통일하면 화면이 빨리 정돈됨
   pill?: boolean;
 };
 
@@ -34,39 +34,31 @@ export function Badge({
   const t = useAppTheme();
   const { colors, typography } = t;
 
+  // 의도: 크기 스케일은 2단계로 제한(텍스트/패딩 난립 방지)
   const s =
     size === "md"
       ? { py: 6, px: 10, typo: typography.labelMedium }
       : { py: 4, px: 9, typo: typography.labelSmall };
 
   const toneStyle = (() => {
-    // ✅ 다크에서는 배경이 더 진해야 “pill”이 살아남음
+    // 의도: 다크에서 pill이 죽지 않도록 배경 알파를 조금 더 강하게
     const alphaBase = t.mode === "dark" ? 0.22 : 0.14;
     const soft = (hex: string, a = alphaBase) => withAlpha(hex, a);
 
     switch (tone) {
       case "primary":
         return { bg: soft(colors.primary), fg: colors.primary };
-
       case "point":
-        // ✅ 다크에서 primaryDark가 튀면 point 자체를 fg로 쓰는 게 안정적
         return { bg: soft(colors.point, alphaBase + 0.02), fg: colors.point };
-
       case "success":
         return { bg: soft(colors.success), fg: colors.success };
-
       case "warning":
         return { bg: soft(colors.warning, alphaBase + 0.02), fg: colors.warning };
-
       case "error":
         return { bg: soft(colors.error), fg: colors.error };
-
       case "neutral":
-        // ✅ 완전 중립 pill (라이트/다크 공통 안정)
         return { bg: colors.overlay[8], fg: colors.textSub };
-
       default:
-        // default는 neutral보다 더 약하게
         return { bg: colors.overlay[6], fg: colors.textSub };
     }
   })();
@@ -78,13 +70,16 @@ export function Badge({
         {
           paddingVertical: s.py,
           paddingHorizontal: s.px,
-          borderRadius: pill ? 999 : 12, // ✅ 알약 통일
+          borderRadius: pill ? 999 : 12,
           backgroundColor: toneStyle.bg,
         },
         style,
       ]}
     >
-      <Text style={[s.typo, styles.text, { color: toneStyle.fg }]} numberOfLines={1}>
+      <Text
+        style={[s.typo, styles.text, { color: toneStyle.fg }]}
+        numberOfLines={1}
+      >
         {label}
       </Text>
     </View>
@@ -94,7 +89,7 @@ export function Badge({
 const styles = StyleSheet.create({
   base: { alignSelf: "flex-start" },
   text: {
-    // ✅ 작은 텍스트는 가독성 위해 살짝만 진하게
+    // 의도: 작은 텍스트는 대비가 약해지기 쉬워 살짝만 강하게
     fontWeight: "800",
   },
 });
