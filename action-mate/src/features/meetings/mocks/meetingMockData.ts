@@ -1,20 +1,21 @@
 // src/features/meetings/mocks/meetingMockData.ts
 import type { HostSummary, MeetingPost } from "../model/types";
 
+
 // ✅ 호스트 유저 데이터 (HostSummary 타입 준수)
 export const HOST_USERS: Record<string, HostSummary> = {
   user1: {
     id: "u1",
     nickname: "민수",
-    avgRate: 3.5, // 37.5도 대응 (32 + 3.5*2 = 39도, 기존보다 조금 높음)
-    orgTime: 12,  // praiseCount 대체
+    avgRate: 3.5,
+    orgTime: 12,
     intro: "운동 끝나고 맥주 한잔 좋아해요 🍺",
     avatarUrl: "https://i.pravatar.cc/150?u=u1",
   },
   user2: {
     id: "u2",
     nickname: "보드게임마스터",
-    avgRate: 5.0, // 42.0도 대응
+    avgRate: 5.0,
     orgTime: 56,
     intro: "전략 게임 전문입니다. 초보 환영!",
     avatarUrl: "https://i.pravatar.cc/150?u=u2",
@@ -22,7 +23,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
   user3: {
     id: "u3",
     nickname: "새벽러너",
-    avgRate: 2.25, // 36.5도 대응
+    avgRate: 2.25,
     orgTime: 3,
     intro: "매일 아침 6시 뜁니다.",
     avatarUrl: null,
@@ -30,7 +31,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
   user4: {
     id: "u4",
     nickname: "맛집탐방러",
-    avgRate: 3.1, // 38.2도 대응
+    avgRate: 3.1,
     orgTime: 20,
     intro: "맛없는 건 안 먹어요 🙅‍♂️",
     avatarUrl: "https://i.pravatar.cc/150?u=u4",
@@ -38,7 +39,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
   user5: {
     id: "u5",
     nickname: "모각코러",
-    avgRate: 3.55, // 39.1도 대응
+    avgRate: 3.55,
     orgTime: 8,
     intro: "집중모드 환영. 말없이 각자 코딩해요.",
     avatarUrl: "https://i.pravatar.cc/150?u=u5",
@@ -46,7 +47,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
   user6: {
     id: "u6",
     nickname: "오늘은한잔",
-    avgRate: 1.95, // 35.9도 대응
+    avgRate: 1.95,
     orgTime: 1,
     intro: "퇴근 후 가볍게 이야기 나눠요.",
     avatarUrl: null,
@@ -54,7 +55,7 @@ export const HOST_USERS: Record<string, HostSummary> = {
   me: {
     id: "me",
     nickname: "나(호스트)",
-    avgRate: 2.4, // 36.8도 대응
+    avgRate: 2.4,
     orgTime: 0,
     intro: "내가 만든 모임이에요 🙂",
     avatarUrl: "https://i.pravatar.cc/150?u=me",
@@ -71,10 +72,9 @@ const d = (daysFromNow: number, hour = 12, minute = 0) => {
   return base.toISOString();
 };
 
+// ✅ 주소를 “생성”하지 않고, 목업에서 “명시”
+// - 실제 서비스에서도 address는 서버/지오코딩 결과로 내려오는 값이라는 가정이 자연스럽습니다.
 export const MOCK_MEETINGS_SEED: MeetingPost[] = [
-  // =========================
-  // 기본 시드
-  // =========================
   {
     id: "101",
     category: "SPORTS",
@@ -82,6 +82,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     content: "라켓 여분 있어요! 몸만 오세요.",
     meetingTime: h(2),
     location: { name: "잠원지구 3주차장", latitude: 37.5195, longitude: 127.0093 },
+    address: "서울 서초구 잠원로 221 (잠원동) 인근",
     distanceText: "0.6km",
     capacity: { current: 2, max: 4, total: 4 },
     joinMode: "INSTANT",
@@ -97,6 +98,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     content: "가볍게 점심!",
     meetingTime: h(1),
     location: { name: "강남역 근처 버거집", latitude: 37.4981, longitude: 127.0277 },
+    address: "서울 강남구 테헤란로 123 (역삼동) 근처",
     distanceText: "1.1km",
     capacity: { current: 1, max: 4, total: 4 },
     joinMode: "INSTANT",
@@ -108,11 +110,12 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "103",
     category: "STUDY",
-    title: "📚 모각코 (조용히 각자)",
+    title: "모각코 (조용히 각자)",
     content: "룰: 서로 말 걸기 X, 필요 시 채팅으로.",
     conditions: "노트북 필수 / 조용히 작업",
     meetingTime: d(1, 14, 0),
     location: { name: "스타벅스 강남R점", latitude: 37.499, longitude: 127.03 },
+    address: "서울 강남구 강남대로 390 (역삼동) 1층",
     distanceText: "0.9km",
     capacity: { current: 2, max: 6, total: 6 },
     joinMode: "APPROVAL",
@@ -124,11 +127,12 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "104",
     category: "GAMES",
-    title: "🎲 보드게임 가볍게 한 판",
+    title: "보드게임 가볍게 한 판",
     content: "전략/파티게임 섞어서 해요!",
     conditions: "기본 룰 안내 가능 / 초보 환영",
     meetingTime: d(1, 15, 0),
     location: { name: "성수 보드게임 카페", latitude: 37.5446, longitude: 127.0559 },
+    address: "서울 성동구 연무장길 12 (성수동2가)",
     distanceText: "2.0km",
     capacity: { current: 1, max: 5, total: 5 },
     joinMode: "APPROVAL",
@@ -140,10 +144,11 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "105",
     category: "MEAL",
-    title: "🍜 홍대 라멘 번개",
+    title: "홍대 라멘 번개",
     content: "맛집이라 웨이팅 있을 수 있어요.",
     meetingTime: h(3),
     location: { name: "홍대 라멘집", latitude: 37.5558, longitude: 126.9225 },
+    address: "서울 마포구 와우산로 94 (상수동) 인근",
     distanceText: "1.2km",
     capacity: { current: 4, max: 4, total: 4 },
     joinMode: "INSTANT",
@@ -152,13 +157,16 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
     durationMinutes: 90,
     host: HOST_USERS.user4,
   },
+
+  // ✅ 일부는 “상세주소 없음” 케이스도 남겨두는 게 UI 검증에 좋음
   {
     id: "106",
     category: "SPORTS",
-    title: "🏃 한강 러닝 5km (600~630)",
+    title: "한강 러닝 5km (600~630)",
     content: "가볍게 뛰고 스트레칭까지!",
     meetingTime: h(4),
     location: { name: "반포 나들목", latitude: 37.509, longitude: 126.995 },
+    address: null, // 일부러 null: 주소 미정 UI 확인용
     distanceText: "2.4km",
     capacity: { current: 3, max: 6, total: 6 },
     joinMode: "INSTANT",
@@ -170,7 +178,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "107",
     category: "STUDY",
-    title: "🧑‍💻 판교 카페 사이드프로젝트",
+    title: "판교 카페 사이드프로젝트",
     content: "각자 할 일 하고 30분마다 공유해요.",
     conditions: "간단한 자기소개 필수",
     meetingTime: d(2, 13, 0),
@@ -216,7 +224,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "202",
     category: "STUDY",
-    title: "✍️ 저녁 모각코 2시간 (초집중)",
+    title: "저녁 모각코 2시간 (초집중)",
     content: "각자 할 일 하고 마지막 10분만 공유해요.",
     conditions: "노트북 필수 / 통화 금지 / 대화 최소",
     meetingTime: d(1, 20, 0),
@@ -234,7 +242,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "301",
     category: "SPORTS",
-    title: "🏸 (종료) 배드민턴 1시간 번개",
+    title: "(종료) 배드민턴 1시간 번개",
     content: "끝나고 간단히 스트레칭만 하고 해산했어요.",
     meetingTime: h(-6),
     location: { name: "잠원체육관", latitude: 37.5188, longitude: 127.0112 },
@@ -249,7 +257,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "302",
     category: "MEAL",
-    title: "🍔 (종료) 강남 버거 점심 모임",
+    title: "(종료) 강남 버거 점심 모임",
     content: "가볍게 먹고 해산했어요. 다들 매너 좋았음!",
     meetingTime: h(-24),
     location: { name: "강남역 버거집", latitude: 37.4982, longitude: 127.0276 },
@@ -264,7 +272,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "303",
     category: "GAMES",
-    title: "🎲 (종료) 성수 보드게임 카페",
+    title: "(종료) 성수 보드게임 카페",
     content: "루미큐브/스플렌더 했고 재밌었어요.",
     conditions: "초보 환영 / 룰 설명 가능",
     meetingTime: d(-2, 18, 30),
@@ -349,7 +357,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "402",
     category: "SPORTS",
-    title: "🚴 (진행중) 반포 라이딩 20km",
+    title: "(진행중) 반포 라이딩 20km",
     content: "출발했어요! 중간 합류는 어렵습니다.",
     meetingTime: h(-0.7),
     location: { name: "반포한강공원", latitude: 37.5094, longitude: 126.9948 },
@@ -364,7 +372,7 @@ export const MOCK_MEETINGS_SEED: MeetingPost[] = [
   {
     id: "403",
     category: "SPORTS",
-    title: "🏊 (취소) 수영 1시간",
+    title: "(취소) 수영 1시간",
     content: "사정이 생겨 취소했어요.",
     meetingTime: h(7),
     location: { name: "서초구민체육센터", latitude: 37.483, longitude: 127.013 },

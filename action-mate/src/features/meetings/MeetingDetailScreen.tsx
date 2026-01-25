@@ -1,18 +1,20 @@
 // src/features/meetings/MeetingDetailScreen.tsx
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  View,
   TextInput,
+  View,
   findNodeHandle,
 } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -23,8 +25,8 @@ import { useFocusEffect } from "@react-navigation/native";
 // ✅ Store & API
 import { useAuthStore } from "@/features/auth/model/authStore";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import { findDMThreadByMeetingId } from "@/features/dm/api/dmApi"; // ✅ [추가] 채팅방 조회 API
-import type { MeetingPost, Comment, Participant } from "@/features/meetings/model/types";
+import { findDMThreadByMeetingId } from "@/features/dm/api/dmApi";
+import type { Comment, MeetingPost, Participant } from "@/features/meetings/model/types";
 
 // ✅ UI & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
@@ -36,23 +38,6 @@ import { ProfileModal } from "@/features/meetings/ui/ProfileModal";
 import { DetailContent } from "./ui/DetailContent";
 import { BottomBar } from "./ui/BottomBar";
 
-// Mock Data
-const MOCK_COMMENTS: Comment[] = [
-  {
-    id: "c1",
-    content: "라켓 없는데 참여 가능할까요?",
-    createdAt: new Date(Date.now() - 1000 * 60 * 40).toISOString(),
-    author: { id: "u9", nickname: "초보배드민턴", avatarUrl: undefined } as any,
-  },
-  {
-    id: "c2",
-    content: "네! 여분 라켓 있어요. 편하게 오세요 🙂",
-    createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    parentId: "c1",
-    author: { id: "u1", nickname: "민수", avatarUrl: undefined } as any,
-  },
-];
-
 const TOPBAR_HEIGHT = 56;
 
 export default function MeetingDetailScreen() {
@@ -60,7 +45,12 @@ export default function MeetingDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
-  const meetingId = Array.isArray(params.id) ? params.id[0] : params.id;
+
+  // params 파싱은 “문자열 id”로 표준화 (이후 로직의 조건/캐스팅 최소화 목적)
+  const meetingId: string | undefined = useMemo(() => {
+    const raw = (params as any)?.id;
+    return Array.isArray(raw) ? raw[0] : raw;
+  }, [params]);
 
   const me = useAuthStore((s) => s.user);
   const currentUserId = me?.id ? String(me.id) : "guest";
@@ -82,16 +72,23 @@ export default function MeetingDetailScreen() {
 
   const inputRef = useRef<TextInput | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
-  const contentHeightRef = useRef(0);
-  const scrollViewHeightRef = useRef(0);
+
+  // “바닥 고정” 여부 판단은 렌더에 영향 없으므로 ref로 유지 (불필요한 렌더 방지 목적)
   const stickToBottomRef = useRef(true);
-  
-const { isKeyboardVisible } = useKeyboardAwareScroll({
-  onShow: () => {
-    stickToBottomRef.current = true;
-    scrollToBottomSoon(true);
-  },
-});
+
+  const scrollToBottomSoon = useCallback((animated = true) => {
+    // 레이아웃 반영 직후 스크롤이 필요한 케이스가 많아 타이머를 최소로 사용
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated });
+    }, 80);
+  }, []);
+
+  const { isKeyboardVisible } = useKeyboardAwareScroll({
+    onShow: () => {
+      stickToBottomRef.current = true;
+      scrollToBottomSoon(true);
+    },
+  });
 
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (e) =>
@@ -104,17 +101,31 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
     };
   }, []);
 
-  const isAuthor = post?.host?.id === currentUserId || post?.host?.id === "me";
+  const isAuthor = useMemo(() => {
+    const hostId = post?.host?.id;
+    if (!hostId) return false;
+    return String(hostId) === String(currentUserId) || String(hostId) === "me";
+  }, [post?.host?.id, currentUserId]);
+
   const membership = post?.myState?.membershipStatus ?? "NONE";
   const canJoin = post?.myState?.canJoin ?? post?.status === "OPEN";
-  const pendingCount = participants.filter((p) => p.status === "PENDING").length;
 
-  const contentBottomPadding =
-    (isKeyboardVisible ? 0 : bottomBarHeight) +
-    20 +
-    (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
+  const pendingCount = useMemo(
+    () => participants.filter((p) => p.status === "PENDING").length,
+    [participants]
+  );
 
-  const keyboardVerticalOffset = Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : 0;
+  const contentBottomPadding = useMemo(() => {
+    return (
+      (isKeyboardVisible ? 0 : bottomBarHeight) +
+      20 +
+      (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0)
+    );
+  }, [bottomBarHeight, isKeyboardVisible, keyboardHeight]);
+
+  const keyboardVerticalOffset = useMemo(() => {
+    return Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : 0;
+  }, [insets.top]);
 
   const displayHost = useMemo(() => {
     if (!post?.host) return null;
@@ -129,22 +140,17 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
     return { ...post, host: displayHost ?? post.host };
   }, [post, displayHost]);
 
-  const scrollToBottomSoon = (animated = true) => {
-    setTimeout(() => {
-      if (scrollViewRef.current) {
-        scrollViewRef.current.scrollToEnd({ animated });
-      }
-    }, 100);
-  };
+  const handleScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+      const distanceFromBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
+      stickToBottomRef.current = distanceFromBottom < 24;
+    },
+    [contentBottomPadding]
+  );
 
-  const handleScroll = (e: any) => {
-    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-    const distanceFromBottom =
-      contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
-    stickToBottomRef.current = distanceFromBottom < 24;
-  };
-
-  const scrollComposerToKeyboard = () => {
+  const scrollComposerToKeyboard = useCallback(() => {
     const node = findNodeHandle(inputRef.current);
     const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
     if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
@@ -156,17 +162,22 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
     } else {
       scrollToBottomSoon(true);
     }
-  };
+  }, [scrollToBottomSoon]);
 
   const loadInitialData = useCallback(async () => {
     if (!meetingId) return;
-    try {
-      const m = await meetingApi.getMeeting(meetingId as string);
-      setPost(m);
-      setComments(MOCK_COMMENTS);
 
-      if (m.myState?.membershipStatus === "HOST" || m.host?.id === currentUserId) {
-        const parts = await meetingApi.getParticipants(String(m.id) as any);
+    setLoading(true);
+    try {
+      const m = await meetingApi.getMeeting(meetingId);
+      setPost(m);
+
+      // TODO: 댓글 API 연결 시 여기서 setComments 호출
+      // setComments(await meetingApi.getComments(m.id))
+
+      const hostId = m.host?.id ? String(m.host.id) : "";
+      if (m.myState?.membershipStatus === "HOST" || hostId === String(currentUserId)) {
+        const parts = await meetingApi.getParticipants(String(m.id));
         setParticipants(parts);
       } else {
         setParticipants([]);
@@ -185,17 +196,17 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
     }, [loadInitialData])
   );
 
-  const handleCancelInputMode = () => {
+  const handleCancelInputMode = useCallback(() => {
     setReplyTarget(null);
     setEditingComment(null);
     setCommentText("");
     Keyboard.dismiss();
-  };
+  }, []);
 
-  const handleJoin = async () => {
+  const handleJoin = useCallback(async () => {
     if (!post) return;
     try {
-      const r = await meetingApi.joinMeeting(String(post.id) as any);
+      const r = await meetingApi.joinMeeting(String(post.id));
       setPost(r.post);
       if (r.post.myState?.membershipStatus === "PENDING") {
         Alert.alert("신청 완료", "호스트 승인 후 참여가 확정됩니다.");
@@ -203,9 +214,9 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
     } catch {
       Alert.alert("오류", "참여 신청에 실패했습니다.");
     }
-  };
+  }, [post]);
 
-  const handleCancelJoin = () => {
+  const handleCancelJoin = useCallback(() => {
     if (!post) return;
     Alert.alert(membership === "PENDING" ? "요청 취소" : "모임 나가기", "정말 처리하시겠습니까?", [
       { text: "취소", style: "cancel" },
@@ -214,7 +225,7 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
         style: "destructive",
         onPress: async () => {
           try {
-            const r = await meetingApi.cancelJoin(String(post.id) as any);
+            const r = await meetingApi.cancelJoin(String(post.id));
             setPost(r.post);
           } catch {
             Alert.alert("오류", "요청 처리에 실패했습니다.");
@@ -222,24 +233,20 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
         },
       },
     ]);
-  };
+  }, [post, membership]);
 
-  // ✅ [추가] 대화방 입장 로직
   const handleEnterChat = useCallback(async () => {
     if (!post) return;
 
-    // 1. 호스트 본인은 채팅 목록으로 (1:N 채팅이므로 특정 방 지정 불가)
     if (post.myState?.membershipStatus === "HOST") {
       router.push("/(tabs)/dm");
       return;
     }
 
     try {
-      // 2. 멤버: 이미 있는 방이 있는지 확인
       const existingThread = await findDMThreadByMeetingId(post.id);
 
       if (existingThread) {
-        // [CASE A] 기존 방 이동
         router.push({
           pathname: "/dm/[threadId]",
           params: {
@@ -249,12 +256,10 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
           },
         } as any);
       } else {
-        // [CASE B] 새 방 생성 (임시 ID로 진입)
-        // DMThreadScreen에서 메시지 전송 시 실제 방이 생성됨
         router.push({
           pathname: "/dm/[threadId]",
           params: {
-            threadId: `new_${post.id}_${post.host?.id}`, 
+            threadId: `new_${post.id}_${post.host?.id}`,
             meetingId: post.id,
             meetingTitle: post.title,
             nickname: post.host?.nickname,
@@ -268,35 +273,40 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
     }
   }, [post, router]);
 
-  const handleSubmitComment = () => {
+  const handleSubmitComment = useCallback(() => {
     if (!commentText.trim()) return;
 
     if (editingComment) {
-      setComments((prev) =>
-        prev.map((c) => (c.id === editingComment.id ? { ...c, content: commentText } : c))
+      setComments((prev: Comment[]) =>
+        prev.map((c: Comment) =>
+          String(c.id) === String(editingComment.id) ? { ...c, content: commentText } : c
+        )
       );
       setEditingComment(null);
     } else {
+      const replyNickname =
+        (replyTarget as any)?.author?.nickname ?? (replyTarget as any)?.authorNickname ?? "알 수 없음";
+
       const newComment: Comment = {
         id: `new_${Date.now()}`,
-        content: replyTarget ? `@${replyTarget.author.nickname} ${commentText}` : commentText,
+        content: replyTarget ? `@${replyNickname} ${commentText}` : commentText,
         createdAt: new Date().toISOString(),
         parentId: replyTarget?.id,
         author: {
           id: currentUserId,
           nickname: me?.nickname || "나",
-          avatarUrl: me?.avatarUrl,
+          avatarUrl: (me as any)?.avatarUrl,
         } as any,
       };
 
-      setComments((prev) => [...prev, newComment]);
+      setComments((prev: Comment[]) => [...prev, newComment]);
     }
 
     setCommentText("");
     setReplyTarget(null);
     Keyboard.dismiss();
     scrollToBottomSoon(true);
-  };
+  }, [commentText, editingComment, replyTarget, currentUserId, me, scrollToBottomSoon]);
 
   if (loading || !post) {
     return (
@@ -312,7 +322,6 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* 프로필 모달 */}
       {displayHost && (
         <ProfileModal
           visible={profileVisible}
@@ -321,7 +330,6 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
         />
       )}
 
-      {/* 메뉴 모달 */}
       <Modal
         visible={menuVisible}
         transparent
@@ -329,16 +337,17 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
         onRequestClose={() => setMenuVisible(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
-          <View
+          <Pressable
             style={[
               styles.modalContent,
-              {
-                paddingBottom: Math.max(20, insets.bottom),
-                backgroundColor: t.colors.surface,
-              },
+              { paddingBottom: Math.max(20, insets.bottom), backgroundColor: t.colors.surface },
             ]}
+            onPress={() => {
+              // overlay 닫힘 방지용 (의도: 컨텐츠 터치 시 모달 유지)
+            }}
           >
             <View style={styles.dragHandle} />
+
             <Pressable
               style={styles.menuItem}
               onPress={() => {
@@ -349,7 +358,9 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
               <Ionicons name="pencil-outline" size={20} color={t.colors.textMain} />
               <Text style={t.typography.bodyLarge}>게시글 수정</Text>
             </Pressable>
+
             <View style={[styles.menuDivider, { backgroundColor: t.colors.neutral[100] }]} />
+
             <Pressable
               style={styles.menuItem}
               onPress={() => {
@@ -361,7 +372,7 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
                     style: "destructive",
                     onPress: async () => {
                       try {
-                        await meetingApi.cancelMeeting(String(post.id) as any);
+                        await meetingApi.cancelMeeting(String(post.id));
                         router.back();
                       } catch {
                         Alert.alert("오류", "삭제 실패");
@@ -374,7 +385,7 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
               <Ionicons name="trash-outline" size={20} color={t.colors.error} />
               <Text style={[t.typography.bodyLarge, { color: t.colors.error }]}>게시글 삭제</Text>
             </Pressable>
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
 
@@ -420,18 +431,27 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
             scrollViewRef={scrollViewRef}
             bottomPadding={contentBottomPadding}
             onPressHostProfile={() => setProfileVisible(true)}
-            onReply={(c) => {
+            onReply={(c: Comment) => {
               setReplyTarget(c);
               inputRef.current?.focus();
             }}
-            onEditComment={(c) => {
+            onEditComment={(c: Comment) => {
               setEditingComment(c);
               setCommentText(c.content);
               inputRef.current?.focus();
             }}
-            onDeleteComment={(id) => setComments((prev) => prev.filter((c) => c.id !== id))}
-            onContentHeightChange={(h) => (contentHeightRef.current = h)}
-            onScrollViewHeightChange={(h) => (scrollViewHeightRef.current = h)}
+            onDeleteComment={(id: string) => {
+              setComments((prev: Comment[]) =>
+                prev.filter((c: Comment) => String(c.id) !== String(id))
+              );
+            }}
+            onContentHeightChange={() => {
+              // 현재는 “스크롤 바닥 고정” 계산에 직접 쓰지 않지만,
+              // DetailContent 내부 API는 유지 (향후 sticky UX 개선 여지)
+            }}
+            onScrollViewHeightChange={() => {
+              // 동일
+            }}
             onScroll={handleScroll}
             commentText={commentText}
             setCommentText={setCommentText}
@@ -456,7 +476,6 @@ const { isKeyboardVisible } = useKeyboardAwareScroll({
             isKeyboardVisible={isKeyboardVisible}
             onJoin={handleJoin}
             onCancelJoin={handleCancelJoin}
-            // ✅ [연결] 채팅 입장 함수 연결
             onEnterChat={handleEnterChat}
             onManage={() => router.push(`/meetings/manage/${post.id}` as any)}
             onLayoutHeight={setBottomBarHeight}

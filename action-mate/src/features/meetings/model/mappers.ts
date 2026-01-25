@@ -15,12 +15,11 @@ import type {
   PostStatus,
 } from "./types";
 import { nowIso } from "@/shared/utils/timeText";
+
 /**
  * ✅ Meetings Mapper (Single Source of Truth)
  * - 서버 DTO <-> UI 모델 변환을 여기서만 처리
- * - 서버 누락 필드(평점/횟수/참여일 등)는 기본값 규칙으로 채움
  */
-
 
 const num = (v: unknown, fallback = 0) => {
   const n = typeof v === "number" ? v : Number(v);
@@ -31,30 +30,19 @@ const str = (v: unknown, fallback = "") => (typeof v === "string" ? v : fallback
 
 const toCategoryKey = (c: PostCategoryDTO): CategoryKey => {
   switch (c) {
-    case "운동":
-      return "SPORTS";
-    case "오락":
-      return "GAMES";
-    case "식사":
-      return "MEAL";
-    case "자유":
-    default:
-      return "ETC";
+    case "운동": return "SPORTS";
+    case "오락": return "GAMES";
+    case "식사": return "MEAL";
+    case "자유": default: return "ETC";
   }
 };
 
 export const toPostCategory = (c: CategoryKey): PostCategoryDTO => {
   switch (c) {
-    case "SPORTS":
-      return "운동";
-    case "GAMES":
-      return "오락";
-    case "MEAL":
-      return "식사";
-    case "STUDY":
-    case "ETC":
-    default:
-      return "자유";
+    case "SPORTS": return "운동";
+    case "GAMES": return "오락";
+    case "MEAL": return "식사";
+    case "STUDY": case "ETC": default: return "자유";
   }
 };
 
@@ -62,14 +50,10 @@ const toPostStatus = (s: MeetingPostDTO["state"]): PostStatus => s as PostStatus
 
 const toMembershipStatus = (v?: MeetingPostDTO["myParticipationStatus"]): MembershipStatus => {
   switch (v) {
-    case "HOST":
-      return "HOST";
-    case "MEMBER":
-      return "MEMBER";
-    case "PENDING":
-      return "PENDING";
-    default:
-      return "NONE";
+    case "HOST": return "HOST";
+    case "MEMBER": return "MEMBER";
+    case "PENDING": return "PENDING";
+    default: return "NONE";
   }
 };
 
@@ -79,7 +63,6 @@ const calcCanJoin = (dto: MeetingPostDTO) => {
   const total = num(dto.capacity, 0);
   const current = num(dto.currentCount, 0);
 
-  // total이 0이면 "무제한/미정" 같은 케이스일 수 있어, 꽉참 판정은 total>0일 때만
   if (total > 0 && current >= total) return { canJoin: false, reason: "정원이 가득 찼습니다." };
   return { canJoin: true as const };
 };
@@ -102,20 +85,23 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
     content: dto.content ? dto.content : undefined,
     meetingTime: str(dto.meetingTime, nowIso()),
 
-    // ✅ location: lat/lng + latitude/longitude 동시 제공(코드 혼재 방어)
+    // ✅ [수정] DTO에 address가 없으므로 undefined 처리 (UI에서 "주소 없음" 표시됨)
+    // 만약 백엔드에 주소 필드가 생긴다면 `address: dto.address` 등으로 연결하면 됩니다.
+    address: undefined,
+
     location: {
       name: str(dto.locationName, ""),
       lat: num(dto.latitude, 0),
       lng: num(dto.longitude, 0),
+      // 호환성 유지
       latitude: num(dto.latitude, 0),
       longitude: num(dto.longitude, 0),
       address: undefined,
     } as any,
 
-    // ✅ capacity: max/current 중심 + total alias 유지(코드 혼재 방어)
     capacity: {
       max: safeMax,
-      total: safeMax, // alias
+      total: safeMax,
       current: safeCurrent,
     } as any,
 
@@ -137,7 +123,6 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
 
     myState: {
       membershipStatus,
-      // ✅ 이미 참여 상태면 canJoin은 false로 고정(중복 참여/재요청 방지)
       canJoin: membershipStatus === "NONE" ? canJoinInfo.canJoin : false,
       reason: membershipStatus === "NONE" ? (canJoinInfo as any).reason : undefined,
     },
@@ -193,22 +178,18 @@ export const toPostUpdateRequest = (patch: Partial<MeetingUpsert>): PostUpdateRe
 
 export const toMembershipStatusFromApplicant = (dto: ApplicantDTO): MembershipStatus => {
   switch (dto.state) {
-    case "APPROVED":
-      return "MEMBER";
-    case "REJECTED":
-      return "REJECTED";
-    case "PENDING":
-    default:
-      return "PENDING";
+    case "APPROVED": return "MEMBER";
+    case "REJECTED": return "REJECTED";
+    case "PENDING": default: return "PENDING";
   }
 };
 
 export const toParticipant = (dto: ApplicantDTO): Participant => {
   return {
     id: dto.userId,
-    nickname: dto.userId, // 서버에 닉네임/프로필이 없으므로 기본값
+    nickname: dto.userId,
     avatarUrl: null,
     status: toMembershipStatusFromApplicant(dto),
-    appliedAt: nowIso(), // 서버에 신청시간이 없으므로 기본값(실서비스면 서버 필드 추가 권장)
+    appliedAt: nowIso(),
   };
 };

@@ -7,24 +7,20 @@ import { Card } from "@/shared/ui/Card";
 import { Badge } from "@/shared/ui/Badge";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
-import type { MeetingPost } from "@/features/meetings/model/types";
+import type { MeetingPost, MembershipStatus, PostStatus } from "@/features/meetings/model/types";
 import { meetingTimeTextFromIso } from "@/shared/utils/timeText";
 
 type Pill = { bg: string; fg: string };
 type IconName = keyof typeof Ionicons.glyphMap;
 
-function isClosedStatus(s: MeetingPost["status"]) {
-  return s === "FULL" || s === "ENDED" || s === "CANCELED";
-}
-
-function statusLabel(s: MeetingPost["status"]) {
+function statusLabel(s: PostStatus) {
   switch (s) {
     case "FULL":
       return "정원마감";
     case "CANCELED":
       return "취소됨";
     case "ENDED":
-      return "종료됨";
+      return "끝남";
     case "STARTED":
       return "진행중";
     default:
@@ -32,34 +28,72 @@ function statusLabel(s: MeetingPost["status"]) {
   }
 }
 
-export function MeetingCard({ item }: { item: MeetingPost }) {
+type Props = {
+  item: MeetingPost;
+
+  /** 홈에서는 false: 진행중/정원마감/취소됨 같은 상태칩 숨김 */
+  showStatusPill?: boolean;
+
+  /** 홈에서는 false: “조건 불충족/참여불가” 텍스트 뱃지 숨김(카드만 비활성) */
+  showJoinBlockedBadge?: boolean;
+
+  /** 홈에서는 false: "호스트의 한마디(content)" 숨김 */
+  showHostMessage?: boolean;
+};
+
+export function MeetingCard({
+  item,
+  showStatusPill = true,
+  showJoinBlockedBadge = true,
+  showHostMessage = true,
+}: Props) {
   const t = useAppTheme();
   const router = useRouter();
 
   const timeLabel = useMemo(() => {
-    // meetingTime이 있으면 우선 사용, 없으면 meetingTimeText (구버전 호환)
     if (item.meetingTime) return meetingTimeTextFromIso(item.meetingTime);
     return item.meetingTimeText ?? "";
   }, [item.meetingTime, item.meetingTimeText]);
 
-  const myStatus = item.myState?.membershipStatus;
-  const isHost = myStatus === "HOST";
-  const isMember = myStatus === "MEMBER";
-  const isPending = myStatus === "PENDING";
+  const ms: MembershipStatus = item.myState?.membershipStatus ?? "NONE";
+  const canJoin = item.myState?.canJoin ?? true;
 
-  const isClosed = isClosedStatus(item.status);
+  const isHost = ms === "HOST";
+  const isMember = ms === "MEMBER";
+  const isPending = ms === "PENDING";
+  const isRejected = ms === "REJECTED";
+  const isMyCanceled = ms === "CANCELED"; // 승인취소/신청취소 의미로 사용(서버 정책에 맞춤)
 
-  // ✅ 핵심: 승인 대기(PENDING)는 실패/비활성 상태가 아니라 "진행 중 상태"
-  // canJoin=false가 내려와도 joinBlocked로 취급하면 카드가 회색(비활성)처럼 보여 오해를 만든다.
+  // ✅ OPEN인데도 current>=total이면 사실상 FULL로 보여주는 게 혼란이 적음
+  const isCapacityFull = (() => {
+    const total = item.capacity?.total ?? 0;
+    const current = item.capacity?.current ?? 0;
+    return total > 0 && current >= total;
+  })();
+
+  const effectiveStatus: PostStatus = item.status === "OPEN" && isCapacityFull ? "FULL" : item.status;
+
+  // ✅ 승인제에서 조건 불충족(canJoin=false)일 때 홈에서 "비활성"로 보여야 함
+  // - 단, PENDING은 “진행 중 상태”라서 joinBlocked로 취급하면 안 됨
   const isJoinBlocked =
-    !isClosed &&
-    !isPending &&
-    !item.myState?.canJoin &&
-    !isHost &&
-    !isMember &&
-    item.status !== "STARTED";
+    effectiveStatus === "OPEN" &&
+    ms === "NONE" &&
+    canJoin === false &&
+    !isPending;
 
-  const isDisabled = isClosed || isJoinBlocked;
+  // ✅ 비활성 기준
+  // - ENDED/CANCELED: 항상 비활성(내 기록/마이에서도 회색 처리)
+  // - FULL: NONE일 때만 비활성 (내가 참여중/호스트면 굳이 죽이지 않음)
+  // - STARTED: NONE일 때만 비활성(탐색 혼란 방지)
+  // - 승인거절/승인취소: 항상 비활성
+  const isDisabled =
+    effectiveStatus === "ENDED" ||
+    effectiveStatus === "CANCELED" ||
+    (effectiveStatus === "FULL" && ms === "NONE") ||
+    (effectiveStatus === "STARTED" && ms === "NONE") ||
+    isJoinBlocked ||
+    isRejected ||
+    isMyCanceled;
 
   const pillTone = (hex: string, alpha = t.mode === "dark" ? 0.22 : 0.14): Pill => ({
     bg: withAlpha(hex, alpha),
@@ -67,18 +101,18 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
   });
 
   const timePill: Pill = useMemo(() => {
-    // 승인대기는 정상 톤 유지가 목적이므로 isDisabled 기준을 그대로 쓰되,
-    // 위에서 PENDING을 joinBlocked에서 제외했기 때문에 PENDING은 정상 톤이 된다.
     return isDisabled
       ? { bg: t.colors.overlay[8], fg: t.colors.textSub }
       : { bg: t.colors.overlay[6], fg: t.colors.textSub };
   }, [isDisabled, t.colors]);
 
   const statePill = useMemo(() => {
-    const label = statusLabel(item.status);
+    if (!showStatusPill) return null;
+
+    const label = statusLabel(effectiveStatus);
     if (!label) return null;
 
-    switch (item.status) {
+    switch (effectiveStatus) {
       case "FULL":
         return {
           label,
@@ -106,15 +140,18 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
       default:
         return null;
     }
-  }, [item.status, t.colors, t.mode]);
+  }, [showStatusPill, effectiveStatus, t.colors, t.mode]);
 
   const leftBadge = useMemo(() => {
     if (isHost) return { label: "내 모임", tone: "primary" as const };
     if (isMember) return { label: "참여중", tone: "success" as const };
     if (isPending) return { label: "승인 대기", tone: "warning" as const };
-    if (isJoinBlocked) return { label: "참여불가", tone: "neutral" as const };
+    if (isRejected) return { label: "승인 거절", tone: "error" as const };
+    if (isMyCanceled) return { label: "승인 취소", tone: "neutral" as const };
+
+    if (showJoinBlockedBadge && isJoinBlocked) return { label: "조건 불충족", tone: "neutral" as const };
     return null;
-  }, [isHost, isMember, isPending, isJoinBlocked]);
+  }, [isHost, isMember, isPending, isRejected, isMyCanceled, isJoinBlocked, showJoinBlockedBadge]);
 
   const joinModeMeta = useMemo(() => {
     const isInstant = item.joinMode === "INSTANT";
@@ -126,9 +163,7 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
   const disabledStyle = useMemo(() => {
     if (!isDisabled) return null;
 
-    // FULL은 "마감" 성격이 강해서 경고톤을 살리고,
-    // CANCELED/ENDED는 회색 계열로 더 죽이는 것이 일반적으로 자연스럽다.
-    if (item.status === "FULL") {
+    if (effectiveStatus === "FULL") {
       return {
         bg: withAlpha(t.colors.warning, t.mode === "dark" ? 0.10 : 0.06),
         border: withAlpha(t.colors.warning, t.mode === "dark" ? 0.32 : 0.22),
@@ -136,7 +171,7 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
         title: withAlpha(t.colors.textMain, 0.78),
       };
     }
-    if (item.status === "CANCELED" || item.status === "ENDED") {
+    if (effectiveStatus === "CANCELED" || effectiveStatus === "ENDED") {
       return {
         bg: t.colors.overlay[6],
         border: t.colors.overlay[12],
@@ -144,13 +179,14 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
         title: t.colors.textSub,
       };
     }
+    // joinBlocked / rejected / myCanceled / started-none 등
     return {
       bg: t.colors.overlay[6],
       border: t.colors.border,
       opacity: 0.82,
       title: t.colors.textSub,
     };
-  }, [isDisabled, item.status, t.colors, t.mode]);
+  }, [isDisabled, effectiveStatus, t.colors, t.mode]);
 
   const titleColor = disabledStyle?.title ?? t.colors.textMain;
   const iconMuted = t.colors.icon?.muted ?? t.colors.textSub;
@@ -158,7 +194,6 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
   const joinInfoBg = t.colors.overlay[6];
   const androidLowerElevation = Platform.OS === "android" ? { elevation: 0, zIndex: 0 } : { zIndex: 0 };
 
-  // ✅ 안전한 데이터 접근
   const locationName = item.location?.name || "장소 미정";
   const distanceText = item.distanceText ?? "";
 
@@ -212,6 +247,7 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
       <View style={styles.statusRow}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {leftBadge ? <Badge label={leftBadge.label} tone={leftBadge.tone} /> : null}
+
           {statePill ? (
             <View style={[styles.pill, { backgroundColor: statePill.pill.bg }]}>
               <Ionicons name={statePill.icon} size={14} color={statePill.pill.fg} style={{ marginRight: 6 }} />
@@ -240,7 +276,7 @@ export function MeetingCard({ item }: { item: MeetingPost }) {
         </View>
       </View>
 
-      {item.content ? (
+      {showHostMessage && item.content ? (
         <View style={[styles.memoRow, { borderTopColor: t.colors.divider ?? t.colors.border }]}>
           <Ionicons
             name="chatbubble-ellipses-outline"
