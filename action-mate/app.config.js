@@ -38,7 +38,6 @@ export default {
       },
     },
 
-    // ✅ 여기! expo 루트(expo:) 안에 둬야 적용됨
     androidStatusBar: {
       translucent: false,
     },
