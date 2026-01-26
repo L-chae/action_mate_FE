@@ -156,9 +156,3 @@ function makeStyles(t: ReturnType<typeof useAppTheme>) {
     },
   });
 }
-
-/*
-요약: 마커 색/라벨/아이콘을 칩/리스트/서클과 동일 팔레트로 통일했습니다.
-요약: 기본 pinColor 대신 커스텀 마커(View)로 레이어·그림자·선택 링까지 일관된 UI를 제공합니다.
-요약: 좌표 필드는 latitude/longitude/lat/lng 모두 지원하고, 이상값은 안전하게 기본 좌표로 방어합니다.
-*/

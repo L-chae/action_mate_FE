@@ -1,7 +1,7 @@
 // src/shared/ui/MultiCategoryChips.tsx
-import React, { useMemo, useRef } from "react";
+import React, { useMemo, useRef, useCallback } from "react";
 import { ScrollView } from "react-native-gesture-handler";
-import { Pressable, Text, StyleSheet, View, ViewStyle, Platform } from "react-native";
+import { Pressable, Text, StyleSheet, View, type ViewStyle, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
@@ -54,9 +54,10 @@ type Props = {
    */
   mode?: "filter" | "select";
 
-  /** NOTE: 이제 컨테이너는 항상 '흰색(불투명)'로 렌더됩니다. */
-  transparentBackground?: boolean;
-
+  /**
+   * ✅ 요구사항: 상단 칩 "배경 아예 없음"
+   * - container background/border/shadow 모두 제거
+   */
   containerStyle?: ViewStyle;
 
   /** 기타(ETC) 노출 여부 */
@@ -76,14 +77,19 @@ export default function MultiCategoryChips({
 }: Props) {
   const t = useAppTheme();
 
+  // ✅ 스크롤 중 탭 오작동 방지
   const draggingRef = useRef(false);
   const pendingIdRef = useRef<string | null>(null);
   const lastDragAtRef = useRef(0);
 
-  const isAllSelected = mode === "filter" && (value?.length ?? 0) === 0;
+  const current = value ?? [];
+  const isAllSelected = mode === "filter" && current.length === 0;
 
   const categories = useMemo(() => {
     const base = includeEtc ? BASE_CATEGORIES : BASE_CATEGORIES.filter((c) => c.id !== "ETC");
+    if (!colorOverrides) return base;
+
+    // 색상 오버라이드가 있을 때만 새 배열 생성(불필요한 map 방지)
     return base.map((c) => {
       const key = c.id as CategoryKey;
       const override = colorOverrides?.[key];
@@ -96,57 +102,61 @@ export default function MultiCategoryChips({
     return [{ id: "ALL", label: "전체", iconName: ALL_ICON }, ...categories] as ChipItem[];
   }, [mode, categories]);
 
-  const markDragging = () => {
+  const markDragging = useCallback(() => {
     draggingRef.current = true;
     pendingIdRef.current = null;
     lastDragAtRef.current = Date.now();
-  };
+  }, []);
 
-  const clearDraggingSoon = () => {
+  const clearDraggingSoon = useCallback(() => {
     requestAnimationFrame(() => {
       draggingRef.current = false;
     });
-  };
+  }, []);
 
-  const shouldIgnoreTap = () => {
+  const shouldIgnoreTap = useCallback(() => {
     const now = Date.now();
     return draggingRef.current || now - lastDragAtRef.current < 80;
-  };
+  }, []);
 
-  const toggle = (id: string) => {
-    if (mode === "filter" && id === "ALL") {
-      onChange([]);
-      return;
-    }
+  const toggle = useCallback(
+    (id: string) => {
+      if (mode === "filter" && id === "ALL") {
+        onChange([]);
+        return;
+      }
 
-    const key = id as unknown as CategoryKey;
-    const current = value ?? [];
+      const key = id as unknown as CategoryKey;
 
-    if (current.length === 0) {
-      onChange([key]);
-      return;
-    }
+      if (current.length === 0) {
+        onChange([key]);
+        return;
+      }
 
-    const exists = current.includes(key);
-    if (exists) {
-      onChange(current.filter((c) => c !== key));
-      return;
-    }
+      const exists = current.includes(key);
+      if (exists) {
+        onChange(current.filter((c) => c !== key));
+        return;
+      }
 
-    onChange([...current, key]);
-  };
+      onChange([...current, key]);
+    },
+    [current, mode, onChange]
+  );
 
-  // ✅ 요구사항: "배경 없애고 흰색 컨테이너" => 컨테이너만 흰색(불투명), 외곽 카드감 제거
-  const containerBg = "#FFFFFF";
-  const divider = withAlpha(t.colors?.border ?? "#000000", 0.55);
+  // ✅ "배경 아예 없음": 컨테이너는 투명 + 디바이더/그림자 제거
+  const pagePad = t.spacing?.pagePaddingH ?? 16;
+  const gap = t.spacing?.space?.[2] ?? 8;
+
+  const chipBorderNeutral = withAlpha(t.colors?.border ?? "#000000", t.mode === "dark" ? 0.55 : 0.35);
+  const chipBgNeutral = withAlpha(t.colors?.surface ?? "#FFFFFF", t.mode === "dark" ? 0.22 : 0.92);
+  const chipBgPressed = withAlpha(t.colors?.overlay?.[6] ?? "#000000", t.mode === "dark" ? 0.22 : 0.06);
 
   return (
     <View
       style={[
         styles.container,
         {
-          backgroundColor: containerBg,
-          borderBottomColor: divider,
           paddingVertical: t.spacing?.space?.[2] ?? 8,
         },
         containerStyle,
@@ -164,8 +174,8 @@ export default function MultiCategoryChips({
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingHorizontal: t.spacing?.pagePaddingH ?? 16,
-            gap: t.spacing?.space?.[2] ?? 8,
+            paddingHorizontal: pagePad,
+            gap,
           },
         ]}
         onScrollBeginDrag={markDragging}
@@ -179,24 +189,18 @@ export default function MultiCategoryChips({
       >
         {visible.map((cat) => {
           const selected =
-            mode === "filter" && cat.id === "ALL"
-              ? isAllSelected
-              : (value ?? []).includes(cat.id as CategoryKey);
+            mode === "filter" && cat.id === "ALL" ? isAllSelected : current.includes(cat.id as CategoryKey);
 
           const baseColor =
             cat.id === "ALL"
               ? (t.colors?.textMain ?? "#111111")
               : cat.color ?? (t.colors?.primary ?? "#1565C0");
 
-          // ✅ 컨테이너가 흰색이므로, 비선택 칩은 '화이트 + 보더' 기반으로 명확하게
-          const unselectedBg = "#FFFFFF";
-          const bg = selected ? baseColor : unselectedBg;
-
-          const borderColor = selected
-            ? "transparent"
-            : cat.id === "ALL"
-              ? (t.colors?.border ?? withAlpha("#000000", 0.14))
-              : withAlpha(baseColor, 0.28);
+          // ✅ 배경 없음 + 이질감 최소화:
+          // - 비선택: surface tint(아주 약하게) + 중립 보더
+          // - 선택: 컬러 채움(고정) + 보더 제거
+          const bg = selected ? baseColor : chipBgNeutral;
+          const borderColor = selected ? "transparent" : withAlpha(baseColor, 0.22) || chipBorderNeutral;
 
           const textColor = selected ? WHITE : baseColor;
           const iconColor = selected ? WHITE : baseColor;
@@ -228,14 +232,13 @@ export default function MultiCategoryChips({
               style={({ pressed }) => [
                 styles.chip,
                 {
-                  backgroundColor: bg,
+                  backgroundColor: pressed && !selected ? chipBgPressed : bg,
                   borderColor,
                   borderWidth: selected ? 0 : StyleSheet.hairlineWidth,
-                  opacity: pressed ? 0.92 : 1,
-                  transform: [{ scale: pressed ? 0.98 : 1 }],
-                  ...(Platform.OS === "android" ? { elevation: selected ? 1 : 0 } : null),
+                  opacity: pressed ? 0.94 : 1,
                 },
                 selected ? styles.chipSelectedShadow : styles.chipShadow,
+                Platform.OS === "android" ? (selected ? styles.androidSelectedElevation : null) : null,
               ]}
             >
               <Ionicons name={cat.iconName} size={16} color={iconColor} style={styles.iconLeft} />
@@ -259,11 +262,12 @@ export default function MultiCategoryChips({
 }
 
 const styles = StyleSheet.create({
+  // ✅ 컨테이너 배경/보더/그림자 "완전 제거"
   container: {
     position: "relative",
     zIndex: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    // ✅ 요구사항: 배경 카드감/그림자 제거
+    backgroundColor: "transparent",
+    borderBottomWidth: 0,
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -291,12 +295,15 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
   },
+  androidSelectedElevation: {
+    elevation: 2,
+  },
   iconLeft: { marginRight: 6 },
   iconRight: { marginLeft: 6, opacity: 0.95 },
 });
 
 /*
-요약: 컨테이너 배경을 항상 흰색(불투명)으로 고정하고, 컨테이너 카드/그림자 느낌을 제거했습니다.
-요약: 비선택 칩은 흰색 배경+컬러 보더로 분리감을 주고, 선택 칩만 색상 채움으로 강조합니다.
-요약: 오탭 방지/멀티선택/전체(빈 배열) 규칙은 그대로 유지합니다.
+요약: 컨테이너 배경/보더/그림자를 완전히 제거해 지도 위에서 이질감 없이 “떠있는 칩”만 보이게 했습니다.
+요약: colorOverrides가 없으면 map을 생략하고, toggle/drag 핸들러를 useCallback으로 고정해 불필요한 재생성을 줄였습니다.
+요약: 비선택 칩은 surface tint+얇은 보더로만 구분하고, 선택 칩만 컬러 채움으로 강조해 가독성을 유지합니다.
 */

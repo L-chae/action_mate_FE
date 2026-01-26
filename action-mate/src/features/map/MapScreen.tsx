@@ -75,6 +75,33 @@ function parseSnapPercent(raw?: string) {
   return Number.isFinite(pct) ? Math.max(0, Math.min(1, pct)) : 0.15;
 }
 
+async function ensureForegroundPermission(): Promise<"granted" | "denied"> {
+  try {
+    const current = await Location.getForegroundPermissionsAsync();
+    if (current?.status === "granted") return "granted";
+
+    const req = await Location.requestForegroundPermissionsAsync();
+    return req?.status === "granted" ? "granted" : "denied";
+  } catch {
+    return "denied";
+  }
+}
+
+async function getCurrentCoords(): Promise<LatLng | null> {
+  try {
+    const pos = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    const lat = Number(pos?.coords?.latitude);
+    const lng = Number(pos?.coords?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat === 0 && lng === 0) return null;
+    return { latitude: lat, longitude: lng };
+  } catch {
+    return null;
+  }
+}
+
 export default function MapScreen() {
   const t = useAppTheme();
   const s = t.spacing;
@@ -94,6 +121,7 @@ export default function MapScreen() {
   const dirtyRef = useRef(false);
   const reqSeqRef = useRef(0);
   const focusedFromMarkerRef = useRef(false);
+  const didInitialFocusRef = useRef(false);
 
   const [list, setList] = useState<MeetingPost[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -113,18 +141,9 @@ export default function MapScreen() {
   const snapPct = useMemo(() => parseSnapPercent(snapPoints?.[sheetIndex]), [snapPoints, sheetIndex]);
   const sheetHeightPx = useMemo(() => Math.max(0, Math.min(screenH, screenH * snapPct)), [screenH, snapPct]);
 
-  // ✅ 버튼 위치: "모달(시트) 위쪽"에 자연스럽게 떠보이도록 시트 top 기준으로 배치
-  const floatingBottom = useMemo(() => {
-    const gap = 14;
-    return sheetHeightPx + gap;
-  }, [sheetHeightPx]);
+  // ✅ 시트 위 버튼(스크린샷 화살표 위치): 시트 top 기준
+  const floatingBottom = useMemo(() => sheetHeightPx + 14, [sheetHeightPx]);
 
-  useEffect(() => {
-    if (Platform.OS === "android") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (UIManager as any).setLayoutAnimationEnabledExperimental?.(true);
-    }
-  }, []);
 
   const loadMeetings = useCallback(async (lat: number, lng: number) => {
     const seq = ++reqSeqRef.current;
@@ -134,7 +153,7 @@ export default function MapScreen() {
       const data = await meetingApi.listMeetingsAround(lat, lng);
       if (seq !== reqSeqRef.current) return;
 
-      setList(data);
+      setList(data ?? []);
       lastLoadedRegionRef.current = { ...regionRef.current };
 
       dirtyRef.current = false;
@@ -146,51 +165,78 @@ export default function MapScreen() {
     }
   }, []);
 
+  const focusTo = useCallback(
+    (coords: LatLng, animateMs = 650) => {
+      const nextRegion: Region = {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        latitudeDelta: 0.015,
+        longitudeDelta: 0.015,
+      };
+      regionRef.current = nextRegion;
+      mapRef.current?.animateToRegion(nextRegion, animateMs);
+    },
+    []
+  );
+
+  // ✅ 초기 진입 UX: 권한 확인 → 즉시 현재 위치로 이동 → 그 위치로 모임 로드
   useEffect(() => {
+    let alive = true;
+
     (async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
-          setLocationPermission(true);
+        const status = await ensureForegroundPermission();
+        if (!alive) return;
 
-          const location = await Location.getCurrentPositionAsync({});
-          const lat = Number(location?.coords?.latitude);
-          const lng = Number(location?.coords?.longitude);
+        const granted = status === "granted";
+        setLocationPermission(granted);
 
-          if (Number.isFinite(lat) && Number.isFinite(lng)) {
-            const currentRegion: Region = {
-              latitude: lat,
-              longitude: lng,
-              latitudeDelta: 0.015,
-              longitudeDelta: 0.015,
-            };
-
-            setMyCoords({ latitude: lat, longitude: lng });
-
-            regionRef.current = currentRegion;
-            mapRef.current?.animateToRegion(currentRegion, 800);
-            loadMeetings(currentRegion.latitude, currentRegion.longitude);
-          } else {
-            setMyCoords(null);
-            loadMeetings(INITIAL_REGION.latitude, INITIAL_REGION.longitude);
-          }
-        } else {
-          setLocationPermission(false);
+        if (!granted) {
           setMyCoords(null);
           Alert.alert("알림", "위치 권한을 허용하면 내 주변 모임을 찾을 수 있어요.");
+          // fallback 로드
+          focusTo({ latitude: INITIAL_REGION.latitude, longitude: INITIAL_REGION.longitude }, 0);
           loadMeetings(INITIAL_REGION.latitude, INITIAL_REGION.longitude);
+          didInitialFocusRef.current = true;
+          return;
         }
+
+        // ✅ 가능한 빨리 위치 확보(현 위치 즉시 이동)
+        const coords = await getCurrentCoords();
+        if (!alive) return;
+
+        if (coords) {
+          setMyCoords(coords);
+          if (!didInitialFocusRef.current) {
+            focusTo(coords, 650);
+            didInitialFocusRef.current = true;
+          }
+          loadMeetings(coords.latitude, coords.longitude);
+          return;
+        }
+
+        // 위치 못가져오면 fallback
+        setMyCoords(null);
+        focusTo({ latitude: INITIAL_REGION.latitude, longitude: INITIAL_REGION.longitude }, 0);
+        loadMeetings(INITIAL_REGION.latitude, INITIAL_REGION.longitude);
+        didInitialFocusRef.current = true;
       } catch (e) {
+        if (!alive) return;
         console.error(e);
         setMyCoords(null);
+        focusTo({ latitude: INITIAL_REGION.latitude, longitude: INITIAL_REGION.longitude }, 0);
         loadMeetings(INITIAL_REGION.latitude, INITIAL_REGION.longitude);
+        didInitialFocusRef.current = true;
       }
     })();
-  }, [loadMeetings]);
+
+    return () => {
+      alive = false;
+    };
+  }, [focusTo, loadMeetings]);
 
   const onRegionChangeComplete = useCallback((r: Region) => {
     regionRef.current = r;
-
     if (dirtyRef.current) return;
 
     const latDiff = Math.abs(r.latitude - lastLoadedRegionRef.current.latitude);
@@ -217,56 +263,41 @@ export default function MapScreen() {
 
     setGpsLoading(true);
     try {
-      if (!locationPermission) {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") {
-          setLocationPermission(false);
-          setMyCoords(null);
-          Alert.alert("권한 필요", "위치 권한 설정이 필요합니다.");
-          return;
-        }
-        setLocationPermission(true);
+      const status = await ensureForegroundPermission();
+      const granted = status === "granted";
+      setLocationPermission(granted);
+
+      if (!granted) {
+        setMyCoords(null);
+        Alert.alert("권한 필요", "위치 권한 설정이 필요합니다.");
+        return;
       }
 
-      const location = await Location.getCurrentPositionAsync({});
-      const lat = Number(location?.coords?.latitude);
-      const lng = Number(location?.coords?.longitude);
-
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      const coords = await getCurrentCoords();
+      if (!coords) {
         Alert.alert("오류", "현재 위치를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
         return;
       }
 
-      setMyCoords({ latitude: lat, longitude: lng });
+      setMyCoords(coords);
+      focusTo(coords, 650);
 
-      const newRegion: Region = {
-        latitude: lat,
-        longitude: lng,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
-      };
-
-      regionRef.current = newRegion;
-      mapRef.current?.animateToRegion(newRegion, 700);
-
+      // 이동 후 재검색 버튼 노출(사용자 제어)
       if (!dirtyRef.current) {
         dirtyRef.current = true;
         setMapDirty(true);
       }
 
       Haptics.selectionAsync().catch(() => {});
-    } catch (e) {
-      console.error(e);
-      Alert.alert("오류", "현재 위치를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
       setGpsLoading(false);
     }
-  }, [gpsLoading, locationPermission]);
+  }, [focusTo, gpsLoading]);
 
   const listWithDistance = useMemo(() => {
     if (!myCoords) return list;
 
-    return list.map((m) => {
+    return (list ?? []).map((m) => {
       const target = getLatLng(m);
       if (!target) return m;
 
@@ -279,7 +310,7 @@ export default function MapScreen() {
 
   const meetingsById = useMemo(() => {
     const m = new Map<string, MeetingPost>();
-    for (const it of listWithDistance) m.set(toIdString(it.id), it);
+    for (const it of listWithDistance ?? []) m.set(toIdString(it.id), it);
     return m;
   }, [listWithDistance]);
 
@@ -290,14 +321,14 @@ export default function MapScreen() {
 
   const filteredList = useMemo(() => {
     if ((selectedCategories?.length ?? 0) === 0) return listWithDistance;
-    const set = new Set(selectedCategories);
-    return listWithDistance.filter((m) => set.has(m.category));
+    const set = new Set(selectedCategories ?? []);
+    return (listWithDistance ?? []).filter((m) => set.has(m.category));
   }, [listWithDistance, selectedCategories]);
 
   const markerList = useMemo(() => {
     if ((selectedCategories?.length ?? 0) === 0) return listWithDistance;
 
-    const base = filteredList;
+    const base = filteredList ?? [];
     if (selectedMeeting && !base.some((m) => toIdString(m.id) === toIdString(selectedMeeting.id))) {
       return [selectedMeeting, ...base];
     }
@@ -306,7 +337,7 @@ export default function MapScreen() {
 
   // ✅ 선택된 모임을 목록 최상단으로 올림(마커 탭 시 즉시 보이게)
   const displayList = useMemo(() => {
-    const base = filteredList;
+    const base = filteredList ?? [];
     if (!selectedMeeting) return base;
 
     const sid = toIdString(selectedMeeting.id);
@@ -378,13 +409,13 @@ export default function MapScreen() {
   }, [selectedId]);
 
   const headerTitle = useMemo(() => {
-    const total = filteredList.length;
+    const total = (filteredList ?? []).length;
     if ((selectedCategories?.length ?? 0) === 0) return `전체 모임 ${total}개`;
 
     const labels = (selectedCategories ?? []).map((c) => getCategoryMeta(c).label);
     if (labels.length <= 2) return `${labels.join(", ")} · ${total}개`;
     return `${labels.slice(0, 2).join(", ")} 외 ${labels.length - 2} · ${total}개`;
-  }, [filteredList.length, selectedCategories]);
+  }, [filteredList, selectedCategories]);
 
   const selectedCircle = useMemo(() => {
     if (!selectedMeeting) return null;
@@ -445,40 +476,22 @@ export default function MapScreen() {
           moveOnMarkerPress={false}
         >
           {selectedCircle}
-          {markerList.map((m) => {
+          {(markerList ?? []).map((m) => {
             const id = toIdString(m.id);
             return <MapMarker key={id} meeting={m} selected={selectedId === id} onPress={onMarkerPress} />;
           })}
         </MapView>
 
         {/* 상단 필터(흰색 컨테이너) */}
-        <View
-          style={[styles.topOverlay, { paddingTop: topOverlayPadTop, paddingBottom: s.space[2] }]}
-          pointerEvents="box-none"
-        >
+        <View style={[styles.topOverlay, { paddingTop: topOverlayPadTop, paddingBottom: s.space[2] }]} pointerEvents="box-none">
           <View pointerEvents="auto">
-            <MultiCategoryChips
-              value={selectedCategories}
-              onChange={onChangeCategories}
-              mode="filter"
-              transparentBackground
-              containerStyle={{ borderBottomWidth: 0 }}
-            />
+            <MultiCategoryChips value={selectedCategories} onChange={onChangeCategories} mode="filter"/>
           </View>
         </View>
 
-        {/* ✅ 버튼 위치: 스크린샷 화살표 위치처럼 "시트 위" 지도 영역에 떠보이게 */}
+        {/* 시트 위 액션(스크린샷 화살표 위치) */}
         {(showResearch || showGps) && (
-          <View
-            style={[
-              styles.floatingActions,
-              {
-                bottom: floatingBottom,
-                paddingHorizontal: s.pagePaddingH,
-              },
-            ]}
-            pointerEvents="box-none"
-          >
+          <View style={[styles.floatingActions, { bottom: floatingBottom, paddingHorizontal: s.pagePaddingH }]} pointerEvents="box-none">
             {showResearch ? (
               <Pressable
                 onPress={handleResearch}
@@ -499,9 +512,7 @@ export default function MapScreen() {
                   <View style={styles.rowCenter}>
                     <Ionicons name="refresh" size={14} color={t.colors.primary} />
                     <View style={{ width: 6 }} />
-                    <Text style={[t.typography.labelMedium, { color: t.colors.primary, fontWeight: "700" }]}>
-                      이 지역 재검색
-                    </Text>
+                    <Text style={[t.typography.labelMedium, { color: t.colors.primary, fontWeight: "700" }]}>이 지역 재검색</Text>
                   </View>
                 )}
               </Pressable>
@@ -523,11 +534,7 @@ export default function MapScreen() {
                 ]}
                 pointerEvents="auto"
               >
-                {gpsLoading ? (
-                  <ActivityIndicator size="small" color={t.colors.primary} />
-                ) : (
-                  <Ionicons name="locate" size={20} color={t.colors.textMain} />
-                )}
+                {gpsLoading ? <ActivityIndicator size="small" color={t.colors.primary} /> : <Ionicons name="locate" size={20} color={t.colors.textMain} />}
               </Pressable>
             ) : null}
           </View>
@@ -538,11 +545,7 @@ export default function MapScreen() {
           index={0}
           snapPoints={snapPoints}
           onChange={setSheetIndex}
-          backgroundStyle={{
-            backgroundColor: t.colors.surface,
-            borderTopLeftRadius: 26,
-            borderTopRightRadius: 26,
-          }}
+          backgroundStyle={{ backgroundColor: t.colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26 }}
           handleIndicatorStyle={{ backgroundColor: withAlpha(t.colors.border, 0.9) }}
           handleStyle={styles.sheetHandle}
         >
@@ -559,7 +562,7 @@ export default function MapScreen() {
             contentContainerStyle={[
               styles.listContent,
               {
-                paddingTop: s.space[2], // ✅ "전체 모임" 밑 여백 축소
+                paddingTop: s.space[2],
                 paddingBottom: Math.max(s.space[6], insets.bottom + s.space[3]),
               },
             ]}
@@ -621,10 +624,7 @@ export default function MapScreen() {
           </Text>
         </View>
 
-        <Text
-          style={[t.typography.titleMedium, { color: t.colors.textMain, fontWeight: "700", marginTop: s.space[2] }]}
-          numberOfLines={1}
-        >
+        <Text style={[t.typography.titleMedium, { color: t.colors.textMain, fontWeight: "700", marginTop: s.space[2] }]} numberOfLines={1}>
           {item.title}
         </Text>
 
@@ -639,13 +639,7 @@ export default function MapScreen() {
         {isSelected ? (
           <View style={{ marginTop: s.space[3] }}>
             <View style={{ height: 1, backgroundColor: t.colors.divider, marginBottom: s.space[2] }} />
-            <Pressable
-              onPress={onDetailPress}
-              style={({ pressed }) => [
-                styles.detailBtn,
-                { backgroundColor: pressed ? withAlpha(t.colors.primary, 0.9) : t.colors.primary },
-              ]}
-            >
+            <Pressable onPress={onDetailPress} style={({ pressed }) => [styles.detailBtn, { backgroundColor: pressed ? withAlpha(t.colors.primary, 0.9) : t.colors.primary }]}>
               <Text style={[t.typography.labelLarge, { color: "#FFF", fontWeight: "700" }]}>상세보기</Text>
               <View style={{ width: 6 }} />
               <Ionicons name="arrow-forward" size={16} color="#FFF" />
@@ -679,7 +673,7 @@ function makeStyles(t: ReturnType<typeof useAppTheme>) {
     sheetHeader: {
       paddingHorizontal: s.pagePaddingH,
       paddingTop: s.space[1],
-      paddingBottom: s.space[2], // ✅ 헤더 아래 여백 축소
+      paddingBottom: s.space[2],
       borderBottomWidth: StyleSheet.hairlineWidth,
     },
 
