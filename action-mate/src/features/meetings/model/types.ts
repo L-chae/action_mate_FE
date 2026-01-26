@@ -2,29 +2,136 @@
 import type {
   Capacity,
   CapacityInput,
+  CapacityRaw,
   ISODateTimeString,
   Id,
+  JoinMode as SharedJoinMode,
   Location,
+  LocationRaw,
+  NormalizedId,
   UserReputation,
   UserSummary,
+  UserSummaryRaw,
 } from "@/shared/model/types";
+
+/**
+ * ✅ 목표(초보 + 실서비스 + 불안정 백엔드 대응)
+ * 1) Raw vs UI 모델 분리
+ * 2) UI 기본값 규칙(필수 표시 필드는 항상 존재)
+ * 3) Id 표준화(UI는 string id)
+ */
 
 // --- ENUMS & KEYS ---
 export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 export type HomeSort = "LATEST" | "NEAR" | "SOON";
-export type JoinMode = "INSTANT" | "APPROVAL";
+export type JoinMode = SharedJoinMode;
+
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
-export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED" | "REJECTED";
+export type MembershipStatus =
+  | "NONE"
+  | "MEMBER"
+  | "PENDING"
+  | "HOST"
+  | "CANCELED"
+  | "REJECTED";
 
-// --- SUB TYPES ---
+/**
+ * ✅ UI 기본값 규칙(표준)
+ * - address는 "표시용 문자열"이라서, 빈 문자열을 기본값으로 두면 렌더 분기가 단순해짐
+ * - 하지만 서버 결측(null)도 들어올 수 있으니 타입은 null까지 허용하고,
+ *   정규화 단계에서 string으로 밀어넣는 방식이 유지보수에 유리
+ */
+export const MEETING_UI_DEFAULTS = {
+  title: "(제목 없음)",
+  locationName: "장소 미정",
+  meetingTimeText: "",
+  distanceText: "",
+  address: "",
+  capacity: { current: 0, max: 0 } satisfies Capacity,
+} as const;
 
-// HostSummary: UserSummary + Reputation + intro
+/** -----------------------
+ * Raw (서버 응답 다양성 수용)
+ * ---------------------- */
+
+export type MeetingLocationRaw = LocationRaw;
+export type MeetingCapacityRaw = CapacityRaw;
+
+export type HostSummaryRaw = UserSummaryRaw &
+  UserReputation & {
+    intro?: string;
+  };
+
+export type ParticipantRaw = UserSummaryRaw & {
+  status: MembershipStatus;
+  appliedAt: ISODateTimeString;
+};
+
+export type MyStateRaw = {
+  membershipStatus: MembershipStatus;
+  canJoin: boolean;
+  reason?: string;
+};
+
+export type MeetingShapeRaw = Partial<{
+  category: CategoryKey;
+  title: string;
+  content: string;
+  meetingTime: ISODateTimeString;
+  durationMinutes: number;
+  location: MeetingLocationRaw;
+  capacity: MeetingCapacityRaw;
+  joinMode: JoinMode;
+  conditions: string;
+  items: string;
+}>;
+
+export type MeetingPostRaw = MeetingShapeRaw & {
+  id: Id;
+  status?: PostStatus;
+
+  meetingTimeText?: string;
+  distanceText?: string;
+
+  /**
+   * ✅ 서버에서 null/빈문자/undefined로 올 수 있는 영역
+   * - Raw는 변형되지 않은 값이 들어오므로 null을 허용하는 게 안전
+   */
+  address?: string | null;
+
+  host?: HostSummaryRaw;
+  myState?: MyStateRaw;
+};
+
+export type HotMeetingItemRaw = {
+  id?: Id;
+  meetingId: Id;
+  badge?: string;
+
+  title?: string;
+  location?: MeetingLocationRaw;
+  capacity?: MeetingCapacityRaw;
+};
+
+/** -----------------------
+ * UI (화면/상태관리용: 기본값/표준화된 형태)
+ * ---------------------- */
+
+export type MeetingLocation = Location;
+
+export type MeetingCapacity = Capacity & {
+  total?: number;
+};
+
+export type MeetingCapacityInput = CapacityInput & {
+  total?: number;
+};
+
 export type HostSummary = UserSummary &
   UserReputation & {
     intro?: string;
   };
 
-// Participant: UserSummary + 참여 상태
 export type Participant = UserSummary & {
   status: MembershipStatus;
   appliedAt: ISODateTimeString;
@@ -36,64 +143,45 @@ export type MyState = {
   reason?: string;
 };
 
-/**
- * ✅ 핵심: "도메인 공통 Shape"를 분리
- * - 폼 바인딩 / API 전송 / 화면 렌더링에서 동일한 구조를 쓰게 해 변환을 최소화합니다.
- * - 서버가 관리하는 값(id, status, capacity.current 등)은 MeetingPost에서만 확장합니다.
- */
 export type MeetingShape = {
   category: CategoryKey;
   title: string;
   content?: string;
 
-  // Time: ISO String을 공통 키(meetingTime)로 통일
   meetingTime: ISODateTimeString;
-
-  /**
-   * duration은 form에서 가장 다루기 쉬운 단위(분) 하나로 통일하는 게 실무에서 실수(시간/분) 줄이는데 유리합니다.
-   * - 기존 durationHours/durationMinutes는 UI 파생 값으로 처리 권장
-   */
   durationMinutes?: number;
 
-  // Location: 객체로 통일
-  location: Location;
+  location: MeetingLocation;
+  capacity: MeetingCapacityInput;
 
-  // Capacity: 객체로 통일 (Upsert에서는 current 선택값)
-  capacity: CapacityInput;
-
-  // Settings
   joinMode: JoinMode;
   conditions?: string;
-
-  // Meta
   items?: string;
 };
 
 /**
- * ✅ 서버에서 내려오는 “읽기 모델”
- * - MeetingShape를 그대로 포함 + 서버가 확정하는 필드를 확장
- * - capacity.current를 필수로 고정(서버가 항상 결정)
+ * ✅ MeetingPost(UI)
+ * - id는 NormalizedId(string)
+ * - address: 화면 표시용이지만, 서버/목업에서 null이 들어오는 케이스가 흔하므로 허용
+ *   (렌더링은 DetailContent에서 (addressText || distanceText) 조건으로 이미 안전)
  */
-export type MeetingPost = MeetingShape & {
-  id: Id;
+export type MeetingPost = Omit<MeetingShape, "capacity"> & {
+  id: NormalizedId;
   status: PostStatus;
 
-  // UI 표시용(서버가 주면 쓰고, 없으면 프론트에서 파생)
   meetingTimeText?: string;
   distanceText?: string;
 
-  // Post에서는 current가 반드시 있어야 함
-  capacity: Capacity;
+  address?: string | null;
+
+  capacity: MeetingCapacity;
 
   host?: HostSummary;
   myState?: MyState;
 };
 
 /**
- * ✅ 서버로 보내는 “쓰기 모델”
- * - MeetingShape와 동일한 구조를 그대로 사용
- * - create/update 모두 같은 shape를 쓰고,
- *   update는 Partial<MeetingUpsert>로 처리
+ * ✅ MeetingUpsert(UI)
  */
 export type MeetingUpsert = MeetingShape;
 
@@ -104,25 +192,19 @@ export type AroundMeetingsOptions = {
   sort?: HomeSort;
 };
 
-/**
- * HotMeetingItem도 location/capacity shape를 MeetingPost와 맞춰
- * 리스트/상세/폼 간 이동 시 변환을 최소화합니다.
- */
 export type HotMeetingItem = {
-  id: Id;
-  meetingId: Id;
+  id?: NormalizedId;
+  meetingId: NormalizedId;
+
   badge: string;
 
-  // 동일 키/구조 유지
   title: string;
-  location: Location;
-  capacity: Capacity;
+  location: MeetingLocation;
+  capacity: MeetingCapacity;
 };
 
 /**
  * --- API Interface ---
- * - create/update가 MeetingUpsert 기반
- * - 서버 응답은 MeetingPost 기반
  */
 export interface MeetingApi {
   listHotMeetings(opts?: { limit?: number; withinMinutes?: number }): Promise<HotMeetingItem[]>;
@@ -137,26 +219,19 @@ export interface MeetingApi {
   cancelJoin(id: Id): Promise<{ post: MeetingPost }>;
   cancelMeeting(id: Id): Promise<{ post: MeetingPost }>;
 
-  // 참여자 관리
   getParticipants(meetingId: Id): Promise<Participant[]>;
   approveParticipant(meetingId: Id, userId: Id): Promise<Participant[]>;
   rejectParticipant(meetingId: Id, userId: Id): Promise<Participant[]>;
 
-  // 별점 평가
   submitMeetingRating(req: { meetingId: Id; stars: number }): Promise<unknown>;
 }
 
-/**
- * 댓글 타입도 author를 UserSummary로 통일하면
- * authorId/닉네임/avatarUrl의 중복 필드를 유지하지 않아도 되어 관리가 단순해집니다.
- */
 export type Comment = {
-  id: Id;
+  id: NormalizedId;
   content: string;
   createdAt: ISODateTimeString;
 
-  parentId?: Id;
+  parentId?: NormalizedId;
 
-  // ✅ 통일된 author shape
   author: UserSummary;
 };

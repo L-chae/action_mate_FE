@@ -1,5 +1,7 @@
+//src/features/meetings/model/constants.ts
 import { Ionicons } from "@expo/vector-icons";
 import type { MeetingPost } from "./types";
+export * from "./tokens";
 
 export type PillTone = "neutral" | "primary" | "info" | "success" | "warning" | "error" | "point";
 

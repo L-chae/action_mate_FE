@@ -1,44 +1,68 @@
 // src/features/dm/model/types.ts
-import type { ISODateTimeString, Id, UserSummary } from "@/shared/model/types";
+import type { ISODateTimeString, Id, NormalizedId, UserSummary, UserSummaryRaw } from "@/shared/model/types";
 
 /**
- * DMMessage 타입
+ * DM 타입
+ * - Raw: 서버/목업 원본(불안정, optional 허용)
+ * - UI : 화면/상태관리(안정, 핵심 필드 required)
  */
-export type DMMessage = {
+
+/** -----------------------
+ * Raw (서버 응답/목업 원본용)
+ * ---------------------- */
+export type DMMessageRaw = {
   id: Id;
   threadId?: Id;
   type?: "TEXT" | "SYSTEM";
-  text: string;
-
-  /**
-   * 기존 로직("me")을 유지하면서도, 실제 서버 id 기반으로도 동작 가능하게 합니다.
-   * - 실무에서는 senderId === myId로 판별하는 편이 더 자연스럽지만
-   *   기존 구현을 깨지 않기 위해 유니온을 유지합니다.
-   */
-  senderId: "me" | Id;
-
-  createdAt: ISODateTimeString;
-  isRead: boolean;
+  text?: string;
+  senderId?: "me" | Id;
+  createdAt?: ISODateTimeString;
+  isRead?: boolean;
 };
 
-/**
- * DMThread 타입
- */
-export type DMThread = {
+export type DMThreadRaw = {
   id: Id;
-
-  // 공통 UserSummary 사용
-  otherUser: UserSummary;
-
-  lastMessage: DMMessage;
-  unreadCount: number;
-  updatedAt: ISODateTimeString;
+  otherUser?: UserSummaryRaw;
+  lastMessage?: DMMessageRaw;
+  unreadCount?: number;
+  updatedAt?: ISODateTimeString;
   createdAt?: ISODateTimeString;
 
   relatedMeetingId?: Id;
   relatedMeetingTitle?: string;
   relatedMeeting?: {
     id: Id;
+    title: string;
+  };
+};
+
+/** -----------------------
+ * UI (화면/상태관리용)
+ * ---------------------- */
+export type DMMessage = {
+  id: NormalizedId;
+  threadId: NormalizedId;
+  type: "TEXT" | "SYSTEM";
+  text: string;
+  senderId: "me" | NormalizedId;
+  createdAt: ISODateTimeString;
+  isRead: boolean;
+};
+
+export type DMThread = {
+  id: NormalizedId;
+  otherUser: UserSummary;
+
+  lastMessage: DMMessage;
+  unreadCount: number;
+
+  updatedAt: ISODateTimeString;
+  createdAt?: ISODateTimeString;
+
+  relatedMeetingId?: NormalizedId;
+  relatedMeetingTitle?: string;
+  relatedMeeting?: {
+    id: NormalizedId;
     title: string;
   };
 };

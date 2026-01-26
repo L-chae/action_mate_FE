@@ -1,6 +1,6 @@
 // src/features/auth/LoginScreen.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, Image, StyleSheet, Pressable, Animated, ActivityIndicator, Platform } from "react-native";
+import { View, Text, Image, StyleSheet, Pressable, Animated, ActivityIndicator, Alert } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,11 +9,38 @@ import * as KakaoLogin from "@react-native-seoul/kakao-login";
 import AppLayout from "@/shared/ui/AppLayout";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { useAuthStore } from "@/features/auth/model/authStore";
+import type { Gender, User } from "@/features/auth/model/types";
+import { setAuthTokens } from "@/shared/api/authToken";
+
+const IS_MOCK_AUTH = __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === "true";
+
+function mapKakaoGenderToGender(v?: unknown): Gender {
+  const s = String(v ?? "").toLowerCase();
+  if (s.includes("female") || s.includes("woman") || s.includes("f")) return "female";
+  if (s.includes("male") || s.includes("man") || s.includes("m")) return "male";
+  // 서버/앱 정책상 Gender는 유효값만 허용하므로 안전한 기본값으로 수렴
+  return "male";
+}
+
+function buildKakaoUser(profile: any): User {
+  const kakaoId = String(profile?.id ?? "");
+  const loginId = kakaoId ? `kakao_${kakaoId}` : `kakao_${Date.now()}`;
+
+  return {
+    id: loginId,
+    loginId,
+    nickname: String(profile?.nickname ?? "카카오 사용자"),
+    gender: mapKakaoGenderToGender(profile?.gender),
+    // 카카오 프로필에서 생년월일이 없다면 임시값을 둬서 타입/흐름을 유지
+    birthDate: "1990-01-01",
+    avatarUrl: profile?.profileImageUrl ? String(profile.profileImageUrl) : null,
+  };
+}
 
 export default function LoginScreen() {
   const t = useAppTheme();
   const insets = useSafeAreaInsets();
-  const login = useAuthStore((s) => s.login);
+  const loginToStore = useAuthStore((s) => s.login);
 
   // UI Constants
   const PH = t.spacing.pagePaddingH;
@@ -26,40 +53,50 @@ export default function LoginScreen() {
 
   const [busy, setBusy] = useState(false);
 
-  // 2. 카카오 로그인 핸들러
+  // 카카오 로그인 핸들러
   const handleKakaoLogin = async () => {
     if (busy) return;
     setBusy(true);
 
     try {
-      const token = await KakaoLogin.login();
-      console.log("Kakao Token:", token);
-
-      const profile = await KakaoLogin.getProfile();
-      console.log("Kakao Profile:", profile);
-
-      await login({
-        id: `kakao_${profile.id}`,
-        email: profile.email || `kakao_no_email@local`,
-        nickname: profile.nickname || "카카오(test)",
-        gender: profile.gender?.toLowerCase() || "none",
-        profileImage: profile.profileImageUrl,
-      } as any);
-
-      router.replace("/(tabs)");
-
-    } catch (e: any) {
-      if (e.code === 'E_CANCELLED_OPERATION') {
-        console.log("로그인 취소");
-      } else {
-        console.error("로그인 실패:", e);
+      // 서버 연동이 없는 상태에서 실수로 "로그인된 것처럼 보이지만 API는 전부 401"이 되는 문제를 막기 위해
+      // mock 환경에서만 로컬 세션(토큰)을 생성합니다.
+      if (!IS_MOCK_AUTH) {
+        Alert.alert(
+          "안내",
+          "카카오 로그인은 서버 연동이 필요합니다.\n현재는 '이메일로 로그인'을 사용해주세요."
+        );
+        return;
       }
+
+      await KakaoLogin.login();
+      const profile = await KakaoLogin.getProfile();
+
+      const user = buildKakaoUser(profile);
+
+      // mock 환경에서만 최소 토큰을 넣어 API 가드/스토어 흐름이 흔들리지 않게 유지
+      await setAuthTokens({
+        accessToken: `mock_access_${Date.now()}`,
+        refreshToken: `mock_refresh_${Date.now()}`,
+      });
+
+      // store 업데이트(동기)
+      loginToStore(user);
+
+      router.replace("/(tabs)" as any);
+    } catch (e: any) {
+      if (e?.code === "E_CANCELLED_OPERATION") {
+        // 사용자가 취소한 경우는 조용히 종료
+        return;
+      }
+      console.error("카카오 로그인 실패:", e);
+      Alert.alert("로그인 실패", e?.message ?? "카카오 로그인 중 오류가 발생했습니다.");
     } finally {
       setBusy(false);
     }
   };
 
-  // 3. 애니메이션 로직
+  // 애니메이션 로직
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoTranslate = useRef(new Animated.Value(10)).current;
   const blob1 = useRef(new Animated.Value(0)).current;
@@ -81,14 +118,34 @@ export default function LoginScreen() {
         ])
       );
 
-    const a = loop(blob1, 0); const b = loop(blob2, 300); const c = loop(blob3, 600);
-    a.start(); b.start(); c.start();
-    return () => { a.stop(); b.stop(); c.stop(); };
-  }, [D]);
+    const a = loop(blob1, 0);
+    const b = loop(blob2, 300);
+    const c = loop(blob3, 600);
+    a.start();
+    b.start();
+    c.start();
+    return () => {
+      a.stop();
+      b.stop();
+      c.stop();
+    };
+  }, [D, blob1, blob2, blob3, logoOpacity, logoTranslate]);
 
   const blobStyles = useMemo(() => {
-    const mk = (v: Animated.Value, size: number, x0: number, x1: number, y0: number, y1: number, color: string) => ({
-      width: size, height: size, borderRadius: size / 2, backgroundColor: color, position: "absolute" as const,
+    const mk = (
+      v: Animated.Value,
+      size: number,
+      x0: number,
+      x1: number,
+      y0: number,
+      y1: number,
+      color: string
+    ) => ({
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: color,
+      position: "absolute" as const,
       transform: [
         { translateX: v.interpolate({ inputRange: [0, 1], outputRange: [x0, x1] }) },
         { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [y0, y1] }) },
@@ -96,19 +153,26 @@ export default function LoginScreen() {
       ],
       opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.14] }),
     });
+
     return {
       b1: mk(blob1, 240, -30, 10, -40, -10, t.colors.primary),
       b2: mk(blob2, 210, 220, 175, 70, 110, t.colors.point ?? t.colors.primary),
       b3: mk(blob3, 280, 40, 70, 260, 230, t.colors.primary),
     };
-  }, [t]);
+  }, [blob1, blob2, blob3, t]);
 
   return (
     <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]} padded={false}>
       {/* 배경 */}
-      <LinearGradient colors={[t.colors.primaryLight, t.colors.background, t.colors.surface]} locations={[0, 0.55, 1]} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={[t.colors.primaryLight, t.colors.background, t.colors.surface]}
+        locations={[0, 0.55, 1]}
+        style={StyleSheet.absoluteFill}
+      />
       <View style={[StyleSheet.absoluteFill, { overflow: "hidden" }]} pointerEvents="none">
-        <Animated.View style={blobStyles.b1} /><Animated.View style={blobStyles.b2} /><Animated.View style={blobStyles.b3} />
+        <Animated.View style={blobStyles.b1} />
+        <Animated.View style={blobStyles.b2} />
+        <Animated.View style={blobStyles.b3} />
         <View style={[StyleSheet.absoluteFill, { backgroundColor: t.colors.neutral[900], opacity: 0.02 }]} />
       </View>
 
@@ -130,20 +194,17 @@ export default function LoginScreen() {
       {/* 하단 버튼 영역 */}
       <View style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: bottomPad }]}>
         <View style={[styles.ctaCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
-          
-          {/* ✅ 수정됨: SocialButton을 직접 사용 */}
           <SocialButton
             text="카카오로 시작하기"
             textColor="#191600"
             bgColor="#FEE500"
-            onPress={handleKakaoLogin}
+            onPress={() => void handleKakaoLogin()}
             busy={busy}
             radius={R + 2}
           />
 
           <View style={{ height: GAP_SM }} />
 
-          {/* 이메일 로그인 버튼 */}
           <SocialButton
             text="이메일로 로그인"
             textColor={t.colors.backgroundLight}
@@ -155,7 +216,11 @@ export default function LoginScreen() {
 
           <View style={styles.signupRow}>
             <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>계정이 없으신가요?</Text>
-            <Pressable onPress={() => router.push("/(auth)/signup")} disabled={busy} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
+            <Pressable
+              onPress={() => router.push("/(auth)/signup")}
+              disabled={busy}
+              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+            >
               <Text style={[t.typography.bodySmall, styles.signupLink, { color: t.colors.primary }]}>회원가입</Text>
             </Pressable>
           </View>
@@ -169,7 +234,6 @@ export default function LoginScreen() {
   );
 }
 
-// ✅ 재사용 컴포넌트 추가
 interface SocialButtonProps {
   text: string;
   textColor: string;
@@ -188,7 +252,11 @@ const SocialButton = ({ text, textColor, bgColor, onPress, busy, radius }: Socia
       { backgroundColor: bgColor, borderRadius: radius, opacity: busy ? 0.6 : pressed ? 0.9 : 1 },
     ]}
   >
-    {busy ? <ActivityIndicator color={textColor} /> : <Text style={[styles.socialText, { color: textColor }]}>{text}</Text>}
+    {busy ? (
+      <ActivityIndicator color={textColor} />
+    ) : (
+      <Text style={[styles.socialText, { color: textColor }]}>{text}</Text>
+    )}
   </Pressable>
 );
 

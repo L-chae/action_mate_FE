@@ -1,4 +1,4 @@
-// src/features/auth/IdLoginScreen.tsx
+// ✅ 파일 경로: src/features/auth/IdLoginScreen.tsx
 import React, { useState } from "react";
 import {
   View,
@@ -53,7 +53,7 @@ export default function IdLoginScreen() {
     handleSubmit,
     setFocus,
     formState: { errors, isSubmitting, isValid },
-    setValue, // 퀵 로그인용
+    setValue,
   } = useForm<LoginInput>({
     mode: "onChange",
     defaultValues: {
@@ -72,9 +72,11 @@ export default function IdLoginScreen() {
         password: data.password,
       });
 
-      // store의 login은 동기(set)라 await 불필요 (의도 명확화)
+      // store 업데이트(동기)
       loginToStore(user);
-      router.replace("/(tabs)");
+
+      // 라우팅 타입 이슈를 피하려면 as any로 안전하게 처리
+      router.replace("/(tabs)" as any);
     } catch (e: any) {
       setGlobalError(e?.message ?? "로그인에 실패했어요.");
     }
@@ -112,22 +114,11 @@ export default function IdLoginScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: t.colors.surface, borderColor: t.colors.border },
-            ]}
-          >
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}>
+          <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
             {/* 1) 로고 영역 */}
             <View style={styles.header}>
-              <Image
-                source={require("../../../assets/images/logo.png")}
-                style={styles.logo}
-              />
+              <Image source={require("../../../assets/images/logo.png")} style={styles.logo} />
               <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: 12 }]}>
                 아이디로 로그인
               </Text>
@@ -228,6 +219,7 @@ export default function IdLoginScreen() {
                             opacity: pressed ? 0.7 : 1,
                             padding: 4,
                           })}
+                          disabled={isSubmitting}
                         >
                           <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontWeight: "700" }]}>
                             {showPw ? "숨기기" : "보기"}
@@ -243,12 +235,7 @@ export default function IdLoginScreen() {
 
             {/* 4) 글로벌 에러 */}
             {globalError && (
-              <View
-                style={[
-                  styles.errorBox,
-                  { backgroundColor: t.colors.overlay[6], borderColor: t.colors.border },
-                ]}
-              >
+              <View style={[styles.errorBox, { backgroundColor: t.colors.overlay[6], borderColor: t.colors.border }]}>
                 <Text style={[t.typography.bodySmall, { color: t.colors.error, textAlign: "center" }]}>
                   {globalError}
                 </Text>
@@ -282,16 +269,18 @@ export default function IdLoginScreen() {
 
             {/* 7) 하단 링크 */}
             <View style={styles.footerLinks}>
-              <Pressable onPress={() => router.push("/(auth)/signup")} hitSlop={10}>
+              <Pressable onPress={() => router.push("/(auth)/signup" as any)} hitSlop={10} disabled={isSubmitting}>
                 <Text style={[t.typography.bodyMedium, { color: t.colors.primary, fontWeight: "700" }]}>
                   회원가입
                 </Text>
               </Pressable>
               <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
-              <Pressable onPress={() => router.push("/(auth)/reset-password")} hitSlop={10}>
-                <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>
-                  비밀번호 찾기
-                </Text>
+              <Pressable
+                onPress={() => router.push("/(auth)/reset-password" as any)}
+                hitSlop={10}
+                disabled={isSubmitting}
+              >
+                <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>비밀번호 찾기</Text>
               </Pressable>
             </View>
           </View>

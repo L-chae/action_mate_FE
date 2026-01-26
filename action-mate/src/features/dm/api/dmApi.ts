@@ -3,19 +3,22 @@ import { dmRemoteService } from "./dmApi.remote";
 import type { DMMessage, DMThread } from "../model/types";
 
 /**
- * ⚙️ 환경 설정
- * - true: 로컬 Mock 데이터 사용 (개발 중, 서버 없을 때)
- * - false: 실제 서버 API 사용
+ * DM API Facade
+ * * [수정됨] 404 에러 해결을 위해 강제로 Mock 모드를 켭니다.
  */
-const USE_MOCK = true; 
 
-// ✅ 현재 모드에 맞는 서비스 선택
-const dmService = USE_MOCK ? dmLocalService : dmRemoteService;
+// ❌ 기존 코드 (환경변수가 없거나 false라서 Remote로 잡힘)
+// export const USE_DM_MOCK = __DEV__ && process.env.EXPO_PUBLIC_USE_DM_MOCK === "true";
 
-/**
- * ✅ Public Interface
- * UI는 아래 함수들만 import 해서 사용합니다. (내부 구현이 local인지 remote인지 몰라도 됨)
- */
+// ✅ 수정 코드 (무조건 true로 설정)
+export const USE_DM_MOCK = true;
+
+// 로그 확인용
+if (__DEV__) {
+  console.log(`[DM Service] Mode: ${USE_DM_MOCK ? "MOCK (Fake Data)" : "REMOTE (Real Server)"}`);
+}
+
+const dmService = USE_DM_MOCK ? dmLocalService : dmRemoteService;
 
 export async function listDMThreads(): Promise<DMThread[]> {
   return dmService.getThreads();
@@ -39,4 +42,4 @@ export async function sendDMMessage(threadId: string, text: string): Promise<DMM
 
 export async function markDMThreadRead(threadId: string): Promise<void> {
   return dmService.markRead(threadId);
-}
+} 

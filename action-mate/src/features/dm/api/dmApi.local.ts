@@ -1,20 +1,37 @@
+// src/features/dm/api/dmApi.local.ts
 import type { DMMessage, DMThread } from "../model/types";
+// 🚨 [주의] 이 파일(dmMockData.ts)이 실제로 존재해야 합니다. 없으면 에러 납니다.
 import { DM_MESSAGES_SEED, DM_THREADS_SEED } from "./dmMockData";
 
 /**
- * ✅ Local API Service (Fake Server Logic)
+ * Local DM Service (Fake Server)
  */
 
 // --- Helpers ---
-const delay = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
-const toTimeMs = (iso?: string) => (iso ? new Date(iso).getTime() : 0);
+const delay = (ms = 250) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 날짜 파싱 유틸 (중복 제거 대신 파일 내 로컬 사용 유지하되 안전하게 처리)
+const toMs = (iso?: string) => {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : 0;
+};
 
 function ensureLastMessage(threadId: string, msgs: DMMessage[] | undefined): DMMessage {
   const list = msgs ?? [];
-  const last = [...list].sort((a, b) => toTimeMs(b.createdAt) - toTimeMs(a.createdAt))[0];
-  if (last) return last;
+  // 최신순 정렬 후 첫 번째
+  const last = [...list].sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt))[0];
 
-  // seed가 비었어도 스레드가 깨지지 않게 최소 시스템 메시지 생성
+  if (last) {
+    return {
+      ...last,
+      threadId,
+      type: last.type ?? "TEXT",
+      createdAt: last.createdAt || new Date().toISOString(),
+      isRead: typeof last.isRead === "boolean" ? last.isRead : true,
+    };
+  }
+
   return {
     id: `sys_${Date.now()}`,
     threadId,
@@ -26,26 +43,25 @@ function ensureLastMessage(threadId: string, msgs: DMMessage[] | undefined): DMM
   };
 }
 
-// 1. 메모리 DB 초기화 (원본 보호)
+// 1) 메모리 DB 초기화
 let _MESSAGES: Record<string, DMMessage[]> = Object.fromEntries(
-  Object.entries(DM_MESSAGES_SEED).map(([k, v]) => [k, v.map((m) => ({ ...m }))])
+  Object.entries(DM_MESSAGES_SEED).map(([k, v]) => [k, v.map((m) => ({ ...m, threadId: m.threadId ?? k }))])
 );
 
 let _THREADS: DMThread[] = DM_THREADS_SEED.map((t) => {
   const last = ensureLastMessage(t.id, _MESSAGES[t.id]);
   return {
     ...t,
-    otherUser: { ...t.otherUser },
+    otherUser: { ...t.otherUser, avatarUrl: t.otherUser.avatarUrl ?? null },
     lastMessage: { ...last },
-    unreadCount: t.unreadCount ?? 0,
+    unreadCount: typeof t.unreadCount === "number" ? t.unreadCount : 0,
     updatedAt: t.updatedAt ?? last.createdAt,
   };
 });
 
 const findThread = (threadId: string) => _THREADS.find((t) => t.id === threadId);
 
-// 읽음 처리 및 요약 업데이트
-function recomputeThreadUnread(threadId: string) {
+function recomputeThreadSummary(threadId: string) {
   const th = findThread(threadId);
   if (!th) return;
 
@@ -58,52 +74,65 @@ function recomputeThreadUnread(threadId: string) {
   th.updatedAt = last.createdAt;
 }
 
+function cloneThread(t: DMThread): DMThread {
+  return {
+    ...t,
+    otherUser: { ...t.otherUser },
+    lastMessage: { ...t.lastMessage },
+  };
+}
+
 // --- Implementation ---
 export const dmLocalService = {
   async getThreads(): Promise<DMThread[]> {
     await delay();
-    return [..._THREADS].sort((a, b) => toTimeMs(b.updatedAt) - toTimeMs(a.updatedAt));
+    return [..._THREADS]
+      .sort((a, b) => toMs(b.updatedAt) - toMs(a.updatedAt))
+      .map(cloneThread);
   },
 
   async getThread(threadId: string): Promise<DMThread> {
-    await delay(150);
+    await delay(120);
     const th = findThread(threadId);
     if (!th) throw new Error("Thread not found");
-    return { ...th };
+    return cloneThread(th);
   },
 
   async findThreadByMeetingId(meetingId: string): Promise<DMThread | null> {
     await delay();
-    const th = _THREADS.find((t) => t.relatedMeetingId === meetingId);
-    return th ? { ...th } : null;
+    const th = _THREADS.find((t) => String(t.relatedMeetingId ?? "") === String(meetingId));
+    return th ? cloneThread(th) : null;
   },
 
   async getMessages(threadId: string): Promise<DMMessage[]> {
     await delay();
     const msgs = _MESSAGES[threadId] ? [..._MESSAGES[threadId]] : [];
-    return msgs.sort((a, b) => toTimeMs(a.createdAt) - toTimeMs(b.createdAt));
+    return msgs.sort((a, b) => toMs(a.createdAt) - toMs(b.createdAt));
   },
 
   async sendMessage(threadId: string, text: string): Promise<DMMessage> {
     await delay();
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error("메시지를 입력해주세요.");
+
     const newMessage: DMMessage = {
-      id: Date.now().toString(),
+      id: `m_${Date.now()}`,
       threadId,
       type: "TEXT",
-      text,
+      text: trimmed,
       senderId: "me",
       createdAt: new Date().toISOString(),
       isRead: true,
     };
 
-    if (_MESSAGES[threadId]) _MESSAGES[threadId].push(newMessage);
-    else _MESSAGES[threadId] = [newMessage];
+    _MESSAGES[threadId] = _MESSAGES[threadId] ? [..._MESSAGES[threadId], newMessage] : [newMessage];
 
     const th = findThread(threadId);
     if (th) {
       th.lastMessage = newMessage;
       th.updatedAt = newMessage.createdAt;
     } else {
+      // 스레드가 없으면 생성 (Mocking 동작)
       _THREADS.unshift({
         id: threadId,
         otherUser: { id: "unknown", nickname: "알 수 없음", avatarUrl: null },
@@ -113,13 +142,13 @@ export const dmLocalService = {
       });
     }
 
-    return newMessage;
+    return { ...newMessage };
   },
 
   async markRead(threadId: string): Promise<void> {
-    await delay(100);
+    await delay(80);
     const msgs = _MESSAGES[threadId] ?? [];
     _MESSAGES[threadId] = msgs.map((m) => (m.senderId !== "me" ? { ...m, isRead: true } : m));
-    recomputeThreadUnread(threadId);
+    recomputeThreadSummary(threadId);
   },
 };
