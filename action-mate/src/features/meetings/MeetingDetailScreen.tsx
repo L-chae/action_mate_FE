@@ -41,29 +41,118 @@ import { ProfileModal } from "@/features/meetings/ui/ProfileModal";
 import { DetailContent } from "./ui/DetailContent";
 import { BottomBar } from "./ui/BottomBar";
 
+import * as Location from "expo-location";
+import { calculateDistance } from "@/shared/utils/distance";
+
 const TOPBAR_HEIGHT = 56;
+
+type AppTheme = ReturnType<typeof useAppTheme>;
+
+function hexToRgba(hex: string, alpha: number) {
+  const a = Math.max(0, Math.min(1, Number.isFinite(alpha) ? alpha : 1));
+  const clean = String(hex || "").replace("#", "").trim();
+
+  const parse = (h: string) => {
+    if (h.length === 3) {
+      const r = parseInt(h[0] + h[0], 16);
+      const g = parseInt(h[1] + h[1], 16);
+      const b = parseInt(h[2] + h[2], 16);
+      return { r, g, b };
+    }
+    if (h.length === 6) {
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      return { r, g, b };
+    }
+    return null;
+  };
+
+  const rgb = parse(clean);
+  if (!rgb || [rgb.r, rgb.g, rgb.b].some((n) => !Number.isFinite(n))) {
+    return `rgba(0,0,0,${a})`;
+  }
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},${a})`;
+}
+
+const makeStyles = (t: AppTheme) => {
+  const baseText =
+    t?.colors?.textMain ?? t?.colors?.icon?.default ?? t?.colors?.primary ?? "#000000";
+  const overlay = hexToRgba(baseText, 0.5);
+  const handle =
+    t?.colors?.neutral?.[200] ??
+    t?.colors?.neutral?.[100] ??
+    t?.colors?.icon?.default ??
+    t?.colors?.textMain;
+
+  return StyleSheet.create({
+    center: { flex: 1, justifyContent: "center", alignItems: "center" },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: overlay,
+      justifyContent: "flex-end",
+    },
+    modalContent: {
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: 20,
+      paddingTop: 10,
+    },
+    dragHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: handle,
+      alignSelf: "center",
+      marginVertical: 10,
+    },
+    menuItem: { flexDirection: "row", alignItems: "center", paddingVertical: 16, gap: 12 },
+    menuDivider: { height: 1, width: "100%" },
+  });
+};
+
+async function ensureForegroundPermission() {
+  try {
+    const permNow = await Location.getForegroundPermissionsAsync();
+    const grantedNow = !!(permNow as any)?.granted || (permNow as any)?.status === "granted";
+    if (grantedNow) return true;
+
+    const perm = await Location.requestForegroundPermissionsAsync();
+    return !!(perm as any)?.granted || (perm as any)?.status === "granted";
+  } catch {
+    return false;
+  }
+}
+
+function pickAccuracy(kind: "quick" | "normal") {
+  const A = (Location as any)?.Accuracy;
+  if (!A) return undefined;
+  if (kind === "quick") return A?.Lowest ?? A?.Low ?? A?.Balanced ?? undefined;
+  return A?.Balanced ?? A?.High ?? undefined;
+}
 
 export default function MeetingDetailScreen() {
   const t = useAppTheme();
+  const s = useMemo(() => makeStyles(t), [t]);
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
 
-  // params 파싱은 “문자열 id”로 표준화 (이후 로직의 조건/캐스팅 최소화 목적)
   const meetingId: string | undefined = useMemo(() => {
     const raw = (params as any)?.id;
     return Array.isArray(raw) ? raw[0] : raw;
   }, [params]);
 
-  const me = useAuthStore((s) => s.user);
+  const me = useAuthStore((st) => st.user);
   const currentUserId = me?.id ? String(me.id) : "guest";
 
-  // --- State ---
   const [post, setPost] = useState<MeetingPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileVisible, setProfileVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [distanceText, setDistanceText] = useState("");
 
   const [bottomBarHeight, setBottomBarHeight] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -76,11 +165,9 @@ export default function MeetingDetailScreen() {
   const inputRef = useRef<TextInput | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
 
-  // “바닥 고정” 여부 판단은 렌더에 영향 없으므로 ref로 유지 (불필요한 렌더 방지 목적)
   const stickToBottomRef = useRef(true);
 
   const scrollToBottomSoon = useCallback((animated = true) => {
-    // 레이아웃 반영 직후 스크롤이 필요한 케이스가 많아 타이머를 최소로 사용
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated });
     }, 80);
@@ -104,6 +191,73 @@ export default function MeetingDetailScreen() {
     };
   }, []);
 
+  // ✅ 거리 표시가 늦게 나오는 문제 개선:
+  // 1) lastKnown 위치로 즉시 1차 계산(빠름)
+  // 2) current 위치로 2차 보정(정확)
+  useEffect(() => {
+    const targetLat = Number((post as any)?.location?.latitude ?? (post as any)?.location?.lat);
+    const targetLng = Number((post as any)?.location?.longitude ?? (post as any)?.location?.lng);
+
+    if (!Number.isFinite(targetLat) || !Number.isFinite(targetLng)) {
+      setDistanceText("");
+      return;
+    }
+
+    let canceled = false;
+
+    const setDist = (myLat: number, myLng: number) => {
+      try {
+        const dist = calculateDistance(myLat, myLng, targetLat, targetLng);
+        if (!canceled) setDistanceText(String(dist ?? ""));
+      } catch {
+        if (!canceled) setDistanceText("");
+      }
+    };
+
+    (async () => {
+      const ok = await ensureForegroundPermission();
+      if (!ok) {
+        if (!canceled) setDistanceText("");
+        return;
+      }
+
+      // ✅ 빠른 1차: 마지막으로 알고 있는 위치(대부분 즉시 반환)
+      try {
+        const last = await Location.getLastKnownPositionAsync({
+          maxAge: 2 * 60 * 1000,
+          requiredAccuracy: 1500,
+        } as any);
+
+        const myLat = Number(last?.coords?.latitude);
+        const myLng = Number(last?.coords?.longitude);
+        if (Number.isFinite(myLat) && Number.isFinite(myLng)) {
+          setDist(myLat, myLng);
+        }
+      } catch {
+        // ignore
+      }
+
+      // ✅ 정확한 2차: 현재 위치(느릴 수 있으나 도착하면 덮어씀)
+      try {
+        const cur = await Location.getCurrentPositionAsync({
+          accuracy: pickAccuracy("normal"),
+        } as any);
+
+        const myLat = Number(cur?.coords?.latitude);
+        const myLng = Number(cur?.coords?.longitude);
+        if (Number.isFinite(myLat) && Number.isFinite(myLng)) {
+          setDist(myLat, myLng);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [(post as any)?.location?.latitude, (post as any)?.location?.longitude]);
+
   const isAuthor = useMemo(() => {
     const hostId = post?.host?.id;
     if (!hostId) return false;
@@ -126,14 +280,10 @@ export default function MeetingDetailScreen() {
     );
   }, [bottomBarHeight, isKeyboardVisible, keyboardHeight]);
 
-  const keyboardVerticalOffset = useMemo(() => {
-    return Platform.OS === "ios" ? TOPBAR_HEIGHT + insets.top : 0;
-  }, [insets.top]);
-
   const displayHost = useMemo(() => {
     if (!post?.host) return null;
     if (isAuthor && me) {
-      return { ...post.host, nickname: me.nickname, avatarUrl: me.avatarUrl };
+      return { ...post.host, nickname: me.nickname, avatarUrl: (me as any)?.avatarUrl };
     }
     return post.host;
   }, [post?.host, isAuthor, me]);
@@ -142,6 +292,20 @@ export default function MeetingDetailScreen() {
     if (!post) return null;
     return { ...post, host: displayHost ?? post.host };
   }, [post, displayHost]);
+
+  // ✅ DetailContent가 어디서든 안정적으로 쓸 수 있도록:
+  // - post.distanceText + location.distanceText 모두 채움
+  // - 주소 라인 결합은 DetailContent에서도 처리하지만, 여기서도 보강
+  const displayPostWithDistance = useMemo(() => {
+    const base = displayPost ?? post;
+    const dist = String(distanceText ?? "").trim();
+    if (!base || !dist) return base;
+
+    const loc = (base as any)?.location;
+    const nextLoc: any = loc ? { ...loc, distanceText: dist } : { distanceText: dist };
+
+    return { ...(base as any), distanceText: dist, location: nextLoc } as MeetingPost;
+  }, [displayPost, post, distanceText]);
 
   const handleScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -153,22 +317,7 @@ export default function MeetingDetailScreen() {
     [contentBottomPadding]
   );
 
-  const scrollComposerToKeyboard = useCallback(() => {
-    const node = findNodeHandle(inputRef.current);
-    const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
-    if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
-      responder.scrollResponderScrollNativeHandleToKeyboard(
-        node,
-        Platform.OS === "android" ? 20 : 12,
-        true
-      );
-    } else {
-      scrollToBottomSoon(true);
-    }
-  }, [scrollToBottomSoon]);
-
   const loadInitialData = useCallback(async () => {
-    // ✅ meetingId 없을 때 로딩만 걸어두지 않도록 방어
     if (!meetingId) {
       setLoading(false);
       return;
@@ -179,9 +328,6 @@ export default function MeetingDetailScreen() {
       const m = await meetingApi.getMeeting(meetingId);
       setPost(m);
 
-      // ✅ 목업 댓글 주입 (API 연결 전 UI 확인용)
-      // - 화면에 “댓글/대댓글”이 즉시 보이도록
-      // - 필요하면 meetingId별로 분기해서 다른 댓글 세트로 바꿔도 됨
       setComments(MEETING_COMMENTS_MOCK);
 
       const hostId = m.host?.id ? String(m.host.id) : "";
@@ -201,7 +347,6 @@ export default function MeetingDetailScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // ✅ 다른 모임으로 들어왔을 때 입력 모드가 남아있지 않도록 초기화
       setReplyTarget(null);
       setEditingComment(null);
       setCommentText("");
@@ -292,7 +437,7 @@ export default function MeetingDetailScreen() {
     if (editingComment) {
       setComments((prev: Comment[]) =>
         prev.map((c: Comment) =>
-          String(c.id) === String(editingComment.id) ? { ...c, content: commentText } : c
+          String((c as any).id) === String((editingComment as any).id) ? { ...c, content: commentText } : c
         )
       );
       setEditingComment(null);
@@ -304,7 +449,7 @@ export default function MeetingDetailScreen() {
         id: `new_${Date.now()}`,
         content: replyTarget ? `@${replyNickname} ${commentText}` : commentText,
         createdAt: new Date().toISOString(),
-        parentId: replyTarget?.id,
+        parentId: (replyTarget as any)?.id,
         author: {
           id: currentUserId,
           nickname: me?.nickname || "나",
@@ -324,7 +469,7 @@ export default function MeetingDetailScreen() {
   if (loading || !post) {
     return (
       <AppLayout>
-        <View style={styles.center}>
+        <View style={s.center}>
           <ActivityIndicator size="large" color={t.colors.primary} />
         </View>
       </AppLayout>
@@ -349,33 +494,31 @@ export default function MeetingDetailScreen() {
         animationType="fade"
         onRequestClose={() => setMenuVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setMenuVisible(false)}>
           <Pressable
             style={[
-              styles.modalContent,
+              s.modalContent,
               { paddingBottom: Math.max(20, insets.bottom), backgroundColor: t.colors.surface },
             ]}
-            onPress={() => {
-              // overlay 닫힘 방지용 (의도: 컨텐츠 터치 시 모달 유지)
-            }}
+            onPress={() => {}}
           >
-            <View style={styles.dragHandle} />
+            <View style={s.dragHandle} />
 
             <Pressable
-              style={styles.menuItem}
+              style={s.menuItem}
               onPress={() => {
                 setMenuVisible(false);
-                router.push(`/meetings/edit/${post.id}` as any);
+                router.push(`/meetings/edit/${(post as any).id}` as any);
               }}
             >
               <Ionicons name="pencil-outline" size={20} color={t.colors.textMain} />
               <Text style={t.typography.bodyLarge}>게시글 수정</Text>
             </Pressable>
 
-            <View style={[styles.menuDivider, { backgroundColor: t.colors.neutral[100] }]} />
+            <View style={[s.menuDivider, { backgroundColor: t.colors.neutral[100] }]} />
 
             <Pressable
-              style={styles.menuItem}
+              style={s.menuItem}
               onPress={() => {
                 setMenuVisible(false);
                 Alert.alert("모임 삭제", "정말로 삭제하시겠습니까?", [
@@ -385,7 +528,7 @@ export default function MeetingDetailScreen() {
                     style: "destructive",
                     onPress: async () => {
                       try {
-                        await meetingApi.cancelMeeting(String(post.id));
+                        await meetingApi.cancelMeeting(String((post as any).id));
                         router.back();
                       } catch {
                         Alert.alert("오류", "삭제 실패");
@@ -419,7 +562,7 @@ export default function MeetingDetailScreen() {
                       backgroundColor={t.colors.background}
                       count={pendingCount}
                       size={24}
-                      onPress={() => router.push(`/meetings/manage/${post.id}` as any)}
+                      onPress={() => router.push(`/meetings/manage/${(post as any).id}` as any)}
                     />
                   </View>
                 )}
@@ -438,7 +581,7 @@ export default function MeetingDetailScreen() {
         >
           <DetailContent
             t={t}
-            post={displayPost || post}
+            post={displayPostWithDistance || displayPost || post}
             comments={comments}
             currentUserId={currentUserId}
             scrollViewRef={scrollViewRef}
@@ -450,20 +593,14 @@ export default function MeetingDetailScreen() {
             }}
             onEditComment={(c: Comment) => {
               setEditingComment(c);
-              setCommentText(c.content);
+              setCommentText((c as any)?.content ?? "");
               inputRef.current?.focus();
             }}
             onDeleteComment={(id: string) => {
-              setComments((prev: Comment[]) =>
-                prev.filter((c: Comment) => String(c.id) !== String(id))
-              );
+              setComments((prev: Comment[]) => prev.filter((c: Comment) => String((c as any).id) !== String(id)));
             }}
-            onContentHeightChange={() => {
-              // DetailContent 내부 API 유지
-            }}
-            onScrollViewHeightChange={() => {
-              // DetailContent 내부 API 유지
-            }}
+            onContentHeightChange={() => {}}
+            onScrollViewHeightChange={() => {}}
             onScroll={handleScroll}
             commentText={commentText}
             setCommentText={setCommentText}
@@ -495,13 +632,13 @@ export default function MeetingDetailScreen() {
             membership={membership}
             pendingCount={pendingCount}
             canJoin={!!canJoin}
-            joinDisabledReason={post.myState?.reason}
+            joinDisabledReason={(post as any)?.myState?.reason}
             insetsBottom={insets.bottom}
             isKeyboardVisible={isKeyboardVisible}
             onJoin={handleJoin}
             onCancelJoin={handleCancelJoin}
             onEnterChat={handleEnterChat}
-            onManage={() => router.push(`/meetings/manage/${post.id}` as any)}
+            onManage={() => router.push(`/meetings/manage/${(post as any).id}` as any)}
             onLayoutHeight={setBottomBarHeight}
           />
         </KeyboardAvoidingView>
@@ -510,27 +647,9 @@ export default function MeetingDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#E5E5E5",
-    alignSelf: "center",
-    marginVertical: 10,
-  },
-  menuItem: { flexDirection: "row", alignItems: "center", paddingVertical: 16, gap: 12 },
-  menuDivider: { height: 1, width: "100%" },
-});
+/*
+요약:
+1) lastKnown 위치로 먼저 거리 계산해 “즉시 표시”하고, current 위치로 뒤에서 “정확 보정”합니다.
+2) post.distanceText + post.location.distanceText를 함께 채워 DetailContent 어디서든 거리 표기가 안정적입니다.
+3) 권한/좌표 실패 시 빈 값 처리 + 언마운트 setState 방지로 크래시/잔상 노출을 막습니다.
+*/

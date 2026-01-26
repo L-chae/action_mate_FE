@@ -220,14 +220,6 @@ export default function HomeScreen() {
 
   const pagePaddingH = t.spacing.pagePaddingH;
 
-  // Setup LayoutAnimation for Android
-  useEffect(() => {
-    if (Platform.OS === "android") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (UIManager as any).setLayoutAnimationEnabledExperimental?.(true);
-    }
-  }, []);
-
   // Fetch Logic
   const fetchData = useCallback(async (kind: FetchKind, targetCat: CategoryKey | "ALL") => {
     const seq = ++requestSeqRef.current;

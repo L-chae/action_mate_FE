@@ -24,11 +24,6 @@ import type { MyMeetingItem } from "@/features/my/model/types";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { PostStatus } from "@/features/meetings/model/types";
 
-// 안드로이드 LayoutAnimation 활성화
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 // ----------------------------------------------------------------------
 // ✅ 1. Types & Constants
 // ----------------------------------------------------------------------

@@ -10,14 +10,10 @@ import {
   Text,
   UIManager,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
-import MapView, {
-  Circle,
-  PROVIDER_GOOGLE,
-  type MarkerPressEvent,
-  type Region,
-} from "react-native-maps";
+import MapView, { Circle, PROVIDER_GOOGLE, type MarkerPressEvent, type Region } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
@@ -29,6 +25,7 @@ import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import type { Id } from "@/shared/model/types";
 import MultiCategoryChips from "@/shared/ui/MultiCategoryChips";
 import { withAlpha } from "@/shared/theme/colors";
+import { calculateDistance } from "@/shared/utils/distance";
 
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { CategoryKey, MeetingPost } from "@/features/meetings/model/types";
@@ -51,6 +48,8 @@ const MAP_PADDING = { top: 10, right: 0, bottom: 0, left: 0 };
 
 const toIdString = (v: Id) => String(v);
 
+type LatLng = { latitude: number; longitude: number };
+
 function getLatLng(m?: MeetingPost) {
   const loc: any = (m as any)?.location;
   const lat = Number(loc?.latitude ?? loc?.lat);
@@ -59,45 +58,68 @@ function getLatLng(m?: MeetingPost) {
   return ok ? { latitude: lat, longitude: lng } : null;
 }
 
+function safeDistanceText(my: LatLng | null, target: LatLng | null, fallback?: unknown) {
+  if (!my || !target) return String(fallback ?? "");
+  try {
+    const v = calculateDistance(my.latitude, my.longitude, target.latitude, target.longitude);
+    return String(v ?? fallback ?? "");
+  } catch {
+    return String(fallback ?? "");
+  }
+}
+
+function parseSnapPercent(raw?: string) {
+  if (typeof raw !== "string") return 0.15;
+  const m = raw.match(/^(\d+(?:\.\d+)?)%$/);
+  const pct = m ? Number(m[1]) / 100 : 0.15;
+  return Number.isFinite(pct) ? Math.max(0, Math.min(1, pct)) : 0.15;
+}
+
 export default function MapScreen() {
   const t = useAppTheme();
   const s = t.spacing;
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { height: screenH } = useWindowDimensions();
 
   const styles = useMemo(() => makeStyles(t), [t]);
 
   const mapRef = useRef<MapView>(null);
   const bottomSheetRef = useRef<BottomSheet>(null);
+  const listRef = useRef<any>(null);
 
   const regionRef = useRef<Region>(INITIAL_REGION);
   const lastLoadedRegionRef = useRef<Region>(INITIAL_REGION);
 
-  // 의도: 지도 이동 중 setState 폭주 방지(한 번만 dirty 전환)
   const dirtyRef = useRef(false);
-
-  // 의도: 네트워크 경합 방지(최신 요청만 반영)
   const reqSeqRef = useRef(0);
+  const focusedFromMarkerRef = useRef(false);
 
   const [list, setList] = useState<MeetingPost[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const [locationPermission, setLocationPermission] = useState(false);
+  const [myCoords, setMyCoords] = useState<LatLng | null>(null);
 
-  // 멀티 선택 필터(빈 배열 = 전체)
   const [selectedCategories, setSelectedCategories] = useState<CategoryKey[]>([]);
-
   const [mapDirty, setMapDirty] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
 
-  // 바텀시트가 최대로 올라가면 액션 영역 숨김
   const [sheetIndex, setSheetIndex] = useState(0);
   const snapPoints = useMemo(() => ["15%", "45%", "90%"], []);
   const hideSheetActions = sheetIndex >= 2;
 
+  const snapPct = useMemo(() => parseSnapPercent(snapPoints?.[sheetIndex]), [snapPoints, sheetIndex]);
+  const sheetHeightPx = useMemo(() => Math.max(0, Math.min(screenH, screenH * snapPct)), [screenH, snapPct]);
+
+  // ✅ 버튼 위치: "모달(시트) 위쪽"에 자연스럽게 떠보이도록 시트 top 기준으로 배치
+  const floatingBottom = useMemo(() => {
+    const gap = 14;
+    return sheetHeightPx + gap;
+  }, [sheetHeightPx]);
+
   useEffect(() => {
-    // 의도: Android에서 LayoutAnimation을 안전하게 사용
     if (Platform.OS === "android") {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (UIManager as any).setLayoutAnimationEnabledExperimental?.(true);
@@ -110,7 +132,7 @@ export default function MapScreen() {
 
     try {
       const data = await meetingApi.listMeetingsAround(lat, lng);
-      if (seq !== reqSeqRef.current) return; // stale response ignore
+      if (seq !== reqSeqRef.current) return;
 
       setList(data);
       lastLoadedRegionRef.current = { ...regionRef.current };
@@ -132,22 +154,35 @@ export default function MapScreen() {
           setLocationPermission(true);
 
           const location = await Location.getCurrentPositionAsync({});
-          const currentRegion: Region = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.015,
-            longitudeDelta: 0.015,
-          };
+          const lat = Number(location?.coords?.latitude);
+          const lng = Number(location?.coords?.longitude);
 
-          regionRef.current = currentRegion;
-          mapRef.current?.animateToRegion(currentRegion, 800);
-          loadMeetings(currentRegion.latitude, currentRegion.longitude);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            const currentRegion: Region = {
+              latitude: lat,
+              longitude: lng,
+              latitudeDelta: 0.015,
+              longitudeDelta: 0.015,
+            };
+
+            setMyCoords({ latitude: lat, longitude: lng });
+
+            regionRef.current = currentRegion;
+            mapRef.current?.animateToRegion(currentRegion, 800);
+            loadMeetings(currentRegion.latitude, currentRegion.longitude);
+          } else {
+            setMyCoords(null);
+            loadMeetings(INITIAL_REGION.latitude, INITIAL_REGION.longitude);
+          }
         } else {
+          setLocationPermission(false);
+          setMyCoords(null);
           Alert.alert("알림", "위치 권한을 허용하면 내 주변 모임을 찾을 수 있어요.");
           loadMeetings(INITIAL_REGION.latitude, INITIAL_REGION.longitude);
         }
       } catch (e) {
         console.error(e);
+        setMyCoords(null);
         loadMeetings(INITIAL_REGION.latitude, INITIAL_REGION.longitude);
       }
     })();
@@ -185,6 +220,8 @@ export default function MapScreen() {
       if (!locationPermission) {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== "granted") {
+          setLocationPermission(false);
+          setMyCoords(null);
           Alert.alert("권한 필요", "위치 권한 설정이 필요합니다.");
           return;
         }
@@ -192,9 +229,19 @@ export default function MapScreen() {
       }
 
       const location = await Location.getCurrentPositionAsync({});
+      const lat = Number(location?.coords?.latitude);
+      const lng = Number(location?.coords?.longitude);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        Alert.alert("오류", "현재 위치를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
+
+      setMyCoords({ latitude: lat, longitude: lng });
+
       const newRegion: Region = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+        latitude: lat,
+        longitude: lng,
         latitudeDelta: 0.015,
         longitudeDelta: 0.015,
       };
@@ -216,11 +263,25 @@ export default function MapScreen() {
     }
   }, [gpsLoading, locationPermission]);
 
+  const listWithDistance = useMemo(() => {
+    if (!myCoords) return list;
+
+    return list.map((m) => {
+      const target = getLatLng(m);
+      if (!target) return m;
+
+      const next = safeDistanceText(myCoords, target, (m as any)?.distanceText);
+      if (String(next ?? "") === String((m as any)?.distanceText ?? "")) return m;
+
+      return { ...m, distanceText: next };
+    });
+  }, [list, myCoords]);
+
   const meetingsById = useMemo(() => {
     const m = new Map<string, MeetingPost>();
-    for (const it of list) m.set(toIdString(it.id), it);
+    for (const it of listWithDistance) m.set(toIdString(it.id), it);
     return m;
-  }, [list]);
+  }, [listWithDistance]);
 
   const selectedMeeting = useMemo(() => {
     if (!selectedId) return undefined;
@@ -228,30 +289,36 @@ export default function MapScreen() {
   }, [meetingsById, selectedId]);
 
   const filteredList = useMemo(() => {
-    if (selectedCategories.length === 0) return list;
+    if ((selectedCategories?.length ?? 0) === 0) return listWithDistance;
     const set = new Set(selectedCategories);
-    return list.filter((m) => set.has(m.category));
-  }, [list, selectedCategories]);
+    return listWithDistance.filter((m) => set.has(m.category));
+  }, [listWithDistance, selectedCategories]);
 
   const markerList = useMemo(() => {
-    // 의도: 필터 적용 중에도 선택된 항목은 유지(사용자 맥락 유지)
-    if (selectedCategories.length === 0) return list;
+    if ((selectedCategories?.length ?? 0) === 0) return listWithDistance;
 
     const base = filteredList;
-    if (
-      selectedMeeting &&
-      !base.some((m) => toIdString(m.id) === toIdString(selectedMeeting.id))
-    ) {
+    if (selectedMeeting && !base.some((m) => toIdString(m.id) === toIdString(selectedMeeting.id))) {
       return [selectedMeeting, ...base];
     }
     return base;
-  }, [filteredList, list, selectedCategories.length, selectedMeeting]);
+  }, [filteredList, listWithDistance, selectedCategories, selectedMeeting]);
+
+  // ✅ 선택된 모임을 목록 최상단으로 올림(마커 탭 시 즉시 보이게)
+  const displayList = useMemo(() => {
+    const base = filteredList;
+    if (!selectedMeeting) return base;
+
+    const sid = toIdString(selectedMeeting.id);
+    const rest = base.filter((m) => toIdString(m.id) !== sid);
+    return [selectedMeeting, ...rest];
+  }, [filteredList, selectedMeeting]);
 
   const onChangeCategories = useCallback((next: CategoryKey[]) => {
     Haptics.selectionAsync().catch(() => {});
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 
-    setSelectedCategories(next);
+    setSelectedCategories(next ?? []);
     setSelectedId(null);
   }, []);
 
@@ -289,17 +356,32 @@ export default function MapScreen() {
       const item = meetingsById.get(id);
       if (!item) return;
 
+      focusedFromMarkerRef.current = true;
       Haptics.selectionAsync().catch(() => {});
       onFocusItem(item);
     },
     [meetingsById, onFocusItem]
   );
 
+  useEffect(() => {
+    if (!selectedId) return;
+    if (!focusedFromMarkerRef.current) return;
+
+    focusedFromMarkerRef.current = false;
+    requestAnimationFrame(() => {
+      try {
+        listRef.current?.scrollToOffset?.({ offset: 0, animated: true });
+      } catch {
+        // ignore
+      }
+    });
+  }, [selectedId]);
+
   const headerTitle = useMemo(() => {
     const total = filteredList.length;
-    if (selectedCategories.length === 0) return `전체 모임 ${total}개`;
+    if ((selectedCategories?.length ?? 0) === 0) return `전체 모임 ${total}개`;
 
-    const labels = selectedCategories.map((c) => getCategoryMeta(c).label);
+    const labels = (selectedCategories ?? []).map((c) => getCategoryMeta(c).label);
     if (labels.length <= 2) return `${labels.join(", ")} · ${total}개`;
     return `${labels.slice(0, 2).join(", ")} 외 ${labels.length - 2} · ${total}개`;
   }, [filteredList.length, selectedCategories]);
@@ -338,6 +420,9 @@ export default function MapScreen() {
 
   const topOverlayPadTop = Math.max(insets.top, 10) + 6;
 
+  const showResearch = mapDirty && !hideSheetActions;
+  const showGps = !hideSheetActions;
+
   return (
     <AppLayout padded={false}>
       <View style={styles.container}>
@@ -362,23 +447,13 @@ export default function MapScreen() {
           {selectedCircle}
           {markerList.map((m) => {
             const id = toIdString(m.id);
-            return (
-              <MapMarker
-                key={id}
-                meeting={m}
-                selected={selectedId === id}
-                onPress={onMarkerPress}
-              />
-            );
+            return <MapMarker key={id} meeting={m} selected={selectedId === id} onPress={onMarkerPress} />;
           })}
         </MapView>
 
-        {/* 상단 필터 칩: safe-area 반영(잘림/겹침 방지) */}
+        {/* 상단 필터(흰색 컨테이너) */}
         <View
-          style={[
-            styles.topOverlay,
-            { paddingTop: topOverlayPadTop, paddingBottom: s.space[2] },
-          ]}
+          style={[styles.topOverlay, { paddingTop: topOverlayPadTop, paddingBottom: s.space[2] }]}
           pointerEvents="box-none"
         >
           <View pointerEvents="auto">
@@ -392,64 +467,61 @@ export default function MapScreen() {
           </View>
         </View>
 
-        <BottomSheet
-          ref={bottomSheetRef}
-          index={0}
-          snapPoints={snapPoints}
-          onChange={setSheetIndex}
-          backgroundStyle={{ backgroundColor: t.colors.surface }}
-          handleIndicatorStyle={{ backgroundColor: t.colors.border }}
-        >
-          <View style={[styles.sheetHeader, { borderBottomColor: t.colors.border }]}>
-            <Text style={[t.typography.titleSmall, { color: t.colors.textMain, fontWeight: "800" }]}>
-              {headerTitle}
-            </Text>
-          </View>
-
-          {!hideSheetActions && (
-            <View style={[styles.sheetActions, { borderBottomColor: t.colors.border }]}>
-              <View style={styles.sheetActionsCenter}>
-                {mapDirty ? (
-                  <Pressable
-                    onPress={handleResearch}
-                    disabled={loading}
-                    style={({ pressed }) => [
-                      styles.researchPill,
-                      {
-                        borderColor: t.colors.border,
-                        backgroundColor: t.colors.surface,
-                        opacity: loading ? 0.82 : pressed ? 0.92 : 1,
-                      },
-                    ]}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color={t.colors.primary} />
-                    ) : (
-                      <View style={styles.rowCenter}>
-                        <Ionicons name="refresh" size={14} color={t.colors.primary} />
-                        <Text style={[t.typography.labelMedium, { color: t.colors.primary, fontWeight: "700" }]}>
-                          이 지역 재검색
-                        </Text>
-                      </View>
-                    )}
-                  </Pressable>
+        {/* ✅ 버튼 위치: 스크린샷 화살표 위치처럼 "시트 위" 지도 영역에 떠보이게 */}
+        {(showResearch || showGps) && (
+          <View
+            style={[
+              styles.floatingActions,
+              {
+                bottom: floatingBottom,
+                paddingHorizontal: s.pagePaddingH,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            {showResearch ? (
+              <Pressable
+                onPress={handleResearch}
+                disabled={loading}
+                style={({ pressed }) => [
+                  styles.researchPill,
+                  {
+                    alignSelf: "center",
+                    borderColor: t.colors.border,
+                    backgroundColor: "#FFFFFF",
+                    opacity: loading ? 0.82 : pressed ? 0.92 : 1,
+                  },
+                ]}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color={t.colors.primary} />
                 ) : (
-                  // 의도: 버튼이 사라질 때 레이아웃 점프 최소화
-                  <View style={{ height: 44 }} />
+                  <View style={styles.rowCenter}>
+                    <Ionicons name="refresh" size={14} color={t.colors.primary} />
+                    <View style={{ width: 6 }} />
+                    <Text style={[t.typography.labelMedium, { color: t.colors.primary, fontWeight: "700" }]}>
+                      이 지역 재검색
+                    </Text>
+                  </View>
                 )}
-              </View>
+              </Pressable>
+            ) : null}
 
+            {showGps ? (
               <Pressable
                 onPress={moveToMyLocation}
                 disabled={gpsLoading}
                 style={({ pressed }) => [
-                  styles.sheetGpsBtn,
+                  styles.gpsFab,
                   {
+                    position: "absolute",
+                    right: s.pagePaddingH,
                     borderColor: t.colors.border,
-                    backgroundColor: t.colors.surface,
+                    backgroundColor: "#FFFFFF",
                     opacity: gpsLoading ? 0.75 : pressed ? 0.9 : 1,
                   },
                 ]}
+                pointerEvents="auto"
               >
                 {gpsLoading ? (
                   <ActivityIndicator size="small" color={t.colors.primary} />
@@ -457,15 +529,37 @@ export default function MapScreen() {
                   <Ionicons name="locate" size={20} color={t.colors.textMain} />
                 )}
               </Pressable>
-            </View>
-          )}
+            ) : null}
+          </View>
+        )}
+
+        <BottomSheet
+          ref={bottomSheetRef}
+          index={0}
+          snapPoints={snapPoints}
+          onChange={setSheetIndex}
+          backgroundStyle={{
+            backgroundColor: t.colors.surface,
+            borderTopLeftRadius: 26,
+            borderTopRightRadius: 26,
+          }}
+          handleIndicatorStyle={{ backgroundColor: withAlpha(t.colors.border, 0.9) }}
+          handleStyle={styles.sheetHandle}
+        >
+          <View style={[styles.sheetHeader, { borderBottomColor: withAlpha(t.colors.border, 0.8) }]}>
+            <Text style={[t.typography.titleSmall, { color: t.colors.textMain, fontWeight: "800" }]} numberOfLines={1}>
+              {headerTitle}
+            </Text>
+          </View>
 
           <BottomSheetFlatList
-            data={filteredList}
+            ref={listRef}
+            data={displayList}
             keyExtractor={keyExtractor}
             contentContainerStyle={[
               styles.listContent,
               {
+                paddingTop: s.space[2], // ✅ "전체 모임" 밑 여백 축소
                 paddingBottom: Math.max(s.space[6], insets.bottom + s.space[3]),
               },
             ]}
@@ -473,9 +567,7 @@ export default function MapScreen() {
             ItemSeparatorComponent={() => <View style={{ height: s.space[3] }} />}
             ListEmptyComponent={
               <View style={styles.emptyState}>
-                <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>
-                  조건에 맞는 모임이 없어요.
-                </Text>
+                <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>조건에 맞는 모임이 없어요.</Text>
               </View>
             }
             initialNumToRender={10}
@@ -521,21 +613,16 @@ export default function MapScreen() {
           <View style={[styles.miniChip, { backgroundColor: chipBg }]}>
             <Ionicons name={meta.icon} size={10} color={meta.color} />
             <View style={{ width: 4 }} />
-            <Text style={[t.typography.labelSmall, { color: meta.color, fontWeight: "800" }]}>
-              {meta.label}
-            </Text>
+            <Text style={[t.typography.labelSmall, { color: meta.color, fontWeight: "800" }]}>{meta.label}</Text>
           </View>
 
           <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]} numberOfLines={1}>
-            {item.distanceText || "내 주변"}
+            {String((item as any)?.distanceText ?? "").trim() || "내 주변"}
           </Text>
         </View>
 
         <Text
-          style={[
-            t.typography.titleMedium,
-            { color: t.colors.textMain, fontWeight: "700", marginTop: s.space[2] },
-          ]}
+          style={[t.typography.titleMedium, { color: t.colors.textMain, fontWeight: "700", marginTop: s.space[2] }]}
           numberOfLines={1}
         >
           {item.title}
@@ -545,7 +632,7 @@ export default function MapScreen() {
           <Ionicons name="location-outline" size={13} color={t.colors.icon.muted} />
           <View style={{ width: 6 }} />
           <Text style={[t.typography.bodySmall, { color: t.colors.textSub, flex: 1 }]} numberOfLines={1}>
-            {item.location?.name ?? "장소 미정"}
+            {(item as any)?.location?.name ?? "장소 미정"}
           </Text>
         </View>
 
@@ -556,9 +643,7 @@ export default function MapScreen() {
               onPress={onDetailPress}
               style={({ pressed }) => [
                 styles.detailBtn,
-                {
-                  backgroundColor: pressed ? withAlpha(t.colors.primary, 0.9) : t.colors.primary,
-                },
+                { backgroundColor: pressed ? withAlpha(t.colors.primary, 0.9) : t.colors.primary },
               ]}
             >
               <Text style={[t.typography.labelLarge, { color: "#FFF", fontWeight: "700" }]}>상세보기</Text>
@@ -587,41 +672,41 @@ function makeStyles(t: ReturnType<typeof useAppTheme>) {
       zIndex: 30,
     },
 
+    sheetHandle: {
+      paddingTop: 8,
+    },
+
     sheetHeader: {
       paddingHorizontal: s.pagePaddingH,
-      paddingBottom: s.space[3],
+      paddingTop: s.space[1],
+      paddingBottom: s.space[2], // ✅ 헤더 아래 여백 축소
       borderBottomWidth: StyleSheet.hairlineWidth,
     },
 
-    sheetActions: {
-      paddingHorizontal: s.pagePaddingH,
-      paddingVertical: s.space[2],
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      position: "relative",
-      minHeight: 56,
+    floatingActions: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      zIndex: 40,
+      height: 44,
       justifyContent: "center",
     },
-    sheetActionsCenter: { alignItems: "center", justifyContent: "center" },
 
-    sheetGpsBtn: {
-      position: "absolute",
-      right: s.pagePaddingH,
-      top: s.space[2],
+    rowCenter: { flexDirection: "row", alignItems: "center" },
+
+    gpsFab: {
       width: 44,
       height: 44,
       borderRadius: 22,
       alignItems: "center",
       justifyContent: "center",
       borderWidth: s.borderWidth,
-      // 최소한의 그림자(플랫폼별 차이는 감수하고 과하지 않게)
-      elevation: 2,
+      elevation: 3,
       shadowColor: "#000",
-      shadowOpacity: 0.10,
-      shadowOffset: { width: 0, height: 2 },
-      shadowRadius: 6,
+      shadowOpacity: 0.12,
+      shadowOffset: { width: 0, height: 3 },
+      shadowRadius: 10,
     },
-
-    rowCenter: { flexDirection: "row", alignItems: "center" },
 
     researchPill: {
       height: 44,
@@ -630,16 +715,15 @@ function makeStyles(t: ReturnType<typeof useAppTheme>) {
       alignItems: "center",
       justifyContent: "center",
       borderWidth: s.borderWidth,
-      elevation: 2,
+      elevation: 3,
       shadowColor: "#000",
-      shadowOpacity: 0.10,
-      shadowOffset: { width: 0, height: 2 },
-      shadowRadius: 6,
+      shadowOpacity: 0.12,
+      shadowOffset: { width: 0, height: 3 },
+      shadowRadius: 10,
     },
 
     listContent: {
       paddingHorizontal: s.pagePaddingH,
-      paddingTop: s.space[4],
     },
     emptyState: { alignItems: "center", paddingTop: s.space[6] },
 

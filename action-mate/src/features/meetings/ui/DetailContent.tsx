@@ -204,13 +204,34 @@ function safeTimeValue(iso?: string) {
   return Number.isFinite(t) ? t : 0;
 }
 
+function normalizeDistanceText(post: MeetingPost) {
+  const loc: any = (post as any)?.location ?? {};
+  const d1 = String((post as any)?.distanceText ?? "").trim();
+  const d2 = String(loc?.distanceText ?? "").trim();
+
+  // 숫자 km/m 포맷이나 "도보 5분" 등 어떤 포맷이든 문자열로만 판단
+  const dist = d1 || d2;
+  if (!dist) return "";
+
+  // 주소 문자열에 이미 " · 거리"가 합쳐져 들어오는 경우 대비(중복 방지)
+  const addrCandidates = [
+    (post as any)?.address,
+    loc?.address,
+    loc?.addressName,
+    loc?.formattedAddress,
+    loc?.placeAddress,
+    loc?.displayAddress,
+    loc?.roadAddress,
+  ]
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+
+  if (addrCandidates.some((a) => a.includes(dist))) return dist;
+  return dist;
+}
+
 /**
  * ✅ 댓글을 "스레드(부모-자식)" 기준으로 정렬/평탄화
- * - 왜: 목업 데이터는 parentId로 대댓글 구조를 갖는데,
- *       단순 slice/render 시 "대댓글만 보이는" 상황이 발생하기 쉬움.
- * - 정책:
- *   - 최상위(부모) 댓글: 최신순(내림차순)
- *   - 대댓글: 해당 부모 아래에서 오래된순(오름차순)로 자연스럽게 이어지도록
  */
 type FlatComment = { item: Comment; parent: Comment | null; depth: number };
 
@@ -233,7 +254,6 @@ function buildThreadedComments(all: Comment[]) {
     childrenByParent.set(pid, arr);
   }
 
-  // 정렬: root 최신순, child 오래된순
   roots.sort((a, b) => safeTimeValue((b as any).createdAt) - safeTimeValue((a as any).createdAt));
   for (const [pid, arr] of childrenByParent.entries()) {
     arr.sort((a, b) => safeTimeValue((a as any).createdAt) - safeTimeValue((b as any).createdAt));
@@ -599,14 +619,37 @@ const MapCard = memo(function MapCard({
   post: MeetingPost;
   onPress: () => void;
 }) {
-  const lat = Number(post.location?.latitude);
-  const lng = Number(post.location?.longitude);
+  const lat = Number((post as any)?.location?.latitude ?? (post as any)?.location?.lat);
+  const lng = Number((post as any)?.location?.longitude ?? (post as any)?.location?.lng);
   const valid = isValidLatLng(lat, lng);
 
   const region = useMemo(
     () => (valid ? { latitude: lat, longitude: lng, latitudeDelta: 0.003, longitudeDelta: 0.003 } : undefined),
     [lat, lng, valid]
   );
+
+  const distanceText = useMemo(() => normalizeDistanceText(post), [post]);
+
+  const addressText = useMemo(() => {
+    const loc: any = (post as any)?.location ?? {};
+    const addr =
+      (typeof (post as any)?.address === "string" ? (post as any).address : "") ||
+      (typeof loc?.address === "string" ? loc.address : "") ||
+      (typeof loc?.addressName === "string" ? loc.addressName : "") ||
+      (typeof loc?.formattedAddress === "string" ? loc.formattedAddress : "") ||
+      (typeof loc?.placeAddress === "string" ? loc.placeAddress : "") ||
+      (typeof loc?.displayAddress === "string" ? loc.displayAddress : "") ||
+      (typeof loc?.roadAddress === "string" ? loc.roadAddress : "");
+
+    const trimmed = String(addr ?? "").trim();
+
+    // 주소에 이미 " · 거리"가 붙어 들어오면 그대로 사용, 아니면 여기서 합쳐서 표시
+    if (!trimmed && distanceText) return distanceText;
+    if (!trimmed) return "";
+
+    if (distanceText && !trimmed.includes(distanceText)) return `${trimmed} · ${distanceText}`;
+    return trimmed;
+  }, [post, distanceText]);
 
   return (
     <Pressable style={({ pressed }) => [s.card, { opacity: pressed ? 0.9 : 1 }]} onPress={onPress} disabled={!valid}>
@@ -636,12 +679,12 @@ const MapCard = memo(function MapCard({
       <View style={s.mapFooter}>
         <View style={{ flex: 1, marginRight: 12 }}>
           <Text style={[t.typography.titleSmall, { color: t.colors.textMain }]} numberOfLines={1}>
-            {post.location?.name || "위치 미정"}
+            {(post as any)?.location?.name || "위치 미정"}
           </Text>
 
-          {post.address || post.distanceText ? (
+          {addressText ? (
             <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 2 }]} numberOfLines={2}>
-              {[post.address ?? undefined, post.distanceText].filter(Boolean).join(" · ")}
+              {addressText}
             </Text>
           ) : null}
         </View>
@@ -681,10 +724,8 @@ const CommentRow = memo(function CommentRow({
   const { id, nickname, avatarUrl, isHost } = useMemo(() => getAuthorInfo(item, post.host?.id), [item, post.host?.id]);
   const isMine = useMemo(() => String(id) === String(currentUserId), [id, currentUserId]);
 
-  // ✅ parentId 구조 기반으로 "대댓글" 판정/표시 (목업 데이터가 가장 잘 드러나도록)
   const isThreadReply = depth > 0;
 
-  // ✅ content에 @prefix가 있으면 우선적으로 사용, 없으면 parent 기반으로 표시
   const replyMetaFromText = useMemo(() => parseReplyPrefix((item as any)?.content), [item]);
   const parentNickname = useMemo(() => (parent ? getAuthorInfo(parent, post.host?.id).nickname : null), [parent, post.host?.id]);
   const replyTargetLabel = replyMetaFromText?.target ?? parentNickname;
@@ -696,7 +737,6 @@ const CommentRow = memo(function CommentRow({
     }
   }, [actions, id, nickname, avatarUrl]);
 
-  // ✅ depth가 늘어날수록 들여쓰기를 자연스럽게(과도하게 벌어지지 않도록 완만하게 증가)
   const indent = isThreadReply ? 34 + Math.max(0, depth - 1) * 18 : 0;
 
   return (
@@ -806,11 +846,14 @@ export function DetailContent({
   const capacity = useMemo(() => getCapacityInfo(post, t), [post.capacity, t]);
 
   const handleMapPress = useCallback(() => {
-    const lat = Number(post.location?.latitude);
-    const lng = Number(post.location?.longitude);
+    const lat = Number((post as any)?.location?.latitude ?? (post as any)?.location?.lat);
+    const lng = Number((post as any)?.location?.longitude ?? (post as any)?.location?.lng);
     if (!isValidLatLng(lat, lng)) return;
 
-    const queryRaw = post.address || post.location?.name || `${lat},${lng}`;
+    const dist = normalizeDistanceText(post);
+    const base = (post as any)?.address || (post as any)?.location?.name || `${lat},${lng}`;
+    const queryRaw = dist ? `${base} (${dist})` : base;
+
     const query = encodeURIComponent(queryRaw);
     const webUrl = `https://www.google.com/maps/search/?api=1&query=${query}&center=${lat},${lng}`;
 
@@ -826,7 +869,7 @@ export function DetailContent({
     Linking.canOpenURL(geoUrl)
       .then((supported) => Linking.openURL(supported ? geoUrl : webUrl))
       .catch(() => Linking.openURL(webUrl));
-  }, [post.location, post.address]);
+  }, [post]);
 
   // ✅ "모임 상세 진입 시" 댓글 노출 개수는 초기화되어야 목업/UI 검증이 편함
   const [visibleRootCount, setVisibleRootCount] = useState(COMMENT_THREAD_PAGE_SIZE);
@@ -997,3 +1040,10 @@ export function DetailContent({
     </ScrollView>
   );
 }
+
+/*
+요약:
+1) distanceText는 post.distanceText / post.location.distanceText 둘 다 지원하고, 주소 문자열에 이미 합쳐진 경우 중복 표시를 막습니다.
+2) MapCard의 하단 주소 라인은 “주소 · 거리” 형태로 항상 안전하게 조합되어 노출됩니다.
+3) 지도 열기(query)에도 거리 문자열을 함께 넣어, 동일한 거리 정보가 맥락상 유지되도록 했습니다.
+*/

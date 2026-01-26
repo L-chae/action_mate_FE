@@ -184,8 +184,6 @@ export default function CategoryChips({
         })}
       </ScrollView>
 
-      {/* 하단 구분용 라인(그림자 대신 가벼운 구분) */}
-      <View pointerEvents="none" style={[styles.bottomDivider, { backgroundColor: t.colors.border }]} />
     </View>
   );
 }
@@ -210,7 +208,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
-    paddingVertical: 7, // 8 -> 7로: 높이 타이트하게
+    paddingVertical: 9, // 8 -> 7로: 높이 타이트하게
     borderRadius: 999,
   },
   bottomDivider: {

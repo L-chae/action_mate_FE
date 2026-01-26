@@ -23,11 +23,6 @@ import { meetingApi } from "@/features/meetings/api/meetingApi";
 import type { MeetingPost, MembershipStatus } from "@/features/meetings/model/types";
 import { formatMeetingTime } from "@/shared/utils/formatTime";
 
-// 안드로이드 LayoutAnimation 활성화
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 // ----------------------------------------------------------------------
 // ✅ 1. Types & Constants
 // ----------------------------------------------------------------------
