@@ -1,17 +1,21 @@
 // src/features/auth/model/types.ts
 import type { Gender as SharedGender, ISODateString, Id, UserSummary } from "@/shared/model/types";
 
-/**
- * Auth 도메인 타입
- * - UI에서는 UserSummary(id: NormalizedId) 기반 User를 사용
- * - 서버 스키마/불안정성은 API 레이어(Mapper)에서 흡수
- */
 export type Gender = SharedGender;
 
+export type BirthDateString = ISODateString | "";
+
 export type User = UserSummary & {
-  loginId: string; // 로그인 아이디(서버 명세상 id가 loginId 역할)
+  loginId: string;
   gender: Gender;
-  birthDate: ISODateString; // "YYYY-MM-DD" (서버가 비워줄 수 있어도 일단 string으로 수용)
+  birthDate: BirthDateString;
+
+  /**
+   * UI 편의 필드(선택):
+   * - 서버는 보통 profileImageName(파일명)을 주고, mapper에서 URL로 변환해 넣습니다.
+   * - 이미지 업로드가 없는 경우 file:// URI는 서버에 반영되지 않도록 mapper에서 자동 제외합니다.
+   */
+  avatarUrl?: string | null;
 };
 
 export type SignupInput = {
@@ -19,7 +23,7 @@ export type SignupInput = {
   password: string;
   nickname: string;
   gender: Gender;
-  birthDate: ISODateString;
+  birthDate: BirthDateString;
 };
 
 export type LoginInput = {
@@ -32,14 +36,12 @@ export type ResetRequestResult = { code?: string };
 export type AuthApi = {
   checkLoginIdAvailability(loginId: string): Promise<boolean>;
   getUserByLoginId(loginId: string): Promise<User | null>;
-  signup(input: SignupInput): Promise<User>;
+
+  // OpenAPI v1.2.4: /users 회원가입(201) 응답 바디 없음
+  signup(input: SignupInput): Promise<void>;
+
   login(input: LoginInput): Promise<User>;
 
-  /**
-   * API 호출 파라미터는 유연하게(Id 허용)
-   * - 서버 명세에 user update가 없으므로 remote에서는 throw
-   * - local mock에서는 구현되어 있음
-   */
   updateUser(id: Id, patch: Partial<User>): Promise<User>;
 
   updatePassword(loginId: string, newPassword: string): Promise<void>;

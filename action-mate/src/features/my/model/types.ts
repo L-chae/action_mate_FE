@@ -20,5 +20,14 @@ export type MyMeetingItem = {
 
   dateText: string;
   memberCount: number;
-  myJoinStatus?: "MEMBER" | "PENDING";
+
+  // v1.2.4 myParticipationStatus 정합
+  myJoinStatus?: "HOST" | "MEMBER" | "PENDING" | "REJECTED" | "NONE";
 };
+
+/*
+요약:
+1) myJoinStatus를 v1.2.4 참여 상태(HOST/MEMBER/PENDING/REJECTED/NONE)에 맞춰 확장.
+2) 그 외 타입은 변경 없이 유지.
+3) 표시용 필드 구조(MyMeetingItem)는 그대로 두고 상태만 정합화.
+*/

@@ -150,6 +150,7 @@ export const meetingApiRemote: MeetingApi = {
 
   // 5) 생성
   async createMeeting(data: MeetingUpsert) {
+    console.log("Creating meeting with data:", data);
     const payload = toPostCreateRequest(data);
     const res = await client.post<MeetingPostDTO>(endpoints.posts.create, pickDefined(payload));
     return toMeetingPost(res.data);

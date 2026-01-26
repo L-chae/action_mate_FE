@@ -1,5 +1,5 @@
 // src/features/settings/ProfileSettingsScreen.tsx
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -49,7 +49,7 @@ type ReadOnlyRowProps = {
 };
 
 function normalizeNickname(input: string) {
-  return input.replace(/\s+/g, " ").trim();
+  return String(input ?? "").replace(/\s+/g, " ").trim();
 }
 
 function validateNickname(nickname: string) {
@@ -63,7 +63,7 @@ function validateNickname(nickname: string) {
 }
 
 const formatBirthDate = (text: string) => {
-  const nums = text.replace(/[^0-9]/g, "");
+  const nums = String(text ?? "").replace(/[^0-9]/g, "");
   if (nums.length <= 4) return nums;
   if (nums.length <= 6) return `${nums.slice(0, 4)}-${nums.slice(4)}`;
   return `${nums.slice(0, 4)}-${nums.slice(4, 6)}-${nums.slice(6, 8)}`;
@@ -77,7 +77,7 @@ const isValidBirth = (v: string) => {
 };
 
 function normalizeBirthForSave(v: string) {
-  const s = v.trim();
+  const s = String(v ?? "").trim();
   if (/^\d{8}$/.test(s)) return formatBirthDate(s);
   return s;
 }
@@ -114,10 +114,7 @@ function FieldRow({
         >
           <Ionicons name={icon} size={18} color={t.colors.icon.default} />
         </View>
-        <Text
-          style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]}
-          numberOfLines={1}
-        >
+        <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]} numberOfLines={1}>
           {label}
         </Text>
       </View>
@@ -126,7 +123,7 @@ function FieldRow({
         value={value}
         placeholder={placeholder}
         placeholderTextColor={t.colors.textSub}
-        onChangeText={onChangeText}
+        onChangeText={(v) => onChangeText(String(v ?? ""))}
         onBlur={onBlur}
         autoCapitalize="none"
         autoCorrect={false}
@@ -158,7 +155,7 @@ function FieldRow({
           ) : null}
         </View>
         <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>
-          {value.length}/{maxLength}
+          {String(value ?? "").length}/{maxLength}
         </Text>
       </View>
     </View>
@@ -181,18 +178,15 @@ function ReadOnlyRow({ icon, label, value }: ReadOnlyRowProps) {
         >
           <Ionicons name={icon} size={18} color={t.colors.icon.default} />
         </View>
-        <Text
-          style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]}
-          numberOfLines={1}
-        >
+        <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]} numberOfLines={1}>
           {label}
         </Text>
       </View>
 
       <TextInput
-        value={value || "-"}
+        value={String(value ?? "").trim() || "-"}
         editable={false}
-        focusable={false} // Android 포커스 방지
+        focusable={false}
         selectTextOnFocus={false}
         caretHidden
         style={[
@@ -252,10 +246,7 @@ function SegmentedGender({
         >
           <Ionicons name="male-female-outline" size={18} color={t.colors.icon.default} />
         </View>
-        <Text
-          style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]}
-          numberOfLines={1}
-        >
+        <Text style={[t.typography.bodyLarge, { color: t.colors.textMain, fontWeight: "700" }]} numberOfLines={1}>
           성별
         </Text>
       </View>
@@ -264,10 +255,7 @@ function SegmentedGender({
         <Pressable
           disabled={disabled}
           onPress={() => onChange("male")}
-          style={({ pressed }) => [
-            mkStyle(value === "male"),
-            { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 },
-          ]}
+          style={({ pressed }) => [mkStyle(value === "male"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}
         >
           <Text style={[t.typography.bodyMedium, mkText(value === "male")]}>남성</Text>
         </Pressable>
@@ -275,10 +263,7 @@ function SegmentedGender({
         <Pressable
           disabled={disabled}
           onPress={() => onChange("female")}
-          style={({ pressed }) => [
-            mkStyle(value === "female"),
-            { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 },
-          ]}
+          style={({ pressed }) => [mkStyle(value === "female"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}
         >
           <Text style={[t.typography.bodyMedium, mkText(value === "female")]}>여성</Text>
         </Pressable>
@@ -286,10 +271,7 @@ function SegmentedGender({
         <Pressable
           disabled={disabled}
           onPress={() => onChange("none")}
-          style={({ pressed }) => [
-            mkStyle(value === "none"),
-            { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 },
-          ]}
+          style={({ pressed }) => [mkStyle(value === "none"), { opacity: disabled ? 0.6 : pressed ? 0.9 : 1 }]}
         >
           <Text style={[t.typography.bodyMedium, mkText(value === "none")]}>선택 안 함</Text>
         </Pressable>
@@ -312,6 +294,9 @@ export default function ProfileSettingsScreen() {
   const setUser = useAuthStore((s) => s.setUser);
   const updateProfile = useAuthStore((s) => s.updateProfile);
 
+  // ✅ user가 늦게 로드되는 케이스 대비: initial을 상태에 '한 번만' 주입
+  const [didInit, setDidInit] = useState(false);
+
   // ✅ 아이디(읽기 전용 표시용)
   const loginId = useMemo(() => {
     const u: any = user ?? {};
@@ -321,16 +306,28 @@ export default function ProfileSettingsScreen() {
   const initial = useMemo(() => {
     return {
       nickname: user?.nickname ?? "",
-      birthDate: user?.birthDate ?? "",
+      birthDate: (user as any)?.birthDate ?? "",
       gender: user?.gender === "male" || user?.gender === "female" ? user.gender : "none",
-      avatarUrl: user?.avatarUrl ?? null,
+      avatarUrl: (user as any)?.avatarUrl ?? null,
     } as const;
   }, [user]);
 
-  const [nickname, setNickname] = useState<string>(initial.nickname);
-  const [birthDate, setBirthDate] = useState<string>(initial.birthDate);
-  const [gender, setGender] = useState<Gender | "none">(initial.gender);
-  const [avatarUrl, setAvatar] = useState<string | null>(initial.avatarUrl);
+  const [nickname, setNickname] = useState<string>("");
+  const [birthDate, setBirthDate] = useState<string>("");
+  const [gender, setGender] = useState<Gender | "none">("none");
+  const [avatarUrl, setAvatar] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (didInit) return;
+    if (!user) return;
+
+    setNickname(initial.nickname);
+    setBirthDate(initial.birthDate);
+    setGender(initial.gender);
+    setAvatar(initial.avatarUrl);
+
+    setDidInit(true);
+  }, [didInit, user, initial.nickname, initial.birthDate, initial.gender, initial.avatarUrl]);
 
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState<Record<FieldKey, boolean>>({
@@ -353,12 +350,7 @@ export default function ProfileSettingsScreen() {
     const aBirth = normalizeBirthForSave(initial.birthDate);
     const avatarChanged = initial.avatarUrl !== avatarUrl;
 
-    return (
-      aNick !== normalizedNick ||
-      aBirth !== normalizedBirth ||
-      initial.gender !== gender ||
-      avatarChanged
-    );
+    return aNick !== normalizedNick || aBirth !== normalizedBirth || initial.gender !== gender || avatarChanged;
   }, [initial, normalizedNick, normalizedBirth, gender, avatarUrl]);
 
   const canSave = useMemo(() => {
@@ -366,26 +358,35 @@ export default function ProfileSettingsScreen() {
   }, [saving, isDirty, nickValidation.ok, birthOk]);
 
   const onPickAvatar = useCallback(async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permissionResult.granted === false) {
-      Alert.alert("권한 필요", "사진을 선택하려면 갤러리 접근 권한이 필요합니다.");
-      return;
-    }
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult?.granted) {
+        Alert.alert("권한 필요", "사진을 선택하려면 갤러리 접근 권한이 필요합니다.");
+        return;
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.5,
-    });
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.6,
+      });
 
-    if (!result.canceled) {
-      setAvatar(result.assets[0].uri);
+      if (!result?.canceled) {
+        const uri = result?.assets?.[0]?.uri;
+        if (uri) setAvatar(uri);
+      }
+    } catch {
+      Alert.alert("오류", "이미지를 선택할 수 없습니다.");
     }
   }, []);
 
   const onSave = useCallback(async () => {
-    if (saving || !user) return;
+    if (saving) return;
+    if (!user) {
+      Alert.alert("오류", "사용자 정보를 불러오지 못했습니다.");
+      return;
+    }
 
     setTouched({ nickname: true, birthDate: true });
 
@@ -394,6 +395,7 @@ export default function ProfileSettingsScreen() {
       Alert.alert("확인", v.message);
       return;
     }
+
     const bd = normalizeBirthForSave(birthDate);
     if (!isValidBirth(bd)) {
       Alert.alert("확인", "생년월일을 올바르게 입력해 주세요.");
@@ -411,18 +413,19 @@ export default function ProfileSettingsScreen() {
       nickname: v.value,
       birthDate: bd,
       gender: safeGender,
-      avatarUrl: avatarUrl,
+      avatarUrl: avatarUrl ?? null,
     };
 
     const optimisticUser: User = {
-      ...user,
+      ...(user as User),
       ...patchData,
     };
 
     try {
       setSaving(true);
 
-      await setUser(optimisticUser);
+      // store 갱신은 동기여도 되지만, 반환이 Promise인 구현도 커버
+      await Promise.resolve(setUser(optimisticUser) as any);
       await updateProfile(patchData);
 
       Alert.alert("완료", "프로필이 저장되었습니다.", [{ text: "확인", onPress: () => router.back() }]);
@@ -432,7 +435,7 @@ export default function ProfileSettingsScreen() {
     } finally {
       setSaving(false);
     }
-  }, [saving, nickname, birthDate, gender, avatarUrl, isDirty, user, setUser, updateProfile, router]);
+  }, [saving, user, nickname, birthDate, gender, avatarUrl, isDirty, setUser, updateProfile, router]);
 
   const onPressBack = useCallback(() => {
     if (!isDirty) {
@@ -500,11 +503,12 @@ export default function ProfileSettingsScreen() {
 
             <Pressable
               onPress={onPickAvatar}
+              disabled={saving}
               style={({ pressed }) => [
                 styles.ghostBtn,
                 {
                   borderColor: t.colors.border,
-                  opacity: pressed ? 0.9 : 1,
+                  opacity: saving ? 0.6 : pressed ? 0.9 : 1,
                   backgroundColor: withAlpha(t.colors.primary, t.mode === "dark" ? 0.12 : 0.08),
                 },
               ]}
@@ -513,12 +517,10 @@ export default function ProfileSettingsScreen() {
             </Pressable>
           </View>
 
-          {/* ✅ 기본 정보 타이틀 */}
           <Text style={[t.typography.labelLarge, { color: t.colors.textSub, marginBottom: 8, marginTop: 18 }]}>
             기본 정보
           </Text>
 
-          {/* ✅ 아이디: 기본 정보 아래로 이동 */}
           <ReadOnlyRow icon="key-outline" label="아이디" value={loginId} />
 
           <View style={{ height: 12 }} />
@@ -532,7 +534,7 @@ export default function ProfileSettingsScreen() {
             errorText={nickError}
             maxLength={20}
             editable={!saving}
-            onChangeText={(v) => setNickname(v)}
+            onChangeText={(v) => setNickname(String(v ?? ""))}
             onBlur={() => setTouched((p) => ({ ...p, nickname: true }))}
           />
 
@@ -596,3 +598,9 @@ const styles = StyleSheet.create({
   avatarCircle: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   ghostBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
 });
+
+/*
+1) user 로딩 지연 시 초기값이 비어있는 문제를 didInit으로 1회 동기화 처리.
+2) setUser 반환 타입이 Promise/void 모두 가능하도록 Promise.resolve로 방어.
+3) 입력/이미지 선택에서 null/undefined 방어 및 저장 버튼/변경 버튼 disabled 처리.
+*/

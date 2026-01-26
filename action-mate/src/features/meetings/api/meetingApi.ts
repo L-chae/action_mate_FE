@@ -20,7 +20,7 @@ import type { MeetingApi } from "../model/types";
 // const USE_MOCK = __DEV__ ? (isRemoteForced ? false : true) : false;
 
 // 👇 지금은 무조건 true로 설정하여 404 에러를 방지합니다.
-const USE_MOCK = true; 
+const USE_MOCK = false; 
 
 export const meetingApi: MeetingApi = USE_MOCK ? meetingApiLocal : meetingApiRemote;
 export const __MEETING_API_MODE__ = USE_MOCK ? "mock" : "remote";

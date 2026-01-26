@@ -8,7 +8,6 @@ import {
   SectionList,
   StyleSheet,
   Text,
-  UIManager,
   View,
   type SectionList as RNSectionList,
   type SectionListRenderItemInfo,
@@ -28,12 +27,7 @@ import CategoryChips from "@/shared/ui/CategoryChips";
 
 import { MeetingCard } from "@/features/meetings/ui/MeetingCard";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
-import type {
-  CategoryKey,
-  HotMeetingItem,
-  MeetingPost,
-  MembershipStatus,
-} from "@/features/meetings/model/types";
+import type { HotMeetingItem, MeetingPost } from "@/features/meetings/model/types";
 import { useAuthStore } from "@/features/auth/model/authStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,6 +39,9 @@ const HOT_CARD_GAP = 12;
 
 type FetchKind = "initial" | "refresh" | "filter";
 
+// CategoryChips / OpenAPI 최종 명세 기준
+type Category = "ALL" | "운동" | "오락" | "식사" | "자유";
+
 // [유틸] 만원 여부
 function isCapacityFull(m: MeetingPost) {
   const total = m.capacity?.total ?? 0;
@@ -52,15 +49,16 @@ function isCapacityFull(m: MeetingPost) {
   return total > 0 && current >= total;
 }
 
-// [유틸] 홈 노출 필터
+// [유틸] 홈 노출 필터 (현재 UI/서버 모델 혼재를 안전하게 흡수)
 function shouldShowInHomeList(m: MeetingPost) {
-  const ms: MembershipStatus = m.myState?.membershipStatus ?? "NONE";
-  const canJoin = m.myState?.canJoin ?? true;
+  const ms = m.myState?.membershipStatus ?? "NONE";
 
-  if (ms === "CANCELED" || ms === "REJECTED") return false;
+  if (ms === "REJECTED") return false;
   if (m.status === "FULL" || m.status === "ENDED" || m.status === "CANCELED") return false;
   if (isCapacityFull(m)) return false;
-  if (ms === "NONE" && m.joinMode === "INSTANT" && canJoin === false) return false;
+
+  // myState.canJoin가 내려오면 그것만 존중
+  if (ms === "NONE" && m.myState?.canJoin === false) return false;
 
   return true;
 }
@@ -85,7 +83,6 @@ const HotCardItem = React.memo(function HotCardItem({
   const current = Math.max(0, item.capacity?.current ?? 0);
   const percent = Math.min(1, current / total);
 
-  // 진행률 색상: 꽉 찰수록 붉은색, 널널하면 프라이머리
   const barColor = percent > 0.8 ? t.colors.error : t.colors.primary;
 
   return (
@@ -122,10 +119,7 @@ const HotCardItem = React.memo(function HotCardItem({
 
           <View style={s.hotProgressTrack}>
             <View
-              style={[
-                s.hotProgressFill,
-                { width: `${Math.round(percent * 100)}%`, backgroundColor: barColor },
-              ]}
+              style={[s.hotProgressFill, { width: `${Math.round(percent * 100)}%`, backgroundColor: barColor }]}
             />
           </View>
         </View>
@@ -163,11 +157,7 @@ const HomeHeader = React.memo(function HomeHeader({
 
       {hotItems.length === 0 ? (
         <View style={{ paddingHorizontal: pagePaddingH }}>
-          <EmptyView
-            title="마감 임박 모임이 없어요"
-            description="여유있게 모임을 둘러보세요!"
-            style={s.hotEmpty}
-          />
+          <EmptyView title="마감 임박 모임이 없어요" description="여유있게 모임을 둘러보세요!" style={s.hotEmpty} />
         </View>
       ) : (
         <FlatList
@@ -176,15 +166,13 @@ const HomeHeader = React.memo(function HomeHeader({
           showsHorizontalScrollIndicator={false}
           keyExtractor={(it) => String(it.id || it.meetingId)}
           renderItem={({ item }) => <HotCardItem item={item} onPress={onPressHot} t={t} s={s} />}
-          // 왜 paddingVertical을 주는가:
-          // - 카드 shadow/elevation이 리스트 상/하단에서 잘리는 현상을 방지
           contentContainerStyle={[s.hotListContainer, { paddingHorizontal: pagePaddingH }]}
           style={s.overflowVisible}
           ItemSeparatorComponent={() => <View style={s.hotGap} />}
           decelerationRate="fast"
           snapToInterval={HOT_CARD_WIDTH + HOT_CARD_GAP}
           snapToAlignment="start"
-          removeClippedSubviews={false} // 핫 리스트는 아이템 수가 적어 비용 낮고, 클리핑 이슈 예방이 더 큼
+          removeClippedSubviews={false}
         />
       )}
     </View>
@@ -203,82 +191,77 @@ export default function HomeScreen() {
   const nickname = useAuthStore((st) => st.user?.nickname);
   const displayName = nickname?.trim() || "회원님";
 
-  // States
-  const [cat, setCat] = useState<CategoryKey | "ALL">("ALL");
+  // ✅ Category는 최종 명세 문자열로 통일
+  const [cat, setCat] = useState<Category>("ALL");
+
   const [items, setItems] = useState<MeetingPost[]>([]);
   const [hotItems, setHotItems] = useState<HotMeetingItem[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filtering, setFiltering] = useState(false); // 로직 유지를 위해 state는 남겨둠
+  const [filtering, setFiltering] = useState(false);
 
-  // Refs
   const listRef = useRef<RNSectionList<MeetingPost> | null>(null);
   const requestSeqRef = useRef(0);
-  const cacheRef = useRef(new Map<CategoryKey | "ALL", MeetingPost[]>());
+  const cacheRef = useRef(new Map<Category, MeetingPost[]>());
   const lastFocusFetchAtRef = useRef(0);
 
-  const pagePaddingH = t.spacing.pagePaddingH;
+  const pagePaddingH = t.spacing?.pagePaddingH ?? 16;
 
-  // Fetch Logic
-  const fetchData = useCallback(async (kind: FetchKind, targetCat: CategoryKey | "ALL") => {
-    const seq = ++requestSeqRef.current;
+  const fetchData = useCallback(
+    async (kind: FetchKind, targetCat: Category) => {
+      const seq = ++requestSeqRef.current;
 
-    if (kind === "initial") setLoading(true);
-    if (kind === "refresh") setRefreshing(true);
-    if (kind === "filter") setFiltering(true);
+      if (kind === "initial") setLoading(true);
+      if (kind === "refresh") setRefreshing(true);
+      if (kind === "filter") setFiltering(true);
 
-    try {
-      // 1) 일반 목록
-      const listPromise = meetingApi
-        .listMeetings(targetCat === "ALL" ? undefined : { category: targetCat })
-        .catch(() => []);
+      try {
+        // ✅ meetingApi.listMeetings는 category 필터를 기대함 (최종 명세 카테고리로 전달)
+        const listPromise = meetingApi
+          .listMeetings(targetCat === "ALL" ? undefined : { category: targetCat })
+          .catch(() => []);
 
-      // 2) 핫 모임(초기/리프레시만)
-      const hotPromise =
-        kind !== "filter"
-          ? meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 }).catch(() => [])
-          : Promise.resolve(null);
+        const hotPromise =
+          kind !== "filter" ? meetingApi.listHotMeetings({ limit: 8, withinMinutes: 180 }).catch(() => []) : Promise.resolve(null);
 
-      const [data, hotData] = await Promise.all([listPromise, hotPromise]);
+        const [data, hotData] = await Promise.all([listPromise, hotPromise]);
 
-      // 화면 필터링
-      const visibleData = data.filter(shouldShowInHomeList);
+        const visibleData = (data ?? []).filter(shouldShowInHomeList);
 
-      if (seq === requestSeqRef.current) {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        if (seq === requestSeqRef.current) {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 
-        setItems(visibleData);
-        cacheRef.current.set(targetCat, visibleData);
+          setItems(visibleData);
+          cacheRef.current.set(targetCat, visibleData);
 
-        if (hotData) {
-          const visibleHot = hotData.filter((h) => {
-            const total = h.capacity?.total ?? 0;
-            const current = h.capacity?.current ?? 0;
-            return !(total > 0 && current >= total);
-          });
-          setHotItems(visibleHot);
+          if (hotData) {
+            const visibleHot = hotData.filter((h) => {
+              const total = h.capacity?.total ?? 0;
+              const current = h.capacity?.current ?? 0;
+              return !(total > 0 && current >= total);
+            });
+            setHotItems(visibleHot);
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (seq === requestSeqRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+          setFiltering(false);
         }
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      if (seq === requestSeqRef.current) {
-        setLoading(false);
-        setRefreshing(false);
-        setFiltering(false);
-      }
-    }
-  }, []);
+    },
+    [],
+  );
 
-  // Initial Load
   useEffect(() => {
     fetchData("initial", "ALL");
   }, [fetchData]);
 
-  // Category Change
   useEffect(() => {
-    // 탭 변경 시 상단으로 스크롤(Sticky 헤더 바로 아래)
     try {
       listRef.current?.scrollToLocation({
         sectionIndex: 0,
@@ -296,19 +279,17 @@ export default function HomeScreen() {
     fetchData("filter", cat);
   }, [cat, fetchData]);
 
-  // Refetch on Focus
   useFocusEffect(
     useCallback(() => {
       const now = Date.now();
-      if (now - lastFocusFetchAtRef.current < 2000) return; // 2초 쿨타임
+      if (now - lastFocusFetchAtRef.current < 2000) return;
       lastFocusFetchAtRef.current = now;
       fetchData("refresh", cat);
-    }, [fetchData, cat])
+    }, [fetchData, cat]),
   );
 
-  // Handlers
-  const onRefresh = () => fetchData("refresh", cat);
-  const onPressHot = (id: string) => router.push(`/meetings/${id}`);
+  const onRefresh = useCallback(() => fetchData("refresh", cat), [fetchData, cat]);
+  const onPressHot = useCallback((id: string) => router.push(`/meetings/${id}`), [router]);
 
   const renderMeetingItem = useCallback(
     ({ item }: SectionListRenderItemInfo<MeetingPost>) => (
@@ -316,7 +297,7 @@ export default function HomeScreen() {
         <MeetingCard item={item} showStatusPill={false} showJoinBlockedBadge={false} showHostMessage={false} />
       </View>
     ),
-    [pagePaddingH, s.meetingItemWrap]
+    [pagePaddingH, s.meetingItemWrap],
   );
 
   const sections = useMemo(() => [{ key: "main", data: items }], [items]);
@@ -324,8 +305,6 @@ export default function HomeScreen() {
   const StickyHeader = useMemo(
     () => (
       <View style={s.stickyWrap}>
-        {/* CategoryChips 자체가 "하단 라인 + 약한 그림자"를 갖고 있으므로,
-            Sticky에서는 레이어 우선순위(zIndex/elevation)만 보강 */}
         <CategoryChips
           value={cat}
           onChange={setCat}
@@ -334,7 +313,7 @@ export default function HomeScreen() {
         />
       </View>
     ),
-    [cat, pagePaddingH, s.stickyWrap, s.chipsTight]
+    [cat, pagePaddingH, s.stickyWrap, s.chipsTight],
   );
 
   return (
@@ -352,14 +331,7 @@ export default function HomeScreen() {
         sections={sections}
         keyExtractor={(item) => String(item.id)}
         ListHeaderComponent={
-          <HomeHeader
-            t={t}
-            s={s}
-            displayName={displayName}
-            hotItems={hotItems}
-            onPressHot={onPressHot}
-            pagePaddingH={pagePaddingH}
-          />
+          <HomeHeader t={t} s={s} displayName={displayName} hotItems={hotItems} onPressHot={onPressHot} pagePaddingH={pagePaddingH} />
         }
         renderSectionHeader={() => StickyHeader}
         stickySectionHeadersEnabled
@@ -400,18 +372,17 @@ function createStyles(t: ReturnType<typeof useAppTheme>) {
   return StyleSheet.create({
     flex1: { flex: 1 },
 
-    // Header
     headerWrap: {
-      paddingTop: sp.space[4], // 16
-      paddingBottom: sp.space[6], // 24
+      paddingTop: sp.space[4],
+      paddingBottom: sp.space[6],
     },
     greetingWrap: {
-      marginBottom: sp.space[4], // 16
+      marginBottom: sp.space[4],
     },
     greetingTitle: {
       ...t.typography.titleLarge,
       color: t.colors.textSub,
-      marginBottom: sp.space[1], // 4
+      marginBottom: sp.space[1],
     },
     greetingName: {
       color: t.colors.textMain,
@@ -426,44 +397,40 @@ function createStyles(t: ReturnType<typeof useAppTheme>) {
       fontWeight: "800",
     },
 
-    // Hot list
     hotListContainer: {
-      paddingVertical: sp.space[2], // 8 (shadow 잘림 방지)
+      paddingVertical: sp.space[2],
     },
     hotGap: {
       width: HOT_CARD_GAP,
     },
     hotEmpty: {
-      paddingVertical: sp.space[5], // 20
+      paddingVertical: sp.space[5],
       backgroundColor: t.colors.surface,
       borderRadius: sp.radiusMd,
       borderWidth: sp.borderWidth,
       borderColor: t.colors.border,
     },
 
-    // Hot card
     hotCard: {
-      // Card 컴포넌트가 그림자/보더/라운드를 통일해서 제공하므로,
-      // 여기서는 "사이즈 + 내부 레이아웃"만 지정한다.
       overflow: "visible",
     },
     hotCardContent: {
       flex: 1,
-      padding: sp.space[3], // 12 (토큰 기반으로 통일)
+      padding: sp.space[3],
     },
     hotBadgeRow: {
       flexDirection: "row",
-      marginBottom: sp.space[2], // 8
+      marginBottom: sp.space[2],
     },
     hotTitle: {
       ...t.typography.titleMedium,
       color: t.colors.textMain,
-      marginBottom: sp.space[1], // 4
+      marginBottom: sp.space[1],
     },
     hotLocationRow: {
       flexDirection: "row",
       alignItems: "center",
-      marginBottom: sp.space[3], // 12
+      marginBottom: sp.space[3],
     },
     hotLocationText: {
       ...t.typography.bodySmall,
@@ -494,29 +461,24 @@ function createStyles(t: ReturnType<typeof useAppTheme>) {
       borderRadius: 2,
     },
 
-    // Sticky header wrapper
     stickyWrap: {
       backgroundColor: t.colors.background,
       zIndex: 30,
       ...(Platform.OS === "android" ? { elevation: 4 } : null),
     },
     chipsTight: {
-      // CategoryChips 내부 기본값이 이미 토큰 기반이라
-      // 홈 sticky에서는 간격만 살짝 타이트하게
       paddingVertical: sp.space[2],
     },
 
-    // Meeting list
     meetingItemWrap: {
-      marginBottom: sp.space[3], // 12
+      marginBottom: sp.space[3],
     },
 
-    // Empty / Loading
     loadingWrap: {
-      paddingVertical: sp.space[9], // 40
+      paddingVertical: sp.space[9],
     },
     emptyWrap: {
-      paddingTop: sp.space[9], // 40
+      paddingTop: sp.space[9],
     },
 
     listContent: {
@@ -528,3 +490,9 @@ function createStyles(t: ReturnType<typeof useAppTheme>) {
     },
   });
 }
+
+/*
+- 홈 카테고리 타입을 최종 명세(운동/오락/식사/자유 + ALL)로 통일해 CategoryChips/meetingApi와 불일치 제거
+- 필터 호출 시 category 값을 그대로 전달하도록 수정(더 이상 SPORTS/GAMES 등 키 사용 X)
+- join 가능 여부 판단은 서버 myState.canJoin만 존중하도록 단순화(불필요 분기 제거)
+*/

@@ -1,22 +1,25 @@
 // src/features/my/model/mappers.ts
-import type { Post, ServerProfile } from "@/shared/model/types";
+import type { Post, UserProfile } from "@/shared/api/schemas";
 import { normalizeId } from "@/shared/model/types";
+import { endpoints } from "@/shared/api/endpoints";
 import type { MyMeetingItem, MyProfile } from "@/features/my/model/types";
 import type { MeetingPost } from "@/features/meetings/model/types";
 
 /**
- * My 도메인은 "UI 모델"을 안정적으로 유지하기 위한 mapper 모음
+ * My 도메인 mapper (OpenAPI v1.2.4 정합)
  */
 
-export const mapUserProfileResponseToMyProfile = (res: ServerProfile): MyProfile => ({
+const img = (name?: string): string | null => (name ? endpoints.images.get(name) : null);
+
+export const mapUserProfileResponseToMyProfile = (res: UserProfile): MyProfile => ({
   id: normalizeId(res.id),
-  nickname: res.nickname ?? "알 수 없음",
-  avatarUrl: res.profileImageUrl ?? null,
+  nickname: res.nickname?.trim() ? res.nickname : "알 수 없음",
+  avatarUrl: img(res.profileImageName),
 });
 
 export const mapMeetingPostToMyMeetingItem = (meeting: MeetingPost): MyMeetingItem => {
   const membership = meeting.myState?.membershipStatus;
-  const myJoinStatus = membership === "MEMBER" ? "MEMBER" : membership === "PENDING" ? "PENDING" : undefined;
+  const myJoinStatus = membership && membership !== "NONE" ? membership : undefined;
 
   const rawTime = typeof meeting.meetingTime === "string" ? meeting.meetingTime : "";
   const dateText = meeting.meetingTimeText ?? (rawTime.includes("T") ? rawTime.split("T")[0] : rawTime);
@@ -26,18 +29,14 @@ export const mapMeetingPostToMyMeetingItem = (meeting: MeetingPost): MyMeetingIt
     title: meeting.title?.trim() ? meeting.title : "(제목 없음)",
     location: { name: meeting.location?.name?.trim() ? meeting.location.name : "장소 미정" },
     dateText,
-    memberCount: Number((meeting.capacity as any)?.current ?? 0) || 0,
+    memberCount: typeof meeting.capacity?.current === "number" ? meeting.capacity.current : 0,
     myJoinStatus,
   };
 };
 
 export const mapPostToMyMeetingItem = (post: Post): MyMeetingItem => {
-  const myJoinStatus =
-    post.myParticipationStatus === "MEMBER"
-      ? "MEMBER"
-      : post.myParticipationStatus === "PENDING"
-        ? "PENDING"
-        : undefined;
+  const status = post.myParticipationStatus;
+  const myJoinStatus = status && status !== "NONE" ? status : undefined;
 
   const rawTime = typeof post.meetingTime === "string" ? post.meetingTime : "";
   const dateText = rawTime.includes("T") ? rawTime.split("T")[0] : rawTime;
@@ -51,3 +50,10 @@ export const mapPostToMyMeetingItem = (post: Post): MyMeetingItem => {
     myJoinStatus,
   };
 };
+
+/*
+요약:
+1) ServerProfile/profileImageUrl 의존 제거 → UserProfile(profileImageName) + /images 경로로 정합.
+2) myJoinStatus를 v1.2.4(HOST/MEMBER/PENDING/REJECTED/NONE) 기준으로 그대로 전달.
+3) memberCount는 capacity.current / currentCount를 명세 필드로 직접 사용.
+*/

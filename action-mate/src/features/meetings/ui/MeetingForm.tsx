@@ -52,6 +52,16 @@ const DURATION_MAX = 180;
 const DURATION_STEP = 5;
 const DURATION_QUICK = [30, 60, 90, 120, 180]; // ✅ 초보자용: 너무 많지 않게 축소
 
+const DEFAULT_CATEGORY: CategoryKey = "운동";
+
+// (선택) 기존 로컬/레거시 값(SPORTS/GAMES/MEAL/ETC)이 들어와도 한 번에 정리
+const normalizeCategory = (v: unknown): CategoryKey => {
+  if (v === "운동" || v === "오락" || v === "식사" || v === "자유") return v;
+  if (v === "SPORTS") return "운동";
+  if (v === "GAMES") return "오락";
+  if (v === "MEAL") return "식사";
+  return "자유";
+};
 // --- Helpers ---
 const formatDateSimple = (date: Date) =>
   date.toLocaleString("ko-KR", {
@@ -289,7 +299,7 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
 
   // --- Form State ---
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<CategoryKey>("SPORTS");
+const [category, setCategory] = useState<CategoryKey>(DEFAULT_CATEGORY);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [pickedLocation, setPickedLocation] = useState<LocationData | null>(null);
   const [content, setContent] = useState("");
@@ -317,7 +327,7 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
     if (!iv) return;
 
     setTitle(iv.title ?? "");
-    setCategory((iv.category as CategoryKey) ?? "SPORTS");
+    setCategory(normalizeCategory(iv.category ?? DEFAULT_CATEGORY));
     setSelectedDate(iv.meetingTime ? new Date(iv.meetingTime) : null);
 
     const lat = (iv.location as any)?.lat ?? (iv.location as any)?.latitude;

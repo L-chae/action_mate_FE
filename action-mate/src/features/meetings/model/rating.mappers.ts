@@ -1,5 +1,5 @@
 // src/features/meetings/model/rating.mappers.ts
-import type { RatingRequest, RatingResponse } from "@/shared/api/schemas";
+import type { Rating, RatingRequest } from "@/shared/api/schemas";
 import { normalizeId } from "@/shared/model/types";
 import type { RatingCreateInput, RatingUI } from "@/features/meetings/model/rating.types";
 
@@ -13,12 +13,12 @@ export const mapRatingCreateInputToRequest = (input: RatingCreateInput): RatingR
   comment: input.comment,
 });
 
-export const mapRatingResponseToUI = (res: RatingResponse): RatingUI => ({
+export const mapRatingResponseToUI = (res: Rating): RatingUI => ({
   id: normalizeId(res.id),
   postId: normalizeId(res.postId),
   raterId: normalizeId(res.raterId),
   targetUserId: normalizeId(res.targetUserId),
-  score: typeof res.score === "number" ? res.score : 0,
+  score: res.score,
   comment: res.comment,
-  createdAt: res.createdAt ?? "",
+  createdAt: res.createdAt,
 });

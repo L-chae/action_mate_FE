@@ -22,16 +22,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
-// ✅ Store & API
 import { useAuthStore } from "@/features/auth/model/authStore";
 import { meetingApi } from "@/features/meetings/api/meetingApi";
 import { findDMThreadByMeetingId } from "@/features/dm/api/dmApi";
 import type { Comment, MeetingPost, Participant } from "@/features/meetings/model/types";
 
-// ✅ MOCK (댓글 표시용)
-import { MEETING_COMMENTS_MOCK } from "@/features/meetings/mocks/meetingMockData";
-
-// ✅ UI & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
 import NotiButton from "@/shared/ui/NotiButton";
@@ -76,8 +71,7 @@ function hexToRgba(hex: string, alpha: number) {
 }
 
 const makeStyles = (t: AppTheme) => {
-  const baseText =
-    t?.colors?.textMain ?? t?.colors?.icon?.default ?? t?.colors?.primary ?? "#000000";
+  const baseText = t?.colors?.textMain ?? t?.colors?.icon?.default ?? t?.colors?.primary ?? "#000000";
   const overlay = hexToRgba(baseText, 0.5);
   const handle =
     t?.colors?.neutral?.[200] ??
@@ -131,6 +125,13 @@ function pickAccuracy(kind: "quick" | "normal") {
   return A?.Balanced ?? A?.High ?? undefined;
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function normalizeCommentsFromMeeting(m: any): Comment[] {
+  const raw = m?.comments ?? m?.commentList ?? m?.comment ?? [];
+  return Array.isArray(raw) ? (raw as Comment[]) : [];
+}
+
 export default function MeetingDetailScreen() {
   const t = useAppTheme();
   const s = useMemo(() => makeStyles(t), [t]);
@@ -181,9 +182,7 @@ export default function MeetingDetailScreen() {
   });
 
   useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", (e) =>
-      setKeyboardHeight(e.endCoordinates.height)
-    );
+    const showSub = Keyboard.addListener("keyboardDidShow", (e) => setKeyboardHeight(e.endCoordinates.height));
     const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
     return () => {
       showSub.remove();
@@ -191,9 +190,6 @@ export default function MeetingDetailScreen() {
     };
   }, []);
 
-  // ✅ 거리 표시가 늦게 나오는 문제 개선:
-  // 1) lastKnown 위치로 즉시 1차 계산(빠름)
-  // 2) current 위치로 2차 보정(정확)
   useEffect(() => {
     const targetLat = Number((post as any)?.location?.latitude ?? (post as any)?.location?.lat);
     const targetLng = Number((post as any)?.location?.longitude ?? (post as any)?.location?.lng);
@@ -221,7 +217,6 @@ export default function MeetingDetailScreen() {
         return;
       }
 
-      // ✅ 빠른 1차: 마지막으로 알고 있는 위치(대부분 즉시 반환)
       try {
         const last = await Location.getLastKnownPositionAsync({
           maxAge: 2 * 60 * 1000,
@@ -237,7 +232,6 @@ export default function MeetingDetailScreen() {
         // ignore
       }
 
-      // ✅ 정확한 2차: 현재 위치(느릴 수 있으나 도착하면 덮어씀)
       try {
         const cur = await Location.getCurrentPositionAsync({
           accuracy: pickAccuracy("normal"),
@@ -267,17 +261,10 @@ export default function MeetingDetailScreen() {
   const membership = post?.myState?.membershipStatus ?? "NONE";
   const canJoin = post?.myState?.canJoin ?? post?.status === "OPEN";
 
-  const pendingCount = useMemo(
-    () => participants.filter((p) => p.status === "PENDING").length,
-    [participants]
-  );
+  const pendingCount = useMemo(() => participants.filter((p) => p.status === "PENDING").length, [participants]);
 
   const contentBottomPadding = useMemo(() => {
-    return (
-      (isKeyboardVisible ? 0 : bottomBarHeight) +
-      20 +
-      (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0)
-    );
+    return (isKeyboardVisible ? 0 : bottomBarHeight) + 20 + (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
   }, [bottomBarHeight, isKeyboardVisible, keyboardHeight]);
 
   const displayHost = useMemo(() => {
@@ -293,9 +280,6 @@ export default function MeetingDetailScreen() {
     return { ...post, host: displayHost ?? post.host };
   }, [post, displayHost]);
 
-  // ✅ DetailContent가 어디서든 안정적으로 쓸 수 있도록:
-  // - post.distanceText + location.distanceText 모두 채움
-  // - 주소 라인 결합은 DetailContent에서도 처리하지만, 여기서도 보강
   const displayPostWithDistance = useMemo(() => {
     const base = displayPost ?? post;
     const dist = String(distanceText ?? "").trim();
@@ -310,11 +294,20 @@ export default function MeetingDetailScreen() {
   const handleScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-      const distanceFromBottom =
-        contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
+      const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
       stickToBottomRef.current = distanceFromBottom < 24;
     },
     [contentBottomPadding]
+  );
+
+  const syncFromServer = useCallback(
+    async (id: string) => {
+      const m = await meetingApi.getMeeting(id);
+      setPost(m);
+      setComments(normalizeCommentsFromMeeting(m));
+      return m;
+    },
+    []
   );
 
   const loadInitialData = useCallback(async () => {
@@ -325,25 +318,39 @@ export default function MeetingDetailScreen() {
 
     setLoading(true);
     try {
-      const m = await meetingApi.getMeeting(meetingId);
-      setPost(m);
+      // ✅ 생성 직후 조회가 가끔 늦게 반영되는 서버 대비: 짧은 재시도
+      const retries = [0, 350, 800];
+      let lastErr: unknown = null;
 
-      setComments(MEETING_COMMENTS_MOCK);
-
-      const hostId = m.host?.id ? String(m.host.id) : "";
-      if (m.myState?.membershipStatus === "HOST" || hostId === String(currentUserId)) {
-        const parts = await meetingApi.getParticipants(String(m.id));
-        setParticipants(parts);
-      } else {
-        setParticipants([]);
+      for (let i = 0; i < retries.length; i += 1) {
+        if (retries[i] > 0) await sleep(retries[i]);
+        try {
+          const m = await syncFromServer(meetingId);
+          const hostId = m.host?.id ? String(m.host.id) : "";
+          if (m.myState?.membershipStatus === "HOST" || hostId === String(currentUserId)) {
+            const parts = await meetingApi.getParticipants(String(m.id));
+            setParticipants(parts);
+          } else {
+            setParticipants([]);
+          }
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+        }
       }
+
+      if (lastErr) throw lastErr;
     } catch (e) {
       console.error(e);
       Alert.alert("오류", "모임 정보를 불러오지 못했습니다.");
+      setPost(null);
+      setComments([]);
+      setParticipants([]);
     } finally {
       setLoading(false);
     }
-  }, [meetingId, currentUserId]);
+  }, [meetingId, currentUserId, syncFromServer]);
 
   useFocusEffect(
     useCallback(() => {
@@ -431,42 +438,74 @@ export default function MeetingDetailScreen() {
     }
   }, [post, router]);
 
-  const handleSubmitComment = useCallback(() => {
-    if (!commentText.trim()) return;
+  const handleSubmitComment = useCallback(async () => {
+    if (!post) return;
+    const text = commentText.trim();
+    if (!text) return;
 
-    if (editingComment) {
-      setComments((prev: Comment[]) =>
-        prev.map((c: Comment) =>
-          String((c as any).id) === String((editingComment as any).id) ? { ...c, content: commentText } : c
-        )
-      );
-      setEditingComment(null);
-    } else {
-      const replyNickname =
-        (replyTarget as any)?.author?.nickname ?? (replyTarget as any)?.authorNickname ?? "알 수 없음";
+    const postId = String((post as any).id ?? meetingId ?? "");
+    if (!postId) return;
 
-      const newComment: Comment = {
-        id: `new_${Date.now()}`,
-        content: replyTarget ? `@${replyNickname} ${commentText}` : commentText,
-        createdAt: new Date().toISOString(),
-        parentId: (replyTarget as any)?.id,
-        author: {
-          id: currentUserId,
-          nickname: me?.nickname || "나",
-          avatarUrl: (me as any)?.avatarUrl,
-        } as any,
-      };
+    // ✅ 서버 저장이 안 되는 원인: 기존 코드는 setComments만 하고 API 호출이 없음.
+    // - 프로젝트에서 댓글 API가 준비돼있다면 meetingApi에 create/update/deleteComment를 구현하고 여기서 호출됨.
+    // - 아직 없다면 아래 fallback(로컬 표시)만 동작하며, 재진입/새로고침 시 사라짐.
+    const api: any = meetingApi as any;
 
-      setComments((prev: Comment[]) => [...prev, newComment]);
+    try {
+      if (editingComment) {
+        const updateFn: undefined | ((args: { postId: string; commentId: string; content: string }) => Promise<any>) =
+          api?.updateComment;
+
+        if (!updateFn) {
+          Alert.alert("알림", "현재 서버에 댓글 수정 API가 없어 저장되지 않습니다.");
+          setComments((prev) =>
+            prev.map((c) => (String((c as any).id) === String((editingComment as any).id) ? { ...c, content: text } : c))
+          );
+        } else {
+          await updateFn({ postId, commentId: String((editingComment as any).id), content: text });
+          await syncFromServer(postId);
+        }
+
+        setEditingComment(null);
+        setCommentText("");
+        setReplyTarget(null);
+        Keyboard.dismiss();
+        scrollToBottomSoon(true);
+        return;
+      }
+
+      const parentId = replyTarget ? String((replyTarget as any).id) : undefined;
+      const createFn:
+        | undefined
+        | ((args: { postId: string; content: string; parentId?: string }) => Promise<any>) = api?.createComment;
+
+      if (!createFn) {
+        Alert.alert("알림", "현재 서버에 댓글 생성 API가 없어 저장되지 않습니다.");
+        const replyNickname = (replyTarget as any)?.author?.nickname ?? (replyTarget as any)?.authorNickname ?? "알 수 없음";
+        const localNew: Comment = {
+          id: `new_${Date.now()}`,
+          content: replyTarget ? `@${replyNickname} ${text}` : text,
+          createdAt: new Date().toISOString(),
+          parentId,
+          author: { id: currentUserId, nickname: me?.nickname || "나", avatarUrl: (me as any)?.avatarUrl } as any,
+        };
+        setComments((prev) => [...prev, localNew]);
+      } else {
+        await createFn({ postId, content: text, parentId });
+        await syncFromServer(postId);
+      }
+
+      setCommentText("");
+      setReplyTarget(null);
+      Keyboard.dismiss();
+      scrollToBottomSoon(true);
+    } catch (e) {
+      console.error(e);
+      Alert.alert("오류", "댓글 저장에 실패했습니다.");
     }
+  }, [post, meetingId, commentText, editingComment, replyTarget, currentUserId, me, syncFromServer, scrollToBottomSoon]);
 
-    setCommentText("");
-    setReplyTarget(null);
-    Keyboard.dismiss();
-    scrollToBottomSoon(true);
-  }, [commentText, editingComment, replyTarget, currentUserId, me, scrollToBottomSoon]);
-
-  if (loading || !post) {
+  if (loading) {
     return (
       <AppLayout>
         <View style={s.center}>
@@ -476,30 +515,26 @@ export default function MeetingDetailScreen() {
     );
   }
 
+  if (!post) {
+    return (
+      <AppLayout>
+        <View style={s.center}>
+          <Text style={[t.typography.bodyLarge, { color: t.colors.textSub }]}>모임을 찾을 수 없습니다.</Text>
+        </View>
+      </AppLayout>
+    );
+  }
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {displayHost && (
-        <ProfileModal
-          visible={profileVisible}
-          user={displayHost}
-          onClose={() => setProfileVisible(false)}
-        />
-      )}
+      {displayHost && <ProfileModal visible={profileVisible} user={displayHost} onClose={() => setProfileVisible(false)} />}
 
-      <Modal
-        visible={menuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuVisible(false)}
-      >
+      <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
         <Pressable style={s.modalOverlay} onPress={() => setMenuVisible(false)}>
           <Pressable
-            style={[
-              s.modalContent,
-              { paddingBottom: Math.max(20, insets.bottom), backgroundColor: t.colors.surface },
-            ]}
+            style={[s.modalContent, { paddingBottom: Math.max(20, insets.bottom), backgroundColor: t.colors.surface }]}
             onPress={() => {}}
           >
             <View style={s.dragHandle} />
@@ -596,8 +631,22 @@ export default function MeetingDetailScreen() {
               setCommentText((c as any)?.content ?? "");
               inputRef.current?.focus();
             }}
-            onDeleteComment={(id: string) => {
-              setComments((prev: Comment[]) => prev.filter((c: Comment) => String((c as any).id) !== String(id)));
+            onDeleteComment={async (id: string) => {
+              const postId = String((post as any).id ?? meetingId ?? "");
+              const api: any = meetingApi as any;
+              const delFn: undefined | ((args: { postId: string; commentId: string }) => Promise<any>) = api?.deleteComment;
+
+              try {
+                if (!delFn) {
+                  Alert.alert("알림", "현재 서버에 댓글 삭제 API가 없어 저장되지 않습니다.");
+                  setComments((prev) => prev.filter((c) => String((c as any).id) !== String(id)));
+                } else {
+                  await delFn({ postId, commentId: String(id) });
+                  await syncFromServer(postId);
+                }
+              } catch {
+                Alert.alert("오류", "댓글 삭제에 실패했습니다.");
+              }
             }}
             onContentHeightChange={() => {}}
             onScrollViewHeightChange={() => {}}
@@ -607,7 +656,12 @@ export default function MeetingDetailScreen() {
             inputRef={inputRef}
             replyTarget={replyTarget}
             editingComment={editingComment}
-            onCancelInputMode={handleCancelInputMode}
+            onCancelInputMode={() => {
+              setReplyTarget(null);
+              setEditingComment(null);
+              setCommentText("");
+              Keyboard.dismiss();
+            }}
             onSubmitComment={handleSubmitComment}
             onFocusComposer={() => {
               stickToBottomRef.current = true;
@@ -615,11 +669,7 @@ export default function MeetingDetailScreen() {
                 const node = findNodeHandle(inputRef.current);
                 const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
                 if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
-                  responder.scrollResponderScrollNativeHandleToKeyboard(
-                    node,
-                    Platform.OS === "android" ? 20 : 12,
-                    true
-                  );
+                  responder.scrollResponderScrollNativeHandleToKeyboard(node, Platform.OS === "android" ? 20 : 12, true);
                 } else {
                   scrollToBottomSoon(true);
                 }
@@ -648,8 +698,7 @@ export default function MeetingDetailScreen() {
 }
 
 /*
-요약:
-1) lastKnown 위치로 먼저 거리 계산해 “즉시 표시”하고, current 위치로 뒤에서 “정확 보정”합니다.
-2) post.distanceText + post.location.distanceText를 함께 채워 DetailContent 어디서든 거리 표기가 안정적입니다.
-3) 권한/좌표 실패 시 빈 값 처리 + 언마운트 setState 방지로 크래시/잔상 노출을 막습니다.
+1) 댓글이 서버에 저장되지 않던 원인: 기존 로직은 setComments만 하고 API 호출이 없었음(여기서 create/update/deleteComment 호출 지점 추가).
+2) 생성 직후 상세 조회가 실패하는 케이스 대비: getMeeting 짧은 재시도(0/350/800ms)로 안정화.
+3) 댓글 API가 아직 없다면 alert로 안내 + 로컬 표시만 되며, 서버 저장은 meetingApi에 댓글 엔드포인트 구현이 필요.
 */

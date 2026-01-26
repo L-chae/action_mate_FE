@@ -1,5 +1,5 @@
 // src/features/auth/SignupScreen.tsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -26,15 +26,16 @@ import type { Gender } from "@/features/auth/model/types";
 
 // --- Helpers ---
 const formatBirthDate = (text: string) => {
-  const nums = text.replace(/[^0-9]/g, "");
+  const nums = (text ?? "").replace(/[^0-9]/g, "");
   if (nums.length <= 4) return nums;
   if (nums.length <= 6) return `${nums.slice(0, 4)}-${nums.slice(4)}`;
   return `${nums.slice(0, 4)}-${nums.slice(4, 6)}-${nums.slice(6, 8)}`;
 };
 
 const isValidBirth = (v: string) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
-  const [y, m, d] = v.split("-").map(Number);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v ?? "")) return false;
+  const [y, m, d] = (v ?? "").split("-").map((x) => Number(x));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return false;
   const date = new Date(y, m - 1, d);
   return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
 };
@@ -44,7 +45,11 @@ type FieldKey = "loginId" | "password" | "nickname" | "birthDate" | "gender";
 function FieldMessage({ text, color }: { text?: string | null; color?: string }) {
   const t = useAppTheme();
   if (!text) return null;
-  return <Text style={[t.typography.bodySmall, { color: color ?? t.colors.error, marginTop: 6 }]}>{text}</Text>;
+  return (
+    <Text style={[t.typography.bodySmall, { color: color ?? t.colors.error, marginTop: 6 }]}>
+      {text}
+    </Text>
+  );
 }
 
 function GenderButton({
@@ -57,21 +62,17 @@ function GenderButton({
   onPress: () => void;
 }) {
   const t = useAppTheme();
+  const s = useMemo(() => createStyles(t), [t]);
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       style={({ pressed }) => [
+        s.genderBtnBase,
         {
-          flex: 1,
-          height: 56,
-          borderRadius: t.spacing.radiusMd,
-          borderWidth: t.spacing.borderWidth,
           borderColor: selected ? t.colors.primary : t.colors.border,
           backgroundColor: selected ? t.colors.primaryLight : t.colors.card,
-          justifyContent: "center",
-          alignItems: "center",
           opacity: pressed ? 0.9 : 1,
         },
       ]}
@@ -91,9 +92,92 @@ function GenderButton({
   );
 }
 
+type IdCheckResult = { checkedId: string; valid: boolean; msg: string };
+
+type AppTheme = ReturnType<typeof useAppTheme>;
+
+function createStyles(t: AppTheme) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: t.colors.background },
+    scrollContent: {
+      paddingHorizontal: t.spacing.pagePaddingH,
+      paddingVertical: t.spacing.space[6],
+      paddingBottom: t.spacing.space[10],
+    },
+
+    card: {
+      backgroundColor: t.colors.surface,
+      borderWidth: t.spacing.borderWidth,
+      borderColor: t.colors.border,
+      borderRadius: t.spacing.radiusLg,
+      padding: t.spacing.space[5],
+    },
+
+    title: { ...(t.typography.titleLarge as TextStyle), color: t.colors.textMain },
+    desc: { ...(t.typography.bodyMedium as TextStyle), color: t.colors.textSub, marginTop: 4 },
+
+    label: {
+      ...(t.typography.labelMedium as TextStyle),
+      color: t.colors.textMain,
+      marginBottom: 8,
+      fontWeight: "700",
+    },
+
+    row: { flexDirection: "row", gap: 8 },
+    rowCenter: { flexDirection: "row", alignItems: "center", gap: 8 },
+
+    inputBoxBase: {
+      height: 56,
+      borderRadius: t.spacing.radiusMd,
+      borderWidth: t.spacing.borderWidth,
+      borderColor: t.colors.border,
+      backgroundColor: t.colors.card,
+      paddingHorizontal: t.spacing.space[4],
+      justifyContent: "center",
+    },
+
+    inputTextBase: { fontSize: 16, color: t.colors.textMain, padding: 0 } as TextStyle,
+
+    checkBtn: {
+      height: 56,
+      paddingHorizontal: 16,
+      justifyContent: "center",
+      alignItems: "center",
+      borderRadius: 12,
+      borderWidth: 1,
+      backgroundColor: t.colors.card,
+      borderColor: t.colors.border,
+    },
+
+    serverErrorBox: {
+      marginTop: 16,
+      padding: 12,
+      borderRadius: 8,
+      backgroundColor: t.colors.overlay?.[6] ?? t.colors.surface,
+      borderWidth: 1,
+      borderColor: t.colors.border,
+    },
+
+    spacer24: { height: 24 },
+    spacer16: { height: 16 },
+
+    genderRow: { flexDirection: "row", gap: 12 },
+
+    genderBtnBase: {
+      flex: 1,
+      height: 56,
+      borderRadius: t.spacing.radiusMd,
+      borderWidth: t.spacing.borderWidth,
+      justifyContent: "center",
+      alignItems: "center",
+    } as ViewStyle,
+  });
+}
+
 export default function SignupScreen() {
   const t = useAppTheme();
-  const loginToStore = useAuthStore((s) => s.login);
+  const s = useMemo(() => createStyles(t), [t]);
+  const loginToStore = useAuthStore((st) => st.login);
 
   const scrollRef = useRef<ScrollView>(null);
   const passwordRef = useRef<TextInput>(null);
@@ -113,7 +197,7 @@ export default function SignupScreen() {
 
   // ID 중복 확인 상태
   const [isCheckingId, setIsCheckingId] = useState(false);
-  const [idCheckResult, setIdCheckResult] = useState<{ valid: boolean; msg: string } | null>(null);
+  const [idCheckResult, setIdCheckResult] = useState<IdCheckResult | null>(null);
 
   const [touched, setTouched] = useState<Record<FieldKey, boolean>>({
     loginId: false,
@@ -123,18 +207,33 @@ export default function SignupScreen() {
     gender: false,
   });
 
+  const latestLoginIdRef = useRef<string>("");
+  const checkSeqRef = useRef<number>(0);
+
+  useEffect(() => {
+    latestLoginIdRef.current = loginId ?? "";
+  }, [loginId]);
+
   // --- Validation ---
-  const idOk = useMemo(() => loginId.trim().length > 0, [loginId]);
-  const pwOk = useMemo(() => password.length >= 4, [password]);
-  const nickOk = useMemo(() => nickname.trim().length >= 2, [nickname]);
-  const birthOk = useMemo(() => isValidBirth(birthDate), [birthDate]);
+  const idOk = useMemo(() => (loginId ?? "").trim().length > 0, [loginId]);
+  const pwOk = useMemo(() => (password ?? "").length >= 4, [password]);
+  const nickOk = useMemo(() => (nickname ?? "").trim().length >= 2, [nickname]);
+  const birthOk = useMemo(() => isValidBirth(birthDate ?? ""), [birthDate]);
   const genderOk = useMemo(() => gender === "male" || gender === "female", [gender]);
 
-  // 가입 버튼 활성화 조건: 모든 필드 OK + ID 중복확인 통과(valid)
-  const canSubmit = useMemo(
-    () => idOk && pwOk && nickOk && birthOk && genderOk && !busy && idCheckResult?.valid,
-    [idOk, pwOk, nickOk, birthOk, genderOk, busy, idCheckResult]
-  );
+  const canSubmit = useMemo(() => {
+    const idCheckedForCurrent = idCheckResult?.checkedId === (loginId ?? "").trim();
+    return !!(
+      idOk &&
+      pwOk &&
+      nickOk &&
+      birthOk &&
+      genderOk &&
+      !busy &&
+      idCheckedForCurrent &&
+      idCheckResult?.valid === true
+    );
+  }, [idOk, pwOk, nickOk, birthOk, genderOk, busy, idCheckResult, loginId]);
 
   const idErr = touched.loginId && !idOk ? "아이디를 입력해주세요." : null;
   const pwErr = touched.password && !pwOk ? "비밀번호는 4자 이상 입력해주세요." : null;
@@ -142,38 +241,12 @@ export default function SignupScreen() {
   const birthErr = touched.birthDate && !birthOk ? "올바른 날짜를 입력해주세요. (예: 1995-06-15)" : null;
   const genderErr = touched.gender && !genderOk ? "성별을 선택해주세요." : null;
 
-  // --- Styles ---
-  const headerTitleStyle: TextStyle = { ...(t.typography.titleLarge as TextStyle), color: t.colors.textMain };
-  const headerDescStyle: TextStyle = { ...(t.typography.bodyMedium as TextStyle), color: t.colors.textSub, marginTop: 4 };
-  const cardStyle: ViewStyle = {
-    backgroundColor: t.colors.surface,
-    borderWidth: t.spacing.borderWidth,
-    borderColor: t.colors.border,
-    borderRadius: t.spacing.radiusLg,
-    padding: t.spacing.space[5],
-  };
-  const labelStyle: TextStyle = {
-    ...(t.typography.labelMedium as TextStyle),
-    color: t.colors.textMain,
-    marginBottom: 8,
-    fontWeight: "700",
-  };
-  const inputBoxBase: ViewStyle = {
-    height: 56,
-    borderRadius: t.spacing.radiusMd,
-    borderWidth: t.spacing.borderWidth,
-    borderColor: t.colors.border,
-    backgroundColor: t.colors.card,
-    paddingHorizontal: t.spacing.space[4],
-    justifyContent: "center",
-  };
-  const inputTextBase: TextStyle = { fontSize: 16, color: t.colors.textMain, padding: 0 };
-
   const getBoxStyle = (key: FieldKey, hasError: boolean): ViewStyle => {
     const isFocused = focused === key;
-    if (hasError) return { ...inputBoxBase, borderColor: t.colors.error, backgroundColor: t.colors.surface };
-    if (isFocused) return { ...inputBoxBase, borderColor: t.colors.primary, borderWidth: 1.5 };
-    return inputBoxBase;
+    if (hasError)
+      return { ...s.inputBoxBase, borderColor: t.colors.error, backgroundColor: t.colors.surface };
+    if (isFocused) return { ...s.inputBoxBase, borderColor: t.colors.primary, borderWidth: 1.5 };
+    return s.inputBoxBase;
   };
 
   const markTouched = (key: FieldKey) => setTouched((p) => ({ ...p, [key]: true }));
@@ -184,43 +257,58 @@ export default function SignupScreen() {
     });
   };
 
+  const invalidateIdCheck = () => {
+    setIdCheckResult(null);
+    checkSeqRef.current += 1; // in-flight 결과 무효화
+  };
+
   // 아이디 중복 확인
   const handleCheckId = async () => {
-    const targetId = loginId.trim();
+    const targetId = (latestLoginIdRef.current ?? "").trim();
     if (!targetId) {
       markTouched("loginId");
       return;
     }
 
-    // 이미 확인 통과했고, 아이디가 안 바뀌었으면 재요청 방지
-    if (idCheckResult?.valid) return;
+    // 현재 입력값과 동일한 아이디로 "사용 가능"이 이미 확정이면 재요청 방지
+    if (idCheckResult?.valid === true && idCheckResult.checkedId === targetId) return;
+
+    const seq = (checkSeqRef.current += 1);
 
     setIsCheckingId(true);
     setIdCheckResult(null);
 
     try {
       const isAvailable = await authApi.checkLoginIdAvailability(targetId);
+
+      // 입력값이 바뀌었거나 더 최신 요청이 있으면 UI 반영 금지(오표시 방지)
+      const latestId = (latestLoginIdRef.current ?? "").trim();
+      if (checkSeqRef.current !== seq) return;
+      if (latestId !== targetId) return;
+
       if (isAvailable) {
-        setIdCheckResult({ valid: true, msg: "사용 가능한 아이디입니다." });
+        setIdCheckResult({ checkedId: targetId, valid: true, msg: "사용 가능한 아이디입니다." });
       } else {
-        setIdCheckResult({ valid: false, msg: "이미 사용 중인 아이디입니다." });
+        setIdCheckResult({ checkedId: targetId, valid: false, msg: "이미 사용 중인 아이디입니다." });
       }
     } catch (error: any) {
       console.error(error);
       Alert.alert("오류", error?.message ?? "중복 확인 중 문제가 발생했습니다.");
     } finally {
-      setIsCheckingId(false);
+      if (checkSeqRef.current === seq) setIsCheckingId(false);
     }
   };
 
-  // ✅ 회원가입 후 "바로 로그인"까지 완료해서 토큰/세션을 정상 생성
   const onSignup = async () => {
     if (busy) return;
 
     setTouched({ loginId: true, password: true, nickname: true, birthDate: true, gender: true });
 
+    const currentId = (loginId ?? "").trim();
+    const checkedForCurrent = idCheckResult?.checkedId === currentId;
+
     if (!canSubmit) {
-      if (idOk && !idCheckResult?.valid) {
+      if (idOk && (!checkedForCurrent || idCheckResult?.valid !== true)) {
         Alert.alert("알림", "아이디 중복 확인을 해주세요.");
       } else {
         Alert.alert("알림", "필수 항목을 확인해주세요.");
@@ -231,29 +319,26 @@ export default function SignupScreen() {
     setBusy(true);
     setErrorMsg(null);
 
-    const normalizedLoginId = loginId.trim();
-    const normalizedNickname = nickname.trim();
+    const normalizedLoginId = currentId;
+    const normalizedNickname = (nickname ?? "").trim();
 
     try {
-      // 1) 가입
       await authApi.signup({
         loginId: normalizedLoginId,
-        password,
+        password: password ?? "",
         nickname: normalizedNickname,
         gender: gender as Gender,
-        birthDate,
+        birthDate: birthDate ?? "",
       });
 
-      // 2) 즉시 로그인(토큰/세션 생성의 책임은 login에 있음)
       const user = await authApi.login({
         loginId: normalizedLoginId,
-        password,
+        password: password ?? "",
       });
 
-      // 3) 스토어 반영
       loginToStore(user);
 
-      Alert.alert("환영합니다!", `${user.nickname}님 가입이 완료되었습니다.`, [
+      Alert.alert("환영합니다!", `${user?.nickname ?? "회원"}님 가입이 완료되었습니다.`, [
         { text: "시작하기", onPress: () => router.replace("/(tabs)" as any) },
       ]);
     } catch (e: any) {
@@ -263,8 +348,10 @@ export default function SignupScreen() {
     }
   };
 
+  const idHintColor = idCheckResult?.valid ? t.colors.primary : t.colors.error;
+
   return (
-    <AppLayout padded={false} style={{ backgroundColor: t.colors.background }}>
+    <AppLayout padded={false} style={s.root}>
       <TopBar title="회원가입" showBack onPressBack={() => router.back()} showBorder />
 
       <KeyboardAvoidingView
@@ -275,31 +362,26 @@ export default function SignupScreen() {
         <ScrollView
           ref={scrollRef}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{
-            paddingHorizontal: t.spacing.pagePaddingH,
-            paddingVertical: t.spacing.space[6],
-            paddingBottom: t.spacing.space[10],
-          }}
+          contentContainerStyle={s.scrollContent}
         >
-          <View style={cardStyle}>
+          <View style={s.card}>
             <View style={{ marginBottom: t.spacing.space[6] }}>
-              <Text style={headerTitleStyle}>계정 만들기</Text>
-              <Text style={headerDescStyle}>필수 정보를 입력하고 시작해보세요.</Text>
+              <Text style={s.title}>계정 만들기</Text>
+              <Text style={s.desc}>필수 정보를 입력하고 시작해보세요.</Text>
             </View>
 
             {/* 1) 아이디 + 중복확인 버튼 */}
             <View style={{ marginBottom: t.spacing.space[5] }}>
-              <Text style={labelStyle}>아이디</Text>
+              <Text style={s.label}>아이디</Text>
 
-              <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={s.row}>
                 <View style={[getBoxStyle("loginId", !!idErr), { flex: 1 }]}>
                   <TextInput
                     value={loginId}
                     onChangeText={(v) => {
-                      setLoginId(v);
+                      setLoginId(v ?? "");
                       setErrorMsg(null);
-                      // 아이디 변경 시 중복확인 결과는 무효
-                      setIdCheckResult(null);
+                      invalidateIdCheck();
                     }}
                     onFocus={() => setFocused("loginId")}
                     onBlur={() => {
@@ -313,24 +395,17 @@ export default function SignupScreen() {
                     returnKeyType="next"
                     onSubmitEditing={() => passwordRef.current?.focus()}
                     editable={!busy}
-                    style={inputTextBase}
+                    style={s.inputTextBase}
                   />
                 </View>
 
                 <Pressable
                   onPress={() => void handleCheckId()}
-                  disabled={isCheckingId || busy}
-                  style={({ pressed }) => ({
-                    height: 56,
-                    paddingHorizontal: 16,
-                    justifyContent: "center",
-                    alignItems: "center",
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    backgroundColor: t.colors.card,
-                    borderColor: t.colors.border,
-                    opacity: pressed || isCheckingId ? 0.7 : 1,
-                  })}
+                  disabled={!idOk || isCheckingId || busy}
+                  style={({ pressed }) => [
+                    s.checkBtn,
+                    { opacity: !idOk || busy ? 0.45 : pressed || isCheckingId ? 0.7 : 1 },
+                  ]}
                 >
                   {isCheckingId ? (
                     <ActivityIndicator size="small" color={t.colors.primary} />
@@ -346,20 +421,20 @@ export default function SignupScreen() {
                 <FieldMessage text={idErr} />
               ) : (
                 idCheckResult && (
-                  <FieldMessage text={idCheckResult.msg} color={idCheckResult.valid ? t.colors.primary : t.colors.error} />
+                  <FieldMessage text={idCheckResult.msg} color={idHintColor} />
                 )
               )}
             </View>
 
             {/* 2) 비밀번호 */}
             <View style={{ marginBottom: t.spacing.space[5] }}>
-              <Text style={labelStyle}>비밀번호</Text>
-              <View style={[getBoxStyle("password", !!pwErr), { flexDirection: "row", alignItems: "center", gap: 8 }]}>
+              <Text style={s.label}>비밀번호</Text>
+              <View style={[getBoxStyle("password", !!pwErr), s.rowCenter]}>
                 <TextInput
                   ref={passwordRef}
                   value={password}
                   onChangeText={(v) => {
-                    setPassword(v);
+                    setPassword(v ?? "");
                     setErrorMsg(null);
                   }}
                   onFocus={() => setFocused("password")}
@@ -373,7 +448,7 @@ export default function SignupScreen() {
                   returnKeyType="next"
                   onSubmitEditing={() => nicknameRef.current?.focus()}
                   editable={!busy}
-                  style={[inputTextBase, { flex: 1 }]}
+                  style={[s.inputTextBase, { flex: 1 }]}
                 />
                 <Pressable
                   onPress={() => setShowPw((p) => !p)}
@@ -391,13 +466,13 @@ export default function SignupScreen() {
 
             {/* 3) 닉네임 */}
             <View style={{ marginBottom: t.spacing.space[5] }}>
-              <Text style={labelStyle}>닉네임</Text>
+              <Text style={s.label}>닉네임</Text>
               <View style={getBoxStyle("nickname", !!nickErr)}>
                 <TextInput
                   ref={nicknameRef}
                   value={nickname}
                   onChangeText={(v) => {
-                    setNickname(v);
+                    setNickname(v ?? "");
                     setErrorMsg(null);
                   }}
                   onFocus={() => setFocused("nickname")}
@@ -410,7 +485,7 @@ export default function SignupScreen() {
                   returnKeyType="next"
                   onSubmitEditing={() => birthRef.current?.focus()}
                   editable={!busy}
-                  style={inputTextBase}
+                  style={s.inputTextBase}
                 />
               </View>
               <FieldMessage text={nickErr} />
@@ -418,13 +493,13 @@ export default function SignupScreen() {
 
             {/* 4) 생년월일 */}
             <View style={{ marginBottom: t.spacing.space[5] }}>
-              <Text style={labelStyle}>생년월일</Text>
+              <Text style={s.label}>생년월일</Text>
               <View style={getBoxStyle("birthDate", !!birthErr)}>
                 <TextInput
                   ref={birthRef}
                   value={birthDate}
                   onChangeText={(text) => {
-                    const formatted = formatBirthDate(text);
+                    const formatted = formatBirthDate(text ?? "");
                     setBirthDate(formatted);
                     setErrorMsg(null);
                     if (formatted.length === 10) markTouched("birthDate");
@@ -442,7 +517,7 @@ export default function SignupScreen() {
                   keyboardType="number-pad"
                   maxLength={10}
                   editable={!busy}
-                  style={inputTextBase}
+                  style={s.inputTextBase}
                 />
               </View>
               <FieldMessage text={birthErr} />
@@ -450,8 +525,8 @@ export default function SignupScreen() {
 
             {/* 5) 성별 */}
             <View style={{ marginBottom: t.spacing.space[2] }}>
-              <Text style={labelStyle}>성별</Text>
-              <View style={{ flexDirection: "row", gap: 12 }}>
+              <Text style={s.label}>성별</Text>
+              <View style={s.genderRow}>
                 <GenderButton
                   label="남성"
                   selected={gender === "male"}
@@ -476,21 +551,14 @@ export default function SignupScreen() {
 
             {/* 서버 에러 표시 */}
             {errorMsg ? (
-              <View
-                style={{
-                  marginTop: 16,
-                  padding: 12,
-                  borderRadius: 8,
-                  backgroundColor: t.colors.overlay[6],
-                  borderWidth: 1,
-                  borderColor: t.colors.border,
-                }}
-              >
-                <Text style={[t.typography.bodySmall, { color: t.colors.error, textAlign: "center" }]}>{errorMsg}</Text>
+              <View style={s.serverErrorBox}>
+                <Text style={[t.typography.bodySmall, { color: t.colors.error, textAlign: "center" }]}>
+                  {errorMsg}
+                </Text>
               </View>
             ) : null}
 
-            <View style={{ height: 24 }} />
+            <View style={s.spacer24} />
 
             {/* 가입 완료 버튼 */}
             <Button
@@ -502,7 +570,7 @@ export default function SignupScreen() {
               size="lg"
             />
 
-            <View style={{ height: 16 }} />
+            <View style={s.spacer16} />
 
             <Button
               title="이미 계정이 있어요 · 로그인"
@@ -517,5 +585,3 @@ export default function SignupScreen() {
     </AppLayout>
   );
 }
-
-const styles = StyleSheet.create({});

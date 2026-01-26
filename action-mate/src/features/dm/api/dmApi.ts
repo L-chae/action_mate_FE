@@ -11,7 +11,7 @@ import type { DMMessage, DMThread } from "../model/types";
 // export const USE_DM_MOCK = __DEV__ && process.env.EXPO_PUBLIC_USE_DM_MOCK === "true";
 
 // ✅ 수정 코드 (무조건 true로 설정)
-export const USE_DM_MOCK = true;
+export const USE_DM_MOCK = false;
 
 // 로그 확인용
 if (__DEV__) {
