@@ -84,8 +84,3 @@ export const mapUserProfileResponseToAuthUser = (
     birthDate: res?.birth ?? "",
   };
 };
-
-// 3줄 요약
-// - 프로필 응답은 profileImageName + M/F 기준으로 매핑하고, /images/{filename} URL을 생성해 바로 표시 가능하게 했습니다.
-// - Shared UserProfile 변환은 공용 mapApiUserProfileToUserProfile을 재사용해 타입/기본값 정책을 통일했습니다.
-// - SignupRequest에 nickname을 포함시키고, login/signup 요청 필드명을 명세(id/password)로 맞췄습니다.

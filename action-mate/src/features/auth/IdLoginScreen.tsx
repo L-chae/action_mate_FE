@@ -71,7 +71,7 @@ export default function IdLoginScreen() {
         loginId: data.loginId.trim(),
         password: data.password,
       });
-
+console.log('user',user);
       // store 업데이트(동기)
       loginToStore(user);
 
