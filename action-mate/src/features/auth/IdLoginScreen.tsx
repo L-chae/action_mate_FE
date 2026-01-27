@@ -1,5 +1,5 @@
-// ✅ 파일 경로: src/features/auth/IdLoginScreen.tsx
-import React, { useState } from "react";
+// src/features/auth/IdLoginScreen.tsx
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -24,17 +24,11 @@ import { useAuthStore } from "@/features/auth/model/authStore";
 import { authApi } from "@/features/auth/api/authApi";
 import type { LoginInput } from "@/features/auth/model/types";
 
-// ----------------------------------------------------------------------
-// ✅ 재사용 가능한 에러 메시지 컴포넌트
-// ----------------------------------------------------------------------
 function FieldError({ text }: { text?: string }) {
   const t = useAppTheme();
-  if (!text) return null;
-  return (
-    <Text style={[t.typography.bodySmall, { color: t.colors.error, marginTop: 6 }]}>
-      {text}
-    </Text>
-  );
+  const msg = String(text ?? "").trim();
+  if (!msg) return null;
+  return <Text style={[t.typography.bodySmall, { color: t.colors.error, marginTop: t.spacing.space?.[2] ?? 6 }]}>{msg}</Text>;
 }
 
 type FieldKey = "loginId" | "password";
@@ -47,7 +41,15 @@ export default function IdLoginScreen() {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<FieldKey | null>(null);
 
-  // ✅ React Hook Form 설정
+  const PH = t.spacing.pagePaddingH ?? (t.spacing.space?.[6] ?? 24);
+  const PV = t.spacing.pagePaddingV ?? (t.spacing.space?.[6] ?? 24);
+  const CARD_PAD = t.spacing.space?.[6] ?? 24;
+  const GAP_LG = t.spacing.space?.[6] ?? 24;
+  const GAP_MD = t.spacing.space?.[5] ?? 20;
+  const LOGO_SIZE = t.spacing.space?.[8] ?? 80;
+
+  const CONTROL_H = (t.spacing as any)?.controlHeight ?? 56;
+
   const {
     control,
     handleSubmit,
@@ -56,84 +58,84 @@ export default function IdLoginScreen() {
     setValue,
   } = useForm<LoginInput>({
     mode: "onChange",
-    defaultValues: {
-      loginId: "",
-      password: "",
-    },
+    defaultValues: { loginId: "", password: "" },
   });
 
-  // ✅ 로그인 핸들러
+  const inputBoxStyle = useMemo(
+    () =>
+      (hasError: boolean, isFocused: boolean): ViewStyle => ({
+        height: CONTROL_H,
+        borderRadius: t.spacing.radiusMd,
+        borderWidth: isFocused ? 1.5 : t.spacing.borderWidth,
+        borderColor: hasError ? t.colors.error : isFocused ? t.colors.primary : t.colors.border,
+        backgroundColor: hasError ? t.colors.surface : t.colors.card,
+        paddingHorizontal: t.spacing.space?.[4] ?? 16,
+        justifyContent: "center",
+      }),
+    [CONTROL_H, t]
+  );
+
+  const inputBase: TextStyle = useMemo(
+    () => ({
+      fontSize: 16,
+      padding: 0,
+      color: t.colors.textMain,
+    }),
+    [t]
+  );
+
   const onValidSubmit = async (data: LoginInput) => {
     setGlobalError(null);
-
     try {
       const user = await authApi.login({
-        loginId: data.loginId.trim(),
-        password: data.password,
+        loginId: String(data?.loginId ?? "").trim(),
+        password: String(data?.password ?? ""),
       });
-console.log('user',user);
-      // store 업데이트(동기)
-      loginToStore(user);
 
-      // 라우팅 타입 이슈를 피하려면 as any로 안전하게 처리
+      if (!user?.loginId) {
+        setGlobalError("회원 정보를 불러올 수 없습니다.");
+        return;
+      }
+
+      loginToStore(user);
       router.replace("/(tabs)" as any);
     } catch (e: any) {
-      setGlobalError(e?.message ?? "로그인에 실패했어요.");
+      setGlobalError(String(e?.message ?? "").trim() || "로그인에 실패했어요.");
     }
   };
 
-  // ✅ 개발용 퀵 로그인 (__DEV__에서만 보이게)
   const onQuickLogin = () => {
     setValue("loginId", "user01", { shouldValidate: true });
     setValue("password", "1234", { shouldValidate: true });
     handleSubmit(onValidSubmit)();
   };
 
-  // 입력 박스 스타일 (포커스/에러에 따른 UI 의도만 유지)
-  const inputBoxStyle = (hasError: boolean, isFocused: boolean): ViewStyle => ({
-    height: 56,
-    borderRadius: t.spacing.radiusMd,
-    borderWidth: isFocused ? 1.5 : t.spacing.borderWidth,
-    borderColor: hasError ? t.colors.error : isFocused ? t.colors.primary : t.colors.border,
-    backgroundColor: hasError ? t.colors.surface : t.colors.card,
-    paddingHorizontal: t.spacing.space[4],
-    justifyContent: "center",
-  });
-
-  const inputBase: TextStyle = {
-    fontSize: 16,
-    padding: 0, // Android 기본 패딩 제거
-    color: t.colors.textMain,
-  };
-
   return (
     <AppLayout padded={false} style={{ backgroundColor: t.colors.background }}>
       <TopBar title="" showBack onPressBack={() => router.back()} />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}>
-          <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
-            {/* 1) 로고 영역 */}
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingHorizontal: PH,
+              paddingVertical: PV,
+            },
+          ]}
+        >
+          <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border, borderRadius: t.spacing.radiusLg, padding: CARD_PAD }]}>
             <View style={styles.header}>
-              <Image source={require("../../../assets/images/logo.png")} style={styles.logo} />
-              <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: 12 }]}>
-                아이디로 로그인
-              </Text>
-              <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}>
-                당신의 취미 메이트를 찾아보세요!
-              </Text>
+              <Image source={require("../../../assets/images/logo.png")} style={{ width: LOGO_SIZE, height: LOGO_SIZE, resizeMode: "contain" }} />
+              <Text style={[t.typography.titleLarge, { color: t.colors.textMain, marginTop: t.spacing.space?.[3] ?? 12 }]}>아이디로 로그인</Text>
+              <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: t.spacing.space?.[2] ?? 4 }]}>당신의 취미 메이트를 찾아보세요!</Text>
             </View>
 
-            <View style={{ height: 32 }} />
+            <View style={{ height: GAP_LG }} />
 
-            {/* 2) 아이디 */}
-            <View style={styles.fieldGap}>
-              <Text style={[t.typography.labelMedium, styles.label, { color: t.colors.textSub }]}>
-                아이디
-              </Text>
+            <View style={{ marginBottom: GAP_MD }}>
+              <Text style={[t.typography.labelMedium, styles.label, { color: t.colors.textSub }]}>아이디</Text>
 
               <Controller
                 control={control}
@@ -145,7 +147,7 @@ console.log('user',user);
                     <>
                       <View style={inputBoxStyle(!!error, focused)}>
                         <TextInput
-                          value={value}
+                          value={String(value ?? "")}
                           onChangeText={onChange}
                           onBlur={() => {
                             onBlur();
@@ -172,11 +174,8 @@ console.log('user',user);
               />
             </View>
 
-            {/* 3) 비밀번호 */}
-            <View style={styles.fieldGap}>
-              <Text style={[t.typography.labelMedium, styles.label, { color: t.colors.textSub }]}>
-                비밀번호
-              </Text>
+            <View style={{ marginBottom: GAP_MD }}>
+              <Text style={[t.typography.labelMedium, styles.label, { color: t.colors.textSub }]}>비밀번호</Text>
 
               <Controller
                 control={control}
@@ -191,7 +190,7 @@ console.log('user',user);
                     <>
                       <View style={[inputBoxStyle(!!error, focused), styles.pwContainer]}>
                         <TextInput
-                          value={value}
+                          value={String(value ?? "")}
                           onChangeText={onChange}
                           onBlur={() => {
                             onBlur();
@@ -208,22 +207,17 @@ console.log('user',user);
                           autoCorrect={false}
                           returnKeyType="done"
                           onSubmitEditing={handleSubmit(onValidSubmit)}
-                          style={[inputBase, { flex: 1 }]}
+                          style={[inputBase, styles.flex1]}
                           editable={!isSubmitting}
                         />
 
                         <Pressable
                           onPress={() => setShowPw((p) => !p)}
-                          hitSlop={10}
-                          style={({ pressed }) => ({
-                            opacity: pressed ? 0.7 : 1,
-                            padding: 4,
-                          })}
+                          hitSlop={t.spacing.space?.[3] ?? 10}
+                          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, padding: t.spacing.space?.[1] ?? 4 }]}
                           disabled={isSubmitting}
                         >
-                          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontWeight: "700" }]}>
-                            {showPw ? "숨기기" : "보기"}
-                          </Text>
+                          <Text style={[t.typography.labelSmall, { color: t.colors.textSub, fontWeight: "700" }]}>{showPw ? "숨기기" : "보기"}</Text>
                         </Pressable>
                       </View>
                       <FieldError text={error?.message} />
@@ -233,18 +227,23 @@ console.log('user',user);
               />
             </View>
 
-            {/* 4) 글로벌 에러 */}
-            {globalError && (
-              <View style={[styles.errorBox, { backgroundColor: t.colors.overlay[6], borderColor: t.colors.border }]}>
-                <Text style={[t.typography.bodySmall, { color: t.colors.error, textAlign: "center" }]}>
-                  {globalError}
-                </Text>
+            {globalError ? (
+              <View
+                style={[
+                  styles.errorBox,
+                  {
+                    backgroundColor: t.colors.overlay?.[6] ?? t.colors.surface,
+                    borderColor: t.colors.border,
+                    marginTop: t.spacing.space?.[4] ?? 16,
+                  },
+                ]}
+              >
+                <Text style={[t.typography.bodySmall, { color: t.colors.error, textAlign: "center" }]}>{globalError}</Text>
               </View>
-            )}
+            ) : null}
 
-            <View style={{ height: 24 }} />
+            <View style={{ height: t.spacing.space?.[5] ?? 24 }} />
 
-            {/* 5) 로그인 버튼 */}
             <Button
               title={isSubmitting ? "로그인 중..." : "로그인"}
               onPress={handleSubmit(onValidSubmit)}
@@ -254,32 +253,20 @@ console.log('user',user);
               size="lg"
             />
 
-            {/* 6) 개발용 퀵 로그인 */}
-            {__DEV__ && (
-              <View style={{ marginTop: 12 }}>
-                <Button
-                  title="⚡️ user01 (Dev Only)"
-                  onPress={onQuickLogin}
-                  disabled={isSubmitting}
-                  variant="secondary"
-                  size="lg"
-                />
+            {__DEV__ ? (
+              <View style={{ marginTop: t.spacing.space?.[3] ?? 12 }}>
+                <Button title="⚡️ user01 (Dev Only)" onPress={onQuickLogin} disabled={isSubmitting} variant="secondary" size="lg" />
               </View>
-            )}
+            ) : null}
 
-            {/* 7) 하단 링크 */}
-            <View style={styles.footerLinks}>
-              <Pressable onPress={() => router.push("/(auth)/signup" as any)} hitSlop={10} disabled={isSubmitting}>
-                <Text style={[t.typography.bodyMedium, { color: t.colors.primary, fontWeight: "700" }]}>
-                  회원가입
-                </Text>
+            <View style={[styles.footerLinks, { marginTop: t.spacing.space?.[6] ?? 24 }]}>
+              <Pressable onPress={() => router.push("/(auth)/signup" as any)} hitSlop={t.spacing.space?.[3] ?? 10} disabled={isSubmitting}>
+                <Text style={[t.typography.bodyMedium, { color: t.colors.primary, fontWeight: "700" }]}>회원가입</Text>
               </Pressable>
-              <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
-              <Pressable
-                onPress={() => router.push("/(auth)/reset-password" as any)}
-                hitSlop={10}
-                disabled={isSubmitting}
-              >
+
+              <View style={{ width: 1, height: t.spacing.space?.[4] ?? 14, marginHorizontal: t.spacing.space?.[4] ?? 16, backgroundColor: t.colors.divider }} />
+
+              <Pressable onPress={() => router.push("/(auth)/reset-password" as any)} hitSlop={t.spacing.space?.[3] ?? 10} disabled={isSubmitting}>
                 <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>비밀번호 찾기</Text>
               </Pressable>
             </View>
@@ -291,27 +278,17 @@ console.log('user',user);
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  flex1: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     justifyContent: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 24,
   },
   card: {
     borderWidth: 1,
-    borderRadius: 20,
-    padding: 24,
   },
   header: {
     alignItems: "center",
-  },
-  logo: {
-    width: 80,
-    height: 80,
-    resizeMode: "contain",
-  },
-  fieldGap: {
-    marginBottom: 20,
   },
   label: {
     marginBottom: 8,
@@ -324,7 +301,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   errorBox: {
-    marginTop: 16,
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
@@ -333,11 +309,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 24,
-  },
-  divider: {
-    width: 1,
-    height: 14,
-    marginHorizontal: 16,
   },
 });
+
+/*
+요약(3줄)
+- 테마 기반 spacing 적용으로 하드코딩을 최소화하고, 입력/에러 UI는 기존 패턴을 유지했습니다.
+- 로그인 결과가 비정상(User 누락)이어도 앱이 죽지 않도록 방어 처리했습니다.
+- 라우팅 타입 이슈는 기존처럼 안전 캐스팅을 유지했습니다.
+*/

@@ -5,7 +5,6 @@ import {
   Text,
   TextInput,
   Pressable,
-  StyleSheet,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -20,35 +19,20 @@ import { Button } from "@/shared/ui/Button";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { authApi } from "@/features/auth/api/authApi";
 
-/**
- * ✅ 현재 앱 정책 반영
- * - "email" 개념 제거 → 아이디(loginId) 기반으로 재설정 요청
- * - authApi.requestPasswordReset(loginId) 사용 (파라미터 이름이 email이어도 값은 loginId)
- * - 화면/스타일은 로그인/회원가입과 동일한 "카드 + 인풋박스" 패턴 유지
- *
- * ⚠️ 목업에서 requestPasswordReset 미지원이면 에러 메시지로 안내됩니다.
- */
-
 type FieldKey = "loginId";
 
 function FieldError({ text }: { text?: string | null }) {
   const t = useAppTheme();
-  if (!text) return null;
-  return (
-    <Text style={[t.typography.bodySmall, { color: t.colors.error, marginTop: 6 }]}>
-      {text}
-    </Text>
-  );
+  const msg = String(text ?? "").trim();
+  if (!msg) return null;
+  return <Text style={[t.typography.bodySmall, { color: t.colors.error, marginTop: t.spacing.space?.[2] ?? 6 }]}>{msg}</Text>;
 }
 
 function FieldInfo({ text }: { text?: string | null }) {
   const t = useAppTheme();
-  if (!text) return null;
-  return (
-    <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 6 }]}>
-      {text}
-    </Text>
-  );
+  const msg = String(text ?? "").trim();
+  if (!msg) return null;
+  return <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: t.spacing.space?.[2] ?? 6 }]}>{msg}</Text>;
 }
 
 export default function ResetPasswordScreen() {
@@ -63,37 +47,36 @@ export default function ResetPasswordScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
 
-  // ✅ 최소 검증: 공백만 아니면 OK
-  const idOk = useMemo(() => loginId.trim().length > 0, [loginId]);
+  const CONTROL_H = (t.spacing as any)?.controlHeight ?? 56;
+
+  const idOk = useMemo(() => String(loginId ?? "").trim().length > 0, [loginId]);
   const canSubmit = useMemo(() => idOk && !busy, [idOk, busy]);
 
   const idErr = touched.loginId && !idOk ? "아이디를 입력해주세요." : null;
-
   const markTouched = (k: FieldKey) => setTouched((p) => ({ ...p, [k]: true }));
 
-  // --- Theme-consistent styles (로그인/회원가입과 동일 패턴) ---
   const cardStyle: ViewStyle = {
     backgroundColor: t.colors.surface,
     borderWidth: t.spacing.borderWidth,
     borderColor: t.colors.border,
     borderRadius: t.spacing.radiusLg,
-    padding: t.spacing.space[5],
+    padding: t.spacing.space?.[5] ?? 20,
   };
 
   const labelStyle: TextStyle = {
     ...(t.typography.labelMedium as TextStyle),
     color: t.colors.textSub,
-    marginBottom: t.spacing.space[2],
+    marginBottom: t.spacing.space?.[2] ?? 8,
     fontWeight: "700",
   };
 
   const inputBoxBase: ViewStyle = {
-    height: 56,
+    height: CONTROL_H,
     borderRadius: t.spacing.radiusMd,
     borderWidth: t.spacing.borderWidth,
     borderColor: t.colors.border,
     backgroundColor: t.colors.card,
-    paddingHorizontal: t.spacing.space[4],
+    paddingHorizontal: t.spacing.space?.[4] ?? 16,
     justifyContent: "center",
   };
 
@@ -105,23 +88,8 @@ export default function ResetPasswordScreen() {
 
   const getInputBox = (k: FieldKey, isError: boolean): ViewStyle => {
     const isFocused = focusedField === k;
-
-    if (isError) {
-      return {
-        ...inputBoxBase,
-        borderColor: t.colors.error,
-        backgroundColor: t.colors.surface,
-      };
-    }
-
-    if (isFocused) {
-      return {
-        ...inputBoxBase,
-        borderColor: t.colors.primary,
-        borderWidth: 1.5,
-      };
-    }
-
+    if (isError) return { ...inputBoxBase, borderColor: t.colors.error, backgroundColor: t.colors.surface };
+    if (isFocused) return { ...inputBoxBase, borderColor: t.colors.primary, borderWidth: 1.5 };
     return inputBoxBase;
   };
 
@@ -136,16 +104,10 @@ export default function ResetPasswordScreen() {
     setInfoMsg(null);
 
     try {
-      // ✅ API 시그니처가 email이어도 값은 loginId를 전달 (도메인 정책: 아이디 기반)
-      const result = await authApi.requestPasswordReset(loginId.trim() as any);
-
-      // code optional -> string 정규화
-      setInfoMsg(result?.code ?? "인증코드를 발송했어요.");
-
-      // 다음 단계 화면이 있다면 여기서 이동
-      // router.push({ pathname: "/(auth)/verify-reset", params: { loginId: loginId.trim() } });
+      const result = await authApi.requestPasswordReset(String(loginId ?? "").trim() as any);
+      setInfoMsg(String(result?.code ?? "").trim() || "인증코드를 발송했어요.");
     } catch (e: any) {
-      setErrorMsg(e?.message ?? "요청에 실패했어요.");
+      setErrorMsg(String(e?.message ?? "").trim() || "요청에 실패했어요.");
     } finally {
       setBusy(false);
     }
@@ -161,22 +123,22 @@ export default function ResetPasswordScreen() {
           contentContainerStyle={{
             flexGrow: 1,
             justifyContent: "center",
-            paddingHorizontal: t.spacing.pagePaddingH,
-            paddingVertical: t.spacing.space[6],
+            paddingHorizontal: t.spacing.pagePaddingH ?? (t.spacing.space?.[6] ?? 24),
+            paddingVertical: t.spacing.space?.[6] ?? 24,
           }}
         >
           <View style={cardStyle}>
             <Text style={[t.typography.titleLarge, { color: t.colors.textMain }]}>비밀번호 재설정</Text>
-            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 6 }]}>
+            <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: t.spacing.space?.[2] ?? 6 }]}>
               가입한 아이디로 인증코드를 요청합니다.
             </Text>
 
-            <View style={{ height: t.spacing.space[6] }} />
+            <View style={{ height: t.spacing.space?.[6] ?? 24 }} />
 
             <Text style={labelStyle}>아이디</Text>
             <View style={getInputBox("loginId", !!idErr)}>
               <TextInput
-                value={loginId}
+                value={String(loginId ?? "")}
                 editable={!busy}
                 onChangeText={(v) => {
                   setLoginId(v);
@@ -201,7 +163,7 @@ export default function ResetPasswordScreen() {
             <FieldError text={idErr ?? errorMsg} />
             <FieldInfo text={idErr ? null : infoMsg} />
 
-            <View style={{ height: t.spacing.space[6] }} />
+            <View style={{ height: t.spacing.space?.[6] ?? 24 }} />
 
             <Button
               title={busy ? "요청 중..." : "인증코드 요청"}
@@ -212,20 +174,28 @@ export default function ResetPasswordScreen() {
               size="lg"
             />
 
-            <View style={{ height: t.spacing.space[4] }} />
+            <View style={{ height: t.spacing.space?.[4] ?? 16 }} />
 
-            <Pressable onPress={() => router.back()} disabled={busy} hitSlop={10} style={({ pressed }) => [{ opacity: busy ? 0.6 : pressed ? 0.85 : 1 }]}>
-              <Text style={[t.typography.labelSmall, { color: t.colors.textSub, textAlign: "center", fontWeight: "700" }]}>
-                돌아가기
-              </Text>
+            <Pressable
+              onPress={() => router.back()}
+              disabled={busy}
+              hitSlop={t.spacing.space?.[3] ?? 10}
+              style={({ pressed }) => [{ opacity: busy ? 0.6 : pressed ? 0.85 : 1 }]}
+            >
+              <Text style={[t.typography.labelSmall, { color: t.colors.textSub, textAlign: "center", fontWeight: "700" }]}>돌아가기</Text>
             </Pressable>
           </View>
 
-          <View style={{ height: t.spacing.space[6] }} />
+          <View style={{ height: t.spacing.space?.[6] ?? 24 }} />
         </ScrollView>
       </KeyboardAvoidingView>
     </AppLayout>
   );
 }
 
-const styles = StyleSheet.create({});
+/*
+요약(3줄)
+- 입력/버튼 높이 등 UI 치수는 테마 기반(controlHeight/spacing)으로 통일했습니다.
+- requestPasswordReset 미지원(remote)도 에러 메시지로 안전하게 노출되도록 처리했습니다.
+- 포커스/터치 상태 기반 검증 흐름은 유지했습니다.
+*/

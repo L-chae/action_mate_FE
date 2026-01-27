@@ -1,4 +1,4 @@
-// src/features/meetings/ui/DetailContent.tsx
+// FILE: src/features/meetings/ui/DetailContent.tsx
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import {
@@ -18,23 +18,16 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import MapView, { PROVIDER_GOOGLE } from "react-native-maps";
 
-// ✅ Shared & Model (기존 유지)
 import { Badge } from "@/shared/ui/Badge";
 import { withAlpha } from "@/shared/theme/colors";
 import type { MeetingPost, Comment } from "@/features/meetings/model/types";
-import { getMeetingStatusTokens } from "@/features/meetings/model/constants";
-import type { StatusPillToken } from "@/features/meetings/model/constants";
+import { getMeetingStatusTokens } from "@/features/meetings/model/tokens";
+import type { StatusPillToken } from "@/features/meetings/model/tokens";
 import { calculateMannerTemp } from "@/shared/utils/mannerCalculator";
 
-// -------------------------------------------------------------------------
-// 1) Constants
-// -------------------------------------------------------------------------
 const ICON_SIZE = { S: 16, M: 20, L: 24, XL: 30 } as const;
-const AVATAR_SIZE = 40; // host avatar
-const COMMENT_AVATAR_SIZE = 32; // ✅ 댓글 아바타는 더 작게 (공간 절약)
-
-// ✅ "더 보기" 기준은 "최상위 댓글(스레드) 개수"로 잡아야
-//    대댓글만 덩그러니 노출되는 UI(목업)가 발생하지 않음.
+const AVATAR_SIZE = 40;
+const COMMENT_AVATAR_SIZE = 32;
 const COMMENT_THREAD_PAGE_SIZE = 20;
 
 type Theme = any;
@@ -74,31 +67,31 @@ type DetailContentProps = {
   onFocusComposer: () => void;
 };
 
-// -------------------------------------------------------------------------
-// 2) Helpers
-// -------------------------------------------------------------------------
 function toneColor(t: Theme, tone?: string) {
+  const colors = t?.colors ?? {};
   switch (tone) {
     case "point":
-      return t.colors.point;
+      return colors.point ?? colors.primary ?? colors.textMain ?? "#000";
     case "info":
-      return t.colors.info;
+      return colors.info ?? colors.primary ?? colors.textMain ?? "#000";
     case "success":
-      return t.colors.success;
+      return colors.success ?? colors.primary ?? colors.textMain ?? "#000";
     case "warning":
-      return t.colors.warning;
+      return colors.warning ?? colors.primary ?? colors.textMain ?? "#000";
     case "error":
-      return t.colors.error;
+      return colors.error ?? colors.primary ?? colors.textMain ?? "#000";
     case "primary":
-      return t.colors.primary;
+      return colors.primary ?? colors.textMain ?? "#000";
     default:
-      return t.colors.textSub;
+      return colors.textSub ?? colors.textMain ?? "#000";
   }
 }
 
 function parseDateTime(iso?: string) {
   if (!iso) return { fullDate: "날짜 미정", time: "시간 미정", day: "-" };
   const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return { fullDate: "날짜 미정", time: "시간 미정", day: "-" };
+
   const weekDay = d.toLocaleDateString("ko-KR", { weekday: "short" });
   return {
     day: d.getDate().toString(),
@@ -108,7 +101,10 @@ function parseDateTime(iso?: string) {
 }
 
 function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "알 수 없음";
+
+  const diff = Date.now() - t;
   if (diff < 60_000) return "방금";
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}분 전`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}시간 전`;
@@ -134,25 +130,26 @@ function isValidLatLng(lat: unknown, lng: unknown) {
 }
 
 function getDurationLabel(mins?: number | null) {
-  if (!mins || mins <= 0) return "소요 시간 미정";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
+  const n = typeof mins === "number" && Number.isFinite(mins) ? mins : 0;
+  if (!n || n <= 0) return "소요 시간 미정";
+  const h = Math.floor(n / 60);
+  const m = n % 60;
   if (h > 0 && m > 0) return `${h}시간 ${m}분`;
   if (h > 0) return `${h}시간`;
   return `${m}분`;
 }
 
 function getAuthorInfo(item: Comment, postHostId?: string) {
-  const author = (item as any).author || item;
-  const id = String(author.id || (item as any).authorId || "");
-  const nickname = String(author.nickname || (item as any).authorNickname || "알 수 없음");
+  const author = (item as any)?.author || item;
+  const id = String(author?.id || (item as any)?.authorId || "");
+  const nickname = String(author?.nickname || (item as any)?.authorNickname || "알 수 없음");
   const avatarUrl =
-    author.avatarUrl ||
-    author.profileImageUrl ||
-    author.imageUrl ||
-    author.photoUrl ||
-    (item as any).authorAvatarUrl ||
-    (item as any).avatarUrl ||
+    author?.avatarUrl ||
+    author?.profileImageUrl ||
+    author?.imageUrl ||
+    author?.photoUrl ||
+    (item as any)?.authorAvatarUrl ||
+    (item as any)?.avatarUrl ||
     undefined;
 
   const isHost = !!(postHostId && id && id === String(postHostId));
@@ -160,42 +157,43 @@ function getAuthorInfo(item: Comment, postHostId?: string) {
 }
 
 function getCapacityInfo(post: MeetingPost, t: Theme) {
-  const current = post.capacity?.current ?? 0;
-  const total = (post.capacity as any)?.total ?? (post.capacity as any)?.max ?? 0;
+  const current = Number(post.capacity?.current ?? 0);
+  const totalRaw = (post.capacity as any)?.total ?? (post.capacity as any)?.max ?? 0;
+  const total = Number.isFinite(Number(totalRaw)) ? Number(totalRaw) : 0;
 
   const isLimited = total > 0;
   const percent = isLimited ? Math.min(100, (current / total) * 100) : 0;
   const remaining = Math.max(0, total - current);
 
   let label = "제한 없음";
-  let color = t.colors.textSub;
+  let color = t?.colors?.textSub ?? "#666";
 
   if (isLimited) {
     if (current >= total) {
       label = "모집 마감";
-      color = t.colors.error;
+      color = t?.colors?.error ?? color;
     } else if (remaining <= 2) {
       label = `마감 임박 (${remaining}자리)`;
-      color = t.colors.warning;
+      color = t?.colors?.warning ?? color;
     } else {
       label = `여유 있음 (${remaining}자리)`;
-      color = t.colors.success;
+      color = t?.colors?.success ?? color;
     }
   }
 
   return { current, total, isLimited, percent, remaining, label, color };
 }
 
-/**
- * ✅ StatusPillToken(프로젝트 타입)에 맞춰 “안전한 토큰”으로 정규화
- */
 function isValidIoniconName(name: unknown): name is IonIconName {
   return typeof name === "string" && name.length > 0;
 }
 
 function normalizeStatusTokens(tokens?: StatusPillToken[] | null) {
   if (!tokens || tokens.length === 0) return [];
-  return tokens.filter(Boolean);
+  return tokens
+    .filter(Boolean)
+    .slice()
+    .sort((a, b) => Number((a as any)?.order ?? 999) - Number((b as any)?.order ?? 999));
 }
 
 function safeTimeValue(iso?: string) {
@@ -209,11 +207,9 @@ function normalizeDistanceText(post: MeetingPost) {
   const d1 = String((post as any)?.distanceText ?? "").trim();
   const d2 = String(loc?.distanceText ?? "").trim();
 
-  // 숫자 km/m 포맷이나 "도보 5분" 등 어떤 포맷이든 문자열로만 판단
   const dist = d1 || d2;
   if (!dist) return "";
 
-  // 주소 문자열에 이미 " · 거리"가 합쳐져 들어오는 경우 대비(중복 방지)
   const addrCandidates = [
     (post as any)?.address,
     loc?.address,
@@ -230,14 +226,11 @@ function normalizeDistanceText(post: MeetingPost) {
   return dist;
 }
 
-/**
- * ✅ 댓글을 "스레드(부모-자식)" 기준으로 정렬/평탄화
- */
 type FlatComment = { item: Comment; parent: Comment | null; depth: number };
 
 function buildThreadedComments(all: Comment[]) {
   const byId = new Map<string, Comment>();
-  all.forEach((c) => byId.set(String((c as any).id ?? ""), c));
+  all.forEach((c) => byId.set(String((c as any)?.id ?? ""), c));
 
   const childrenByParent = new Map<string, Comment[]>();
   const roots: Comment[] = [];
@@ -254,9 +247,9 @@ function buildThreadedComments(all: Comment[]) {
     childrenByParent.set(pid, arr);
   }
 
-  roots.sort((a, b) => safeTimeValue((b as any).createdAt) - safeTimeValue((a as any).createdAt));
+  roots.sort((a, b) => safeTimeValue((b as any)?.createdAt) - safeTimeValue((a as any)?.createdAt));
   for (const [pid, arr] of childrenByParent.entries()) {
-    arr.sort((a, b) => safeTimeValue((a as any).createdAt) - safeTimeValue((b as any).createdAt));
+    arr.sort((a, b) => safeTimeValue((a as any)?.createdAt) - safeTimeValue((b as any)?.createdAt));
     childrenByParent.set(pid, arr);
   }
 
@@ -278,7 +271,7 @@ function flattenThreads(
 
     flat.push({ item: node, parent, depth });
 
-    const children = childrenByParent.get(String((node as any).id ?? "")) ?? [];
+    const children = childrenByParent.get(String((node as any)?.id ?? "")) ?? [];
     for (const child of children) visit(child, depth + 1);
   };
 
@@ -287,17 +280,17 @@ function flattenThreads(
 }
 
 const createStyles = (t: Theme) => {
-  const isDark = t.mode === "dark";
-  const borderColor = t.colors.border;
-  const subtleBg = t.colors.overlay?.[6] ?? withAlpha(t.colors.textMain, 0.06);
-  const cardBg = t.colors.surface;
-  const PADDING_H = t.spacing.pagePaddingH;
+  const isDark = t?.mode === "dark";
+  const borderColor = t?.colors?.border ?? withAlpha(t?.colors?.textMain ?? "#000", 0.15);
+  const subtleBg = t?.colors?.overlay?.[6] ?? withAlpha(t?.colors?.textMain ?? "#000", 0.06);
+  const cardBg = t?.colors?.surface ?? t?.colors?.background ?? "#fff";
+  const PADDING_H = t?.spacing?.pagePaddingH ?? 16;
 
   const chipBg = subtleBg;
-  const contentBubbleBg = withAlpha(t.colors.primary, isDark ? 0.15 : 0.05);
-  const conditionBg = withAlpha(t.colors.point ?? "#FF5722", 0.08);
-  const commentBubbleBg = isDark ? (t.colors.overlay?.[10] ?? subtleBg) : subtleBg;
-  const replyBubbleBg = withAlpha(t.colors.primary, isDark ? 0.12 : 0.05);
+  const contentBubbleBg = withAlpha(t?.colors?.primary ?? "#000", isDark ? 0.15 : 0.05);
+  const conditionBg = withAlpha(t?.colors?.point ?? "#FF5722", 0.08);
+  const commentBubbleBg = isDark ? (t?.colors?.overlay?.[10] ?? subtleBg) : subtleBg;
+  const replyBubbleBg = withAlpha(t?.colors?.primary ?? "#000", isDark ? 0.12 : 0.05);
 
   return StyleSheet.create({
     fullSize: { width: "100%", height: "100%" },
@@ -342,13 +335,13 @@ const createStyles = (t: Theme) => {
       alignItems: "center",
     },
     badgeHost: {
-      backgroundColor: withAlpha(t.colors.primary, isDark ? 0.22 : 0.15),
+      backgroundColor: withAlpha(t?.colors?.primary ?? "#000", isDark ? 0.22 : 0.15),
       borderRadius: 6,
       paddingHorizontal: 6,
       paddingVertical: 2,
       marginLeft: 6,
     },
-    badgeHostText: { fontSize: 9, fontWeight: "800", color: t.colors.primary },
+    badgeHostText: { fontSize: 9, fontWeight: "800", color: t?.colors?.primary ?? "#000" },
 
     card: {
       marginHorizontal: PADDING_H,
@@ -368,12 +361,12 @@ const createStyles = (t: Theme) => {
       height: 44,
       borderRadius: 10,
       borderWidth: 1.5,
-      borderColor: t.colors.textSub,
+      borderColor: t?.colors?.textSub ?? borderColor,
       overflow: "hidden",
     },
-    calendarHeader: { height: 10, backgroundColor: t.colors.textSub },
+    calendarHeader: { height: 10, backgroundColor: t?.colors?.textSub ?? borderColor },
     calendarBody: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: cardBg },
-    calendarText: { fontSize: 14, fontWeight: "900", color: t.colors.textMain },
+    calendarText: { fontSize: 14, fontWeight: "900", color: t?.colors?.textMain ?? "#000" },
 
     capacityTrack: { height: 6, borderRadius: 3, backgroundColor: subtleBg, marginTop: 8, overflow: "hidden" },
     capacityFill: { height: "100%", borderRadius: 3 },
@@ -391,7 +384,7 @@ const createStyles = (t: Theme) => {
     },
 
     section: { paddingHorizontal: PADDING_H, marginBottom: 22 },
-    sectionTitle: { marginBottom: 10, color: t.colors.textMain },
+    sectionTitle: { marginBottom: 10, color: t?.colors?.textMain ?? "#000" },
 
     contentBubble: { padding: 16, borderRadius: 12, backgroundColor: contentBubbleBg },
     conditionBox: {
@@ -406,7 +399,7 @@ const createStyles = (t: Theme) => {
       padding: 18,
       alignItems: "center",
       borderWidth: 1,
-      borderColor: t.colors.disabled,
+      borderColor: t?.colors?.disabled ?? borderColor,
       borderStyle: "dashed",
       borderRadius: 12,
       backgroundColor: subtleBg,
@@ -420,12 +413,10 @@ const createStyles = (t: Theme) => {
       borderWidth: 1,
       borderColor: borderColor,
     },
-    loadMoreText: { fontSize: 12, fontWeight: "800", color: t.colors.textSub },
+    loadMoreText: { fontSize: 12, fontWeight: "800", color: t?.colors?.textSub ?? "#666" },
 
-    // ✅ 댓글 간격/들여쓰기 축소
     commentWrap: { marginBottom: 10 },
 
-    // ✅ replyWrap을 "기본 스타일"로 두고, 실제 들여쓰기는 inline으로 depth에 따라 조정
     replyWrapBase: { marginBottom: 10, position: "relative" },
     replyLine: {
       position: "absolute",
@@ -436,7 +427,7 @@ const createStyles = (t: Theme) => {
       borderLeftWidth: 2,
       borderBottomWidth: 2,
       borderBottomLeftRadius: 10,
-      borderColor: t.colors.divider,
+      borderColor: t?.colors?.divider ?? borderColor,
       opacity: 0.45,
     },
 
@@ -453,7 +444,6 @@ const createStyles = (t: Theme) => {
       alignItems: "center",
     },
 
-    // ✅ 버블 패딩/라운딩 축소
     commentBubble: {
       flex: 1,
       padding: 10,
@@ -464,11 +454,10 @@ const createStyles = (t: Theme) => {
     },
     commentBubbleReply: { backgroundColor: replyBubbleBg },
 
-    // ✅ 액션을 한 줄(헤더)로 올리기 위한 스타일
     commentHeaderRight: { flexDirection: "row", alignItems: "center", gap: 6 },
     headerBtn: { flexDirection: "row", alignItems: "center", paddingVertical: 2, paddingHorizontal: 4 },
-    headerBtnText: { fontSize: 11, fontWeight: "800", color: t.colors.textSub },
-    headerBtnDangerText: { fontSize: 11, fontWeight: "800", color: t.colors.error },
+    headerBtnText: { fontSize: 11, fontWeight: "800", color: t?.colors?.textSub ?? "#666" },
+    headerBtnDangerText: { fontSize: 11, fontWeight: "800", color: t?.colors?.error ?? "#f00" },
 
     composer: {
       marginTop: 10,
@@ -485,9 +474,6 @@ const createStyles = (t: Theme) => {
   });
 };
 
-// -------------------------------------------------------------------------
-// 3) Sub Components
-// -------------------------------------------------------------------------
 const MetaChip = memo(function MetaChip({
   t,
   s,
@@ -642,11 +628,8 @@ const MapCard = memo(function MapCard({
       (typeof loc?.roadAddress === "string" ? loc.roadAddress : "");
 
     const trimmed = String(addr ?? "").trim();
-
-    // 주소에 이미 " · 거리"가 붙어 들어오면 그대로 사용, 아니면 여기서 합쳐서 표시
     if (!trimmed && distanceText) return distanceText;
     if (!trimmed) return "";
-
     if (distanceText && !trimmed.includes(distanceText)) return `${trimmed} · ${distanceText}`;
     return trimmed;
   }, [post, distanceText]);
@@ -767,7 +750,7 @@ const CommentRow = memo(function CommentRow({
               </View>
 
               <View style={s.commentHeaderRight}>
-                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{timeAgo((item as any).createdAt)}</Text>
+                <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>{timeAgo(String((item as any)?.createdAt ?? ""))}</Text>
 
                 <Pressable onPress={() => actions.onReply(item)} style={s.headerBtn} hitSlop={8}>
                   <Ionicons name="chatbubble-outline" size={13} color={t.colors.textSub} style={{ marginRight: 3 }} />
@@ -780,7 +763,7 @@ const CommentRow = memo(function CommentRow({
                       <Ionicons name="create-outline" size={13} color={t.colors.textSub} style={{ marginRight: 3 }} />
                       <Text style={s.headerBtnText}>수정</Text>
                     </Pressable>
-                    <Pressable onPress={() => actions.onDelete(String((item as any).id))} style={s.headerBtn} hitSlop={8}>
+                    <Pressable onPress={() => actions.onDelete(String((item as any)?.id))} style={s.headerBtn} hitSlop={8}>
                       <Ionicons name="trash-outline" size={13} color={t.colors.error} style={{ marginRight: 3 }} />
                       <Text style={s.headerBtnDangerText}>삭제</Text>
                     </Pressable>
@@ -808,9 +791,6 @@ const CommentRow = memo(function CommentRow({
   );
 });
 
-// -------------------------------------------------------------------------
-// 4) Main Component
-// -------------------------------------------------------------------------
 export function DetailContent({
   t,
   post,
@@ -836,7 +816,7 @@ export function DetailContent({
   onSubmitComment,
   onFocusComposer,
 }: DetailContentProps) {
-  const s = useMemo(() => createStyles(t), [t.mode]);
+  const s = useMemo(() => createStyles(t), [t]);
 
   const { meta, right } = useMemo(() => getMeetingStatusTokens(post), [post]);
   const metaTokens = useMemo(() => normalizeStatusTokens(meta), [meta]);
@@ -871,17 +851,14 @@ export function DetailContent({
       .catch(() => Linking.openURL(webUrl));
   }, [post]);
 
-  // ✅ "모임 상세 진입 시" 댓글 노출 개수는 초기화되어야 목업/UI 검증이 편함
   const [visibleRootCount, setVisibleRootCount] = useState(COMMENT_THREAD_PAGE_SIZE);
   useEffect(() => {
     setVisibleRootCount(COMMENT_THREAD_PAGE_SIZE);
   }, [String((post as any)?.id ?? "")]);
 
-  // ✅ 댓글 스레드 정렬/평탄화 (목업 데이터가 ‘대댓글 구조’로 자연스럽게 보이도록)
   const threadData = useMemo(() => buildThreadedComments(comments), [comments]);
   const totalRootCount = threadData.roots.length;
 
-  // visibleRootCount가 줄어든 데이터(예: 다른 게시글)에서 과하게 남아있지 않도록 보정
   useEffect(() => {
     if (visibleRootCount > totalRootCount) setVisibleRootCount(Math.max(COMMENT_THREAD_PAGE_SIZE, totalRootCount));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -928,14 +905,32 @@ export function DetailContent({
 
           {metaTokens.map((m: StatusPillToken, i: number) => {
             if (!m) return null;
-            if (!isValidIoniconName((m as any).iconName)) return null;
-            return <MetaChip key={`m-${i}`} t={t} s={s} iconName={(m as any).iconName} label={(m as any).label} tone={(m as any).tone} />;
+            if (!isValidIoniconName((m as any)?.iconName)) return null;
+            return (
+              <MetaChip
+                key={`m-${i}`}
+                t={t}
+                s={s}
+                iconName={(m as any).iconName}
+                label={(m as any).label}
+                tone={(m as any).tone}
+              />
+            );
           })}
 
           {rightTokens.map((m: StatusPillToken, i: number) => {
             if (!m) return null;
-            if (!isValidIoniconName((m as any).iconName)) return null;
-            return <MetaChip key={`r-${i}`} t={t} s={s} iconName={(m as any).iconName} label={(m as any).label} tone={(m as any).tone} />;
+            if (!isValidIoniconName((m as any)?.iconName)) return null;
+            return (
+              <MetaChip
+                key={`r-${i}`}
+                t={t}
+                s={s}
+                iconName={(m as any).iconName}
+                label={(m as any).label}
+                tone={(m as any).tone}
+              />
+            );
           })}
         </View>
 
@@ -963,7 +958,9 @@ export function DetailContent({
       <View style={s.section}>
         <Text style={[t.typography.titleMedium, s.sectionTitle]}>모임 소개</Text>
         <View style={s.contentBubble}>
-          <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 24 }]}>{post.content || "내용이 없습니다."}</Text>
+          <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, lineHeight: 24 }]}>
+            {post.content || "내용이 없습니다."}
+          </Text>
         </View>
       </View>
 
@@ -983,7 +980,7 @@ export function DetailContent({
           <View>
             {visibleFlatComments.map(({ item, parent, depth }) => (
               <CommentRow
-                key={String((item as any).id)}
+                key={String((item as any)?.id)}
                 t={t}
                 s={s}
                 item={item}
@@ -1043,7 +1040,8 @@ export function DetailContent({
 
 /*
 요약:
-1) distanceText는 post.distanceText / post.location.distanceText 둘 다 지원하고, 주소 문자열에 이미 합쳐진 경우 중복 표시를 막습니다.
-2) MapCard의 하단 주소 라인은 “주소 · 거리” 형태로 항상 안전하게 조합되어 노출됩니다.
-3) 지도 열기(query)에도 거리 문자열을 함께 넣어, 동일한 거리 정보가 맥락상 유지되도록 했습니다.
+1) getMeetingStatusTokens/StatusPillToken import를 tokens.ts로 정정해 빌드 에러를 제거했습니다.
+2) theme/spacing/date 파싱을 방어적으로 처리해 undefined/Invalid Date 크래시를 막았습니다.
+3) 상태 토큰은 order 기준 정렬로 UI 표시 순서가 안정적으로 유지됩니다.
 */
+// END FILE

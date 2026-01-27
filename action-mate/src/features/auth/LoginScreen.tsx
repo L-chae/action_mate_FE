@@ -18,7 +18,6 @@ function mapKakaoGenderToGender(v?: unknown): Gender {
   const s = String(v ?? "").toLowerCase();
   if (s.includes("female") || s.includes("woman") || s.includes("f")) return "female";
   if (s.includes("male") || s.includes("man") || s.includes("m")) return "male";
-  // 서버/앱 정책상 Gender는 유효값만 허용하므로 안전한 기본값으로 수렴
   return "male";
 }
 
@@ -31,10 +30,10 @@ function buildKakaoUser(profile: any): User {
     loginId,
     nickname: String(profile?.nickname ?? "카카오 사용자"),
     gender: mapKakaoGenderToGender(profile?.gender),
-    // 카카오 프로필에서 생년월일이 없다면 임시값을 둬서 타입/흐름을 유지
     birthDate: "1990-01-01",
     avatarUrl: profile?.profileImageUrl ? String(profile.profileImageUrl) : null,
-  };
+    avatarImageName: profile?.profileImageUrl ? String(profile.profileImageUrl) : null,
+  } as User;
 }
 
 export default function LoginScreen() {
@@ -42,30 +41,31 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const loginToStore = useAuthStore((s) => s.login);
 
-  // UI Constants
-  const PH = t.spacing.pagePaddingH;
-  const PV = t.spacing.pagePaddingV;
+  const PH = t.spacing.pagePaddingH ?? (t.spacing.space?.[6] ?? 24);
+  const PV = t.spacing.pagePaddingV ?? (t.spacing.space?.[6] ?? 24);
   const R = t.spacing.radiusMd;
   const D = t.spacing.animNormal;
-  const GAP_SM = t.spacing.space[3];
-  const GAP_LG = t.spacing.space[6];
-  const bottomPad = Math.max(PV, t.spacing.space[4]) + insets.bottom + t.spacing.space[4];
+
+  const GAP_SM = t.spacing.space?.[3] ?? 12;
+  const GAP_LG = t.spacing.space?.[6] ?? 24;
+
+  const bottomPad = Math.max(PV, t.spacing.space?.[4] ?? 16) + insets.bottom + (t.spacing.space?.[4] ?? 16);
+
+  const kakaoBg = (t.colors as any)?.kakaoYellow ?? "#FEE500";
+  const kakaoText = (t.colors as any)?.kakaoText ?? "#191600";
+
+  const baseUnit = t.spacing.space?.[10] ?? 40;
+  const LOGO_SIZE = Math.round(baseUnit * 2.75);
 
   const [busy, setBusy] = useState(false);
 
-  // 카카오 로그인 핸들러
   const handleKakaoLogin = async () => {
     if (busy) return;
     setBusy(true);
 
     try {
-      // 서버 연동이 없는 상태에서 실수로 "로그인된 것처럼 보이지만 API는 전부 401"이 되는 문제를 막기 위해
-      // mock 환경에서만 로컬 세션(토큰)을 생성합니다.
       if (!IS_MOCK_AUTH) {
-        Alert.alert(
-          "안내",
-          "카카오 로그인은 서버 연동이 필요합니다.\n현재는 '이메일로 로그인'을 사용해주세요."
-        );
+        Alert.alert("안내", "카카오 로그인은 서버 연동이 필요합니다.\n현재는 '이메일로 로그인'을 사용해주세요.");
         return;
       }
 
@@ -74,29 +74,21 @@ export default function LoginScreen() {
 
       const user = buildKakaoUser(profile);
 
-      // mock 환경에서만 최소 토큰을 넣어 API 가드/스토어 흐름이 흔들리지 않게 유지
       await setAuthTokens({
         accessToken: `mock_access_${Date.now()}`,
         refreshToken: `mock_refresh_${Date.now()}`,
       });
 
-      // store 업데이트(동기)
       loginToStore(user);
-
       router.replace("/(tabs)" as any);
     } catch (e: any) {
-      if (e?.code === "E_CANCELLED_OPERATION") {
-        // 사용자가 취소한 경우는 조용히 종료
-        return;
-      }
-      console.error("카카오 로그인 실패:", e);
-      Alert.alert("로그인 실패", e?.message ?? "카카오 로그인 중 오류가 발생했습니다.");
+      if (e?.code === "E_CANCELLED_OPERATION") return;
+      Alert.alert("로그인 실패", String(e?.message ?? "").trim() || "카카오 로그인 중 오류가 발생했습니다.");
     } finally {
       setBusy(false);
     }
   };
 
-  // 애니메이션 로직
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoTranslate = useRef(new Animated.Value(10)).current;
   const blob1 = useRef(new Animated.Value(0)).current;
@@ -132,15 +124,7 @@ export default function LoginScreen() {
   }, [D, blob1, blob2, blob3, logoOpacity, logoTranslate]);
 
   const blobStyles = useMemo(() => {
-    const mk = (
-      v: Animated.Value,
-      size: number,
-      x0: number,
-      x1: number,
-      y0: number,
-      y1: number,
-      color: string
-    ) => ({
+    const mk = (v: Animated.Value, size: number, x0: number, x1: number, y0: number, y1: number, color: string) => ({
       width: size,
       height: size,
       borderRadius: size / 2,
@@ -154,53 +138,65 @@ export default function LoginScreen() {
       opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.14] }),
     });
 
+    const s1 = Math.round(baseUnit * 6);
+    const s2 = Math.round(baseUnit * 5.25);
+    const s3 = Math.round(baseUnit * 7);
+
     return {
-      b1: mk(blob1, 240, -30, 10, -40, -10, t.colors.primary),
-      b2: mk(blob2, 210, 220, 175, 70, 110, t.colors.point ?? t.colors.primary),
-      b3: mk(blob3, 280, 40, 70, 260, 230, t.colors.primary),
+      b1: mk(blob1, s1, -Math.round(baseUnit * 0.75), Math.round(baseUnit * 0.25), -baseUnit, -Math.round(baseUnit * 0.25), t.colors.primary),
+      b2: mk(blob2, s2, Math.round(baseUnit * 5.5), Math.round(baseUnit * 4.4), Math.round(baseUnit * 1.75), Math.round(baseUnit * 2.75), t.colors.point ?? t.colors.primary),
+      b3: mk(blob3, s3, baseUnit, Math.round(baseUnit * 1.75), Math.round(baseUnit * 6.5), Math.round(baseUnit * 5.75), t.colors.primary),
     };
-  }, [blob1, blob2, blob3, t]);
+  }, [baseUnit, blob1, blob2, blob3, t]);
 
   return (
     <AppLayout style={[styles.page, { backgroundColor: t.colors.background }]} padded={false}>
-      {/* 배경 */}
       <LinearGradient
         colors={[t.colors.primaryLight, t.colors.background, t.colors.surface]}
         locations={[0, 0.55, 1]}
         style={StyleSheet.absoluteFill}
       />
+
       <View style={[StyleSheet.absoluteFill, { overflow: "hidden" }]} pointerEvents="none">
         <Animated.View style={blobStyles.b1} />
         <Animated.View style={blobStyles.b2} />
         <Animated.View style={blobStyles.b3} />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: t.colors.neutral[900], opacity: 0.02 }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: t.colors.neutral?.[900] ?? "#000", opacity: 0.02 }]} />
       </View>
 
-      {/* 로고 영역 */}
       <View style={[styles.center, { paddingHorizontal: PH, paddingTop: GAP_LG }]}>
         <Animated.View style={{ opacity: logoOpacity, transform: [{ translateY: logoTranslate }] }}>
-          <Image source={require("../../../assets/images/logo.png")} style={styles.logo} resizeMode="contain" />
+          <Image source={require("../../../assets/images/logo.png")} style={{ width: LOGO_SIZE, height: LOGO_SIZE }} resizeMode="contain" />
         </Animated.View>
+
         <Animated.View style={{ opacity: logoOpacity, transform: [{ translateY: logoTranslate }] }}>
-          <Text style={[t.typography.titleLarge, styles.title, { color: t.colors.textMain, marginTop: GAP_LG }]}>
-            내가 찾던 모든 모임
-          </Text>
-          <Text style={[t.typography.bodySmall, styles.subtitle, { color: t.colors.textSub, marginTop: 10 }]}>
+          <Text style={[t.typography.titleLarge, styles.title, { color: t.colors.textMain, marginTop: GAP_LG }]}>내가 찾던 모든 모임</Text>
+          <Text style={[t.typography.bodySmall, styles.subtitle, { color: t.colors.textSub, marginTop: t.spacing.space?.[3] ?? 10 }]}>
             원데이부터 정기모임까지, 가볍게 시작해요.
           </Text>
         </Animated.View>
       </View>
 
-      {/* 하단 버튼 영역 */}
       <View style={[styles.bottom, { paddingHorizontal: PH, paddingBottom: bottomPad }]}>
-        <View style={[styles.ctaCard, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+        <View
+          style={[
+            styles.ctaCard,
+            {
+              backgroundColor: t.colors.surface,
+              borderColor: t.colors.border,
+              borderRadius: t.spacing.radiusLg,
+              padding: t.spacing.space?.[4] ?? 16,
+            },
+          ]}
+        >
           <SocialButton
             text="카카오로 시작하기"
-            textColor="#191600"
-            bgColor="#FEE500"
+            textColor={kakaoText}
+            bgColor={kakaoBg}
             onPress={() => void handleKakaoLogin()}
             busy={busy}
-            radius={R + 2}
+            radius={t.spacing.radiusLg}
+            height={(t.spacing as any)?.controlHeight ?? 56}
           />
 
           <View style={{ height: GAP_SM }} />
@@ -209,23 +205,20 @@ export default function LoginScreen() {
             text="이메일로 로그인"
             textColor={t.colors.backgroundLight}
             bgColor={t.colors.primary}
-            onPress={() => router.push("/(auth)/id-login")}
+            onPress={() => router.push("/(auth)/id-login" as any)}
             busy={busy}
-            radius={R + 2}
+            radius={t.spacing.radiusLg}
+            height={(t.spacing as any)?.controlHeight ?? 56}
           />
 
-          <View style={styles.signupRow}>
+          <View style={[styles.signupRow, { marginTop: t.spacing.space?.[4] ?? 14, gap: t.spacing.space?.[2] ?? 6 }]}>
             <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>계정이 없으신가요?</Text>
-            <Pressable
-              onPress={() => router.push("/(auth)/signup")}
-              disabled={busy}
-              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-            >
+            <Pressable onPress={() => router.push("/(auth)/signup" as any)} disabled={busy} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
               <Text style={[t.typography.bodySmall, styles.signupLink, { color: t.colors.primary }]}>회원가입</Text>
             </Pressable>
           </View>
 
-          <Text style={[styles.terms, { color: t.colors.textSub }]}>
+          <Text style={[styles.terms, { color: t.colors.textSub, marginTop: t.spacing.space?.[3] ?? 12 }]}>
             가입을 진행할 경우 서비스 약관 및 개인정보 처리방침에 동의한 것으로 간주합니다.
           </Text>
         </View>
@@ -241,35 +234,34 @@ interface SocialButtonProps {
   onPress: () => void;
   busy: boolean;
   radius: number;
+  height: number;
 }
 
-const SocialButton = ({ text, textColor, bgColor, onPress, busy, radius }: SocialButtonProps) => (
+const SocialButton = ({ text, textColor, bgColor, onPress, busy, radius, height }: SocialButtonProps) => (
   <Pressable
     onPress={onPress}
     disabled={busy}
     style={({ pressed }) => [
       styles.socialBtn,
-      { backgroundColor: bgColor, borderRadius: radius, opacity: busy ? 0.6 : pressed ? 0.9 : 1 },
+      {
+        height,
+        backgroundColor: bgColor,
+        borderRadius: radius,
+        opacity: busy ? 0.6 : pressed ? 0.9 : 1,
+      },
     ]}
   >
-    {busy ? (
-      <ActivityIndicator color={textColor} />
-    ) : (
-      <Text style={[styles.socialText, { color: textColor }]}>{text}</Text>
-    )}
+    {busy ? <ActivityIndicator color={textColor} /> : <Text style={[styles.socialText, { color: textColor }]}>{text}</Text>}
   </Pressable>
 );
 
 const styles = StyleSheet.create({
   page: { flex: 1, justifyContent: "space-between", overflow: "hidden" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  logo: { width: 110, height: 110 },
   title: { textAlign: "center", letterSpacing: -0.3 },
   subtitle: { textAlign: "center", lineHeight: 18, letterSpacing: -0.1 },
   bottom: { width: "100%" },
   ctaCard: {
-    borderRadius: 22,
-    padding: 16,
     borderWidth: 1,
     shadowOpacity: 0.05,
     shadowRadius: 16,
@@ -278,7 +270,14 @@ const styles = StyleSheet.create({
   },
   socialBtn: { width: "100%", alignItems: "center", justifyContent: "center", paddingVertical: 14 },
   socialText: { fontSize: 14, fontWeight: "700", letterSpacing: -0.2 },
-  signupRow: { marginTop: 14, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 },
+  signupRow: { flexDirection: "row", justifyContent: "center", alignItems: "center" },
   signupLink: { fontWeight: "800" },
-  terms: { marginTop: 12, textAlign: "center", fontSize: 11, lineHeight: 15, opacity: 0.6 },
+  terms: { textAlign: "center", fontSize: 11, lineHeight: 15, opacity: 0.6 },
 });
+
+/*
+요약(3줄)
+- 버튼/로고/블롭 크기를 테마 spacing 기반으로 계산해 하드코딩을 줄였습니다.
+- 카카오 색상은 테마 확장값이 있으면 사용하고 없으면 fallback으로 안전 처리했습니다.
+- 라우팅은 타입 이슈 방지를 위해 안전 캐스팅을 유지했습니다.
+*/
