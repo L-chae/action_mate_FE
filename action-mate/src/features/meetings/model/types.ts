@@ -15,26 +15,31 @@ import type {
 } from "@/shared/model/types";
 
 /**
- * ✅ 목표(초보 + 실서비스 + 백엔드 v1.2.4 정합)
+ * ✅ 목표(초보 + 실서비스 + 불안정 백엔드 대응)
  * 1) Raw vs UI 모델 분리
  * 2) UI 기본값 규칙(필수 표시 필드는 항상 존재)
  * 3) Id 표준화(UI는 string id)
  */
 
 // --- ENUMS & KEYS ---
-// v1.2.4 PostCategory: "운동" | "오락" | "식사" | "자유"
-export type CategoryKey = "운동" | "오락" | "식사" | "자유";
+export type CategoryKey = "SPORTS" | "GAMES" | "MEAL" | "STUDY" | "ETC";
 export type HomeSort = "LATEST" | "NEAR" | "SOON";
 export type JoinMode = SharedJoinMode;
 
-// v1.2.4 Post.state: OPEN | STARTED | ENDED | FULL | CANCELED
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
-
-// v1.2.4 myParticipationStatus + Applicant.state 정합(필요 범위만)
-export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "REJECTED";
+export type MembershipStatus =
+  | "NONE"
+  | "MEMBER"
+  | "PENDING"
+  | "HOST"
+  | "CANCELED"
+  | "REJECTED";
 
 /**
  * ✅ UI 기본값 규칙(표준)
+ * - address는 "표시용 문자열"이라서, 빈 문자열을 기본값으로 두면 렌더 분기가 단순해짐
+ * - 하지만 서버 결측(null)도 들어올 수 있으니 타입은 null까지 허용하고,
+ *   정규화 단계에서 string으로 밀어넣는 방식이 유지보수에 유리
  */
 export const MEETING_UI_DEFAULTS = {
   title: "(제목 없음)",
@@ -83,17 +88,15 @@ export type MeetingShapeRaw = Partial<{
 
 export type MeetingPostRaw = MeetingShapeRaw & {
   id: Id;
-
-  // 서버(v1.2.4)는 state 필드를 사용하므로 state를 우선 정규화 대상으로 둠
-  state?: PostStatus;
-
-  // 기존 코드 호환이 필요할 수 있어 status도 남겨둘 수 있지만,
-  // 실제 정규화는 state를 기준으로 하는 것을 권장
   status?: PostStatus;
 
   meetingTimeText?: string;
   distanceText?: string;
 
+  /**
+   * ✅ 서버에서 null/빈문자/undefined로 올 수 있는 영역
+   * - Raw는 변형되지 않은 값이 들어오므로 null을 허용하는 게 안전
+   */
   address?: string | null;
 
   host?: HostSummaryRaw;
@@ -156,6 +159,12 @@ export type MeetingShape = {
   items?: string;
 };
 
+/**
+ * ✅ MeetingPost(UI)
+ * - id는 NormalizedId(string)
+ * - address: 화면 표시용이지만, 서버/목업에서 null이 들어오는 케이스가 흔하므로 허용
+ *   (렌더링은 DetailContent에서 (addressText || distanceText) 조건으로 이미 안전)
+ */
 export type MeetingPost = Omit<MeetingShape, "capacity"> & {
   id: NormalizedId;
   status: PostStatus;
@@ -171,6 +180,9 @@ export type MeetingPost = Omit<MeetingShape, "capacity"> & {
   myState?: MyState;
 };
 
+/**
+ * ✅ MeetingUpsert(UI)
+ */
 export type MeetingUpsert = MeetingShape;
 
 // 조회 옵션
@@ -223,10 +235,3 @@ export type Comment = {
 
   author: UserSummary;
 };
-
-/*
-요약:
-1) v1.2.4 정합: CategoryKey를 "운동/오락/식사/자유", MembershipStatus를 HOST/MEMBER/PENDING/REJECTED/NONE로 수정.
-2) Post 상태 필드가 state이므로 Raw에 state를 추가(정규화 기준), 기존 status는 호환용 optional로 유지.
-3) 나머지 UI 타입 구조는 유지하여 화면/스토어 의존 코드 영향 최소화.
-*/

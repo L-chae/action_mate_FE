@@ -21,7 +21,7 @@ import { endpoints } from "./endpoints";
 // 왜 env로?
 // - 빌드/배포 환경(dev/stg/prod)마다 URL이 달라져도 코드 수정 없이 대응 가능
 export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://unannexable-blusterously-tandy.ngrok-free.dev/api";
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://bold-seal-only.ngrok-free.app/api";
 
 const COMMON_HEADERS = {
   "Content-Type": "application/json",

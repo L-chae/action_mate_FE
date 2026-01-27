@@ -1,14 +1,12 @@
 // src/shared/api/schemas.ts
-// OpenAPI(제공된 명세 v1.2.4) 기반의 TS 스키마 타입 모음.
+// OpenAPI(제공된 명세) 기반의 최소 TS 스키마 타입 모음.
+// - "서버 응답 Raw"는 여기 타입을 기준으로 받고
+// - UI에서 쓸 타입은 feature/shared model types로 정리 후 mapper로 변환합니다.
 
 export type ErrorResponse = {
   code: string;
   message: string;
 };
-
-// -----------------------------
-// Auth
-// -----------------------------
 
 export type LoginRequest = {
   id: string;
@@ -20,78 +18,31 @@ export type TokenResponse = {
   refreshToken: string;
 };
 
-// -----------------------------
-// User
-// -----------------------------
-
 export type SignupRequest = {
   id: string;
   password: string;
-  birth?: string; // date (YYYY-MM-DD)
-  gender?: "M" | "F";
-  nickname?: string;
+  birth?: string; // date
+  gender?: "남" | "여";
 };
 
 export type ExistsResponse = {
   exists: boolean;
 };
 
-export type UserProfile = {
+// /users/{userId}/profile 응답
+export type ApiUserProfileResponse = {
   id: string;
   nickname?: string;
-  profileImageName?: string;
-  birth?: string; // date (YYYY-MM-DD)
-  gender?: "M" | "F";
+  profileImageUrl?: string;
+  birth?: string; // date
+  gender?: "남" | "여";
   avgRate: number;
   orgTime: number;
 };
 
-// -----------------------------
-// Images
-// -----------------------------
-
-export type GetImageParams = {
-  filename: string;
-};
-
-export type ImageBinaryResponse = ArrayBuffer;
-
-// -----------------------------
-// Post
-// -----------------------------
-
-export type PostCategory = "운동" | "오락" | "식사" | "자유";
-export type JoinMode = "INSTANT" | "APPROVAL";
-export type PostState = "OPEN" | "STARTED" | "ENDED" | "FULL" | "CANCELED";
-export type MyParticipationStatus = "HOST" | "MEMBER" | "PENDING" | "REJECTED" | "NONE";
-
-export type Post = {
-  id: number;
-  category: PostCategory;
-  title: string;
-  content: string;
-
-  writerId?: string;
-  writerNickname?: string;
-  writerImageName?: string;
-
-  meetingTime: string; // date-time
-  locationName?: string;
-  longitude: number;
-  latitude: number;
-
-  currentCount?: number;
-  capacity?: number;
-
-  state: PostState;
-  joinMode: JoinMode;
-
-  lastModified: string; // date-time
-  myParticipationStatus?: MyParticipationStatus;
-};
-
+// /posts POST
 export type PostCreateRequest = {
-  category: PostCategory;
+  category: "운동" | "오락" | "식사" | "자유";
   title: string;
   content: string;
   meetingTime: string; // date-time
@@ -99,37 +50,34 @@ export type PostCreateRequest = {
   longitude: number;
   latitude: number;
   capacity?: number;
-  joinMode: JoinMode;
+  joinMode: "INSTANT" | "APPROVAL";
 };
 
-export type PostUpdateRequest = {
-  category?: PostCategory;
-  title?: string;
-  content?: string;
-  meetingTime?: string; // date-time
-  locationName?: string;
-  longitude?: number;
-  latitude?: number;
-  capacity?: number;
-  state?: "OPEN" | "STARTED" | "ENDED";
-  joinMode?: JoinMode;
+// /posts/id/{postId} PUT
+export type PostUpdateRequest = Partial<PostCreateRequest> & {
+  state?: "OPEN" | "STARTED" | "ENDED" | "FULL" | "CANCELED";
 };
 
-// -----------------------------
-// Message
-// -----------------------------
+// /message POST (채팅방 없거나 모를 때)
+export type EnsureRoomAndSendMessageRequest = {
+  postId: number;
+  receiverId: string;
+  content: string;
+};
 
+// /message/room 목록 아이템
 export type MessageRoomResponse = {
   roomId: number;
   opponentId: string;
   opponentNickname: string;
-  opponentProfileImageName?: string;
+  opponentProfileImageUrl?: string;
   postId: number;
   unReadCount: number;
   lastMessageContent: string;
 };
 
-export type Message = {
+// /message/room/{roomId} 목록 아이템
+export type ApiMessage = {
   messageId: number;
   roomId: number;
   postId: number;
@@ -138,44 +86,21 @@ export type Message = {
   content: string;
 };
 
-export type EnsureRoomAndSendMessageRequest = {
-  postId: number;
-  receiverId: string;
-  content: string;
-};
-
-export type SendMessageRequest = {
-  roomId: number;
-  content: string;
-};
-
-export type SendChatToRoomRequest = string; // text/plain
-
-// -----------------------------
 // Applicant
-// -----------------------------
-
-export type ApplicantState = "HOST" | "MEMBER" | "REJECTED" | "PENDING" | "NONE";
-
-export type Applicant = {
+export type ApiApplicant = {
   postId: number;
   userId: string;
-  state: ApplicantState;
+  state: "APPROVED" | "REJECTED" | "PENDING";
 };
 
-export type DecideApplicantRequest = "APPROVED" | "REJECTED";
-
-// -----------------------------
 // Report
-// -----------------------------
-
 export type ReportCreateRequest = {
   targetUserId: string;
   postId: number;
   description: string;
 };
 
-export type Report = {
+export type ReportResponse = {
   id: number;
   reporterId: string;
   targetId: string;
@@ -184,17 +109,14 @@ export type Report = {
   createdAt: string; // date-time
 };
 
-// -----------------------------
 // Rating
-// -----------------------------
-
 export type RatingRequest = {
   targetUserId: string;
   score: number; // 1~5
   comment?: string;
 };
 
-export type Rating = {
+export type RatingResponse = {
   id: number;
   postId: number;
   raterId: string;
@@ -203,44 +125,3 @@ export type Rating = {
   comment?: string;
   createdAt: string; // date-time
 };
-
-// -----------------------------
-// Endpoint Response Helpers
-// -----------------------------
-
-export type LoginResponse = TokenResponse;
-export type RefreshResponse = TokenResponse;
-
-export type SignupResponse = void; // 201 (본문 없음)
-export type CheckUserExistsResponse = ExistsResponse;
-export type GetUserProfileResponse = UserProfile;
-
-export type ListPostsByCategoryResponse = Post[];
-export type GetPostsResponse = Post; // 명세 기준
-export type CreatePostResponse = Post;
-
-export type ListPostsHotResponse = Post[];
-export type GetPostResponse = Post;
-export type UpdatePostResponse = Post;
-export type DeletePostResponse = void; // 204
-export type ListPostsNearbyResponse = Post[];
-
-export type ShowMessageRoomListResponse = MessageRoomResponse; // 명세 기준
-export type ShowMessagesWithRoomResponse = Message[];
-export type SendChatToRoomResponse = Message;
-export type SendMessageResponse = Message;
-
-export type ApplyToPostResponse = Applicant;
-export type ListApplicantsResponse = Applicant[];
-export type CancelApplyResponse = void; // 200 (본문 없음)
-export type DecideApplicantResponse = Applicant;
-
-export type CreateReportResponse = Report;
-export type RateMemberResponse = Rating;
-
-/*
-요약:
-1) v1.2.4 반영: SignupRequest.gender를 "M"|"F"로 확정.
-2) 불필요한 union/방어 타입 제거하고 명세 스키마 그대로 정리.
-3) 이미지 관련 값은 모두 *ImageName(파일명) 형태로 유지.
-*/

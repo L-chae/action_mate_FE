@@ -35,17 +35,10 @@ type AuthState = {
 function sanitizeUserPatch(patch: Partial<User>): Partial<User> {
   // 왜 막나?:
   // - id/loginId는 관계키/세션키로 쓰이므로 UI에서 실수로 덮어써도 상태가 깨지지 않게 방어
-  const next: any = { ...(patch ?? {}) };
-
-  delete next.id;
-  delete next.loginId;
-
-  // undefined 키 제거(필수 필드가 undefined로 덮이는 사고 방지)
-  Object.keys(next).forEach((k) => {
-    if (next[k] === undefined) delete next[k];
-  });
-
-  return next as Partial<User>;
+  const next: Partial<User> = { ...patch };
+  delete (next as any).id;
+  delete (next as any).loginId;
+  return next;
 }
 
 async function resetSessionSafely() {
@@ -68,6 +61,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const hasAnyToken = !!accessToken || !!refreshToken;
 
+      // ✅ 세션/토큰 조합이 깨진 경우를 먼저 정리
+      // - loginId만 있고 토큰이 없으면: 서버 호출해봐야 401로 끝날 확률이 높음
+      // - 토큰만 있고 loginId가 없으면: hydrate에서 누굴 조회할지 모름(유령 토큰)
       if (!lastLoginId || !hasAnyToken) {
         if (lastLoginId || hasAnyToken) {
           await resetSessionSafely();
@@ -82,9 +78,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
 
+      // 세션이 있으면 유저 조회
       const user = await authApi.getUserByLoginId(lastLoginId);
 
       if (!user) {
+        // 세션은 있는데 유저를 못 가져오면 정리(일관성)
         await resetSessionSafely();
         set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
@@ -99,6 +97,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: (user: User) => {
     set({ isLoggedIn: true, user });
+
+    // 로그인 성공 시 loginId 세션 저장(실패해도 UI 흐름은 유지)
+    // (authApi.login 내부에서도 저장하지만, 화면에서 직접 user만 세팅하는 흐름을 대비)
     authApi.setCurrentLoginId(user.loginId).catch(() => undefined);
   },
 
@@ -117,14 +118,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const safePatch = sanitizeUserPatch(patch);
 
-    // 낙관적 업데이트(즉시 UI 반영) - undefined 제거가 되어 있어 필수 필드 오염 방지
+    // 1) 낙관적 업데이트(즉시 UI 반영)
     const optimisticUser: User = { ...currentUser, ...safePatch };
     set({ user: optimisticUser });
 
     try {
+      // 2) 서버/로컬 반영(서버 명세 없으면 remote에서 throw)
       const updatedUser = await authApi.updateUser(currentUser.loginId, safePatch);
+
+      // 3) 응답으로 확정
       set({ user: updatedUser });
     } catch (e) {
+      // 4) 실패 시 롤백
       set({ user: currentUser });
       throw e;
     }

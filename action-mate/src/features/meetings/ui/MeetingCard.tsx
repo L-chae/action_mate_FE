@@ -1,5 +1,7 @@
+// src/features/meetings/ui/MeetingCard.tsx
+
 import React, { useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -7,38 +9,33 @@ import { Card } from "@/shared/ui/Card";
 import { Badge } from "@/shared/ui/Badge";
 import { useAppTheme } from "@/shared/hooks/useAppTheme";
 import { withAlpha } from "@/shared/theme/colors";
-import type { MeetingPost, MembershipStatus, PostStatus } from "@/features/meetings/model/types";
+import type { CategoryKey, MeetingPost, MembershipStatus, PostStatus } from "@/features/meetings/model/types";
 import { meetingTimeTextFromIso } from "@/shared/utils/timeText";
 
 type Pill = { bg: string; fg: string };
 type IconName = keyof typeof Ionicons.glyphMap;
 
-// ✅ 최종 명세 카테고리("운동" | "오락" | "식사" | "자유") 기준 아이콘 매핑
-const CATEGORY_ICONS: Record<string, IconName> = {
-  운동: "basketball",
-  오락: "game-controller",
-  식사: "restaurant",
-  자유: "apps",
+// 카테고리별 아이콘 매핑 (CategoryChips와 통일)
+const CATEGORY_ICONS: Record<CategoryKey | string, IconName> = {
+  SPORTS: "basketball",
+  GAMES: "game-controller",
+  MEAL: "restaurant",
+  STUDY: "book",
+  ETC: "ellipsis-horizontal-circle",
   default: "apps",
 };
 
-function getCategoryIcon(category?: string): IconName {
-  const key = typeof category === "string" ? category : "default";
-  return CATEGORY_ICONS[key] ?? CATEGORY_ICONS.default;
+function getCategoryIcon(cat?: CategoryKey): IconName {
+  return CATEGORY_ICONS[cat as string] ?? CATEGORY_ICONS.default;
 }
 
 function statusLabel(s: PostStatus) {
   switch (s) {
-    case "FULL":
-      return "정원마감";
-    case "CANCELED":
-      return "취소됨";
-    case "ENDED":
-      return "종료";
-    case "STARTED":
-      return "진행중";
-    default:
-      return null;
+    case "FULL": return "정원마감";
+    case "CANCELED": return "취소됨";
+    case "ENDED": return "종료";
+    case "STARTED": return "진행중";
+    default: return null;
   }
 }
 
@@ -58,6 +55,10 @@ export function MeetingCard({
   const t = useAppTheme();
   const router = useRouter();
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Logic
+  // ────────────────────────────────────────────────────────────────────────
+
   const timeLabel = useMemo(() => {
     if (item.meetingTime) return meetingTimeTextFromIso(item.meetingTime);
     return item.meetingTimeText ?? "";
@@ -70,10 +71,9 @@ export function MeetingCard({
   const isMember = ms === "MEMBER";
   const isPending = ms === "PENDING";
   const isRejected = ms === "REJECTED";
+  const isMyCanceled = ms === "CANCELED";
 
-  // ✅ MembershipStatus에는 "CANCELED"가 없으므로(불일치) 카드 취소 여부는 status만으로 판단
-  const isCanceledPost = item.status === "CANCELED";
-
+  // 용량 초과 체크
   const isCapacityFull = (() => {
     const total = item.capacity?.total ?? 0;
     const current = item.capacity?.current ?? 0;
@@ -82,8 +82,14 @@ export function MeetingCard({
 
   const effectiveStatus: PostStatus = item.status === "OPEN" && isCapacityFull ? "FULL" : item.status;
 
-  const isJoinBlocked = effectiveStatus === "OPEN" && ms === "NONE" && canJoin === false && !isPending;
+  // 조건 불충족 (홈 리스트에서 비활성 처리용)
+  const isJoinBlocked =
+    effectiveStatus === "OPEN" &&
+    ms === "NONE" &&
+    canJoin === false &&
+    !isPending;
 
+  // 카드 비활성 스타일 적용 여부
   const isDisabled =
     effectiveStatus === "ENDED" ||
     effectiveStatus === "CANCELED" ||
@@ -91,17 +97,25 @@ export function MeetingCard({
     (effectiveStatus === "STARTED" && ms === "NONE") ||
     isJoinBlocked ||
     isRejected ||
-    isCanceledPost;
+    isMyCanceled;
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Styles / Colors
+  // ────────────────────────────────────────────────────────────────────────
 
   const pillTone = (hex: string, alpha = t.mode === "dark" ? 0.22 : 0.14): Pill => ({
     bg: withAlpha(hex, alpha),
     fg: hex,
   });
 
+  // 시간 뱃지 스타일
   const timePill: Pill = useMemo(() => {
-    return isDisabled ? { bg: t.colors.overlay[8], fg: t.colors.textSub } : { bg: t.colors.overlay[6], fg: t.colors.textSub };
+    return isDisabled
+      ? { bg: t.colors.overlay[8], fg: t.colors.textSub }
+      : { bg: t.colors.overlay[6], fg: t.colors.textSub };
   }, [isDisabled, t.colors]);
 
+  // 상태 뱃지 (진행중, 마감 등)
   const statePill = useMemo(() => {
     if (!showStatusPill) return null;
     const label = statusLabel(effectiveStatus);
@@ -121,15 +135,18 @@ export function MeetingCard({
     }
   }, [showStatusPill, effectiveStatus, t.colors, t.mode]);
 
+  // 좌측 상태 텍스트 (참여중, 승인대기 등)
   const leftBadge = useMemo(() => {
     if (isHost) return { label: "내 모임", tone: "primary" as const };
     if (isMember) return { label: "참여중", tone: "success" as const };
     if (isPending) return { label: "승인 대기", tone: "warning" as const };
     if (isRejected) return { label: "거절됨", tone: "error" as const };
+    if (isMyCanceled) return { label: "취소함", tone: "neutral" as const };
     if (showJoinBlockedBadge && isJoinBlocked) return { label: "조건 미달", tone: "neutral" as const };
     return null;
-  }, [isHost, isMember, isPending, isRejected, isJoinBlocked, showJoinBlockedBadge]);
+  }, [isHost, isMember, isPending, isRejected, isMyCanceled, isJoinBlocked, showJoinBlockedBadge]);
 
+  // 참여 방식 (선착순/승인제)
   const joinModeMeta = useMemo(() => {
     const isInstant = item.joinMode === "INSTANT";
     const icon: IconName = isInstant ? "flash" : "shield-checkmark";
@@ -137,6 +154,7 @@ export function MeetingCard({
     return { label: isInstant ? "선착순" : "승인제", icon, color };
   }, [item.joinMode, t.colors.point, t.colors.info]);
 
+  // 비활성 시 카드 전체 스타일 override
   const disabledStyle = useMemo(() => {
     if (!isDisabled) return null;
     if (effectiveStatus === "FULL") {
@@ -156,7 +174,9 @@ export function MeetingCard({
   }, [isDisabled, effectiveStatus, t.colors]);
 
   const titleColor = disabledStyle?.title ?? t.colors.textMain;
-
+  const iconMuted = t.colors.icon.muted;
+  const iconDefault = t.colors.icon.default;
+  
   const categoryIcon = getCategoryIcon(item.category);
 
   return (
@@ -172,48 +192,71 @@ export function MeetingCard({
       ]}
       padded
     >
+      {/* ─────────────────────────────────────────────────────────────────
+          1. Header: [Category Icon] [Title] [Time Pill]
+      ────────────────────────────────────────────────────────────────── */}
       <View style={styles.headerRow}>
         <View style={styles.titleGroup}>
-          <View
-            style={[
-              styles.catIconBox,
-              { backgroundColor: isDisabled ? t.colors.overlay[6] : withAlpha(t.colors.primary, 0.1) },
-            ]}
-          >
-            <Ionicons name={categoryIcon} size={14} color={isDisabled ? t.colors.icon.muted : t.colors.primary} />
+          {/* 카테고리 아이콘 */}
+          <View style={[
+              styles.catIconBox, 
+              { backgroundColor: isDisabled ? t.colors.overlay[6] : withAlpha(t.colors.primary, 0.1) }
+            ]}>
+            <Ionicons 
+              name={categoryIcon} 
+              size={14} 
+              color={isDisabled ? t.colors.icon.muted : t.colors.primary} 
+            />
           </View>
-
+          
+          {/* 제목 */}
           <Text style={[t.typography.titleMedium, styles.titleText, { color: titleColor }]} numberOfLines={1}>
             {item.title}
           </Text>
         </View>
 
+        {/* 시간 */}
         <View style={[styles.timePill, { backgroundColor: timePill.bg }]}>
-          <Text style={[t.typography.labelSmall, { color: timePill.fg, fontWeight: "600" }]}>{timeLabel}</Text>
+          <Text style={[t.typography.labelSmall, { color: timePill.fg, fontWeight: '600' }]}>
+            {timeLabel}
+          </Text>
         </View>
       </View>
 
+      {/* ─────────────────────────────────────────────────────────────────
+          2. Location Row
+      ────────────────────────────────────────────────────────────────── */}
       <View style={styles.locationRow}>
-        <Ionicons name="location-outline" size={16} color={isDisabled ? t.colors.icon.muted : t.colors.icon.default} />
+        <Ionicons name="location-outline" size={16} color={isDisabled ? iconMuted : iconDefault} />
         <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, flex: 1 }]} numberOfLines={1}>
           {item.location?.name || "장소 미정"}
-          {item.distanceText ? <Text style={{ color: t.colors.primary }}>  {item.distanceText}</Text> : null}
+          {item.distanceText && (
+            <Text style={{ color: t.colors.primary }}>  {item.distanceText}</Text>
+          )}
         </Text>
       </View>
 
+      {/* ─────────────────────────────────────────────────────────────────
+          3. Status Row: [Badges] <Space> [Join Info]
+      ────────────────────────────────────────────────────────────────── */}
       <View style={styles.footerRow}>
+        {/* 왼쪽: 상태 뱃지들 */}
         <View style={styles.badgeGroup}>
-          {leftBadge ? <Badge label={leftBadge.label} tone={leftBadge.tone} size="md" /> : null}
-
-          {statePill ? (
+          {leftBadge && <Badge label={leftBadge.label} tone={leftBadge.tone} size="md" />}
+          
+          {statePill && (
             <View style={[styles.pillBox, { backgroundColor: statePill.pill.bg }]}>
               <Ionicons name={statePill.icon} size={12} color={statePill.pill.fg} />
-              <Text style={[t.typography.labelSmall, { color: statePill.pill.fg, fontWeight: "700" }]}>{statePill.label}</Text>
+              <Text style={[t.typography.labelSmall, { color: statePill.pill.fg, fontWeight: "700" }]}>
+                {statePill.label}
+              </Text>
             </View>
-          ) : null}
+          )}
         </View>
 
-        <View style={[styles.joinInfoBox, { backgroundColor: t.colors.background, borderColor: t.colors.border }]}>
+        {/* 오른쪽: 참여 인원 & 방식 */}
+        <View style={[styles.joinInfoBox, { backgroundColor: t.colors.background }]}>
+          {/* 방식 (선착순/승인제) */}
           <View style={styles.rowCentered}>
             <Ionicons name={joinModeMeta.icon} size={12} color={joinModeMeta.color} />
             <Text style={[t.typography.labelSmall, { color: joinModeMeta.color, fontWeight: "700", marginLeft: 4 }]}>
@@ -223,6 +266,7 @@ export function MeetingCard({
 
           <View style={[styles.verticalLine, { backgroundColor: t.colors.border }]} />
 
+          {/* 인원 */}
           <View style={styles.rowCentered}>
             <Ionicons name="person" size={12} color={t.colors.textSub} />
             <Text style={[t.typography.labelSmall, { color: t.colors.textSub, marginLeft: 4 }]}>
@@ -235,9 +279,17 @@ export function MeetingCard({
         </View>
       </View>
 
+      {/* ─────────────────────────────────────────────────────────────────
+          4. Host Message (Optional)
+      ────────────────────────────────────────────────────────────────── */}
       {showHostMessage && item.content ? (
         <View style={[styles.memoRow, { borderTopColor: t.colors.divider }]}>
-          <Ionicons name="chatbubble-ellipses-outline" size={14} color={t.colors.textSub} style={{ marginTop: 2 }} />
+          <Ionicons
+            name="chatbubble-ellipses-outline"
+            size={14}
+            color={t.colors.textSub}
+            style={{ marginTop: 2 }}
+          />
           <Text style={[t.typography.bodySmall, { color: t.colors.textSub, flex: 1 }]} numberOfLines={1}>
             {item.content}
           </Text>
@@ -250,10 +302,12 @@ export function MeetingCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
+    // Android Shadow 제거 (Flat 디자인)
     elevation: 0,
     shadowOpacity: 0,
   },
-
+  
+  // Header
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -271,8 +325,8 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   titleText: {
     flex: 1,
@@ -283,13 +337,15 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
 
+  // Location
   locationRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginBottom: 16,
+    marginBottom: 16, // 간격 살짝 넓힘
   },
 
+  // Footer
   footerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -308,7 +364,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
-
+  
+  // Join Info Box
   joinInfoBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -316,10 +373,11 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 99,
     borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)', // 아주 연한 테두리
   },
   rowCentered: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   verticalLine: {
     width: 1,
@@ -327,6 +385,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
 
+  // Memo
   memoRow: {
     marginTop: 12,
     paddingTop: 10,
@@ -335,9 +394,3 @@ const styles = StyleSheet.create({
     gap: 6,
   },
 });
-
-/*
-- MembershipStatus에 없던 "CANCELED" 비교/분기 제거(취소는 item.status로만 판단)
-- 카테고리 아이콘 매핑을 최종 명세(운동/오락/식사/자유) 문자열 기준으로 통일
-- joinInfoBox 테두리를 테마 토큰으로 맞춰 하드코딩 제거
-*/
