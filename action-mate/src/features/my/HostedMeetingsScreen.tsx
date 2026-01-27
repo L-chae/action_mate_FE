@@ -7,7 +7,6 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  UIManager,
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -56,22 +55,22 @@ function useHostedMeetings() {
 
   const fetchMeetings = useCallback(async (isRefresh = false) => {
     if (!isRefresh) setIsLoading(true);
+
     try {
-      // 내 모임 데이터와 전체 상태 동기화를 위해 병렬 호출
       const [hostedData, allMeetings] = await Promise.all([
         myApi.getHostedMeetings(),
         meetingApi.listMeetings({}),
       ]);
 
-      // 상태 매핑 (ID -> Status)
       const statusMap = new Map<string, PostStatus>();
-      (allMeetings || []).forEach((m) => {
-        statusMap.set(String(m.id), m.status);
+      (allMeetings ?? []).forEach((m) => {
+        const id = String((m as any)?.id ?? "");
+        const st = (m as any)?.status as PostStatus | undefined;
+        if (id) statusMap.set(id, st ?? "OPEN");
       });
 
-      // 데이터 병합
-      const merged = (hostedData || []).map((it) => {
-        const st = statusMap.get(String(it.id)) ?? "OPEN";
+      const merged: HostedItemWithStatus[] = (hostedData ?? []).map((it) => {
+        const st = statusMap.get(String(it?.id ?? "")) ?? "OPEN";
         return {
           ...it,
           _status: st,
@@ -125,62 +124,74 @@ const ListSkeleton = () => {
   );
 };
 
-const FilterChips = React.memo(({ value, onChange }: { value: FilterKey; onChange: (v: FilterKey) => void }) => {
-  const t = useAppTheme();
+const FilterChips = React.memo(
+  ({ value, onChange }: { value: FilterKey; onChange: (v: FilterKey) => void }) => {
+    const t = useAppTheme();
 
-  const handlePress = (key: FilterKey) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    onChange(key);
-  };
+    const handlePress = (key: FilterKey) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      onChange(key);
+    };
 
-  return (
-    <View style={[styles.chipsWrap, { borderColor: t.colors.border, backgroundColor: t.colors.background }]}>
-      <FlatList
-        horizontal
-        data={FILTERS}
-        keyExtractor={(item) => item.key}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chipsScroll}
-        renderItem={({ item }) => {
-          const selected = value === item.key;
-          return (
-            <Pressable
-              onPress={() => handlePress(item.key)}
-              style={({ pressed }) => [
-                styles.chip,
-                {
-                  backgroundColor: selected ? t.colors.primary : t.colors.chipBg,
-                  borderWidth: selected ? 0 : 1,
-                  borderColor: selected ? "transparent" : t.colors.border,
-                  opacity: pressed ? 0.9 : 1,
-                  transform: [{ scale: pressed ? 0.98 : 1 }],
-                },
-              ]}
-            >
-              <Text style={[
-                t.typography.labelMedium,
-                { color: selected ? "#FFFFFF" : t.colors.textSub, fontWeight: selected ? "bold" : "600" }
-              ]}>
-                {item.label}
-              </Text>
-            </Pressable>
-          );
-        }}
-      />
-    </View>
-  );
-});
+    return (
+      <View style={[styles.chipsWrap, { borderColor: t.colors.border, backgroundColor: t.colors.background }]}>
+        <FlatList
+          horizontal
+          data={FILTERS}
+          keyExtractor={(item) => item.key}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsScroll}
+          renderItem={({ item }) => {
+            const selected = value === item.key;
+            return (
+              <Pressable
+                onPress={() => handlePress(item.key)}
+                style={({ pressed }) => [
+                  styles.chip,
+                  {
+                    backgroundColor: selected ? t.colors.primary : t.colors.chipBg,
+                    borderWidth: selected ? 0 : 1,
+                    borderColor: selected ? "transparent" : t.colors.border,
+                    opacity: pressed ? 0.9 : 1,
+                    transform: [{ scale: pressed ? 0.98 : 1 }],
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    t.typography.labelMedium,
+                    {
+                      color: selected ? "#FFFFFF" : t.colors.textSub,
+                      fontWeight: selected ? "bold" : "600",
+                    },
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          }}
+        />
+      </View>
+    );
+  }
+);
 
 const HostedMeetingItem = React.memo(({ item, onPress }: { item: HostedItemWithStatus; onPress: () => void }) => {
   const t = useAppTheme();
-  
-  const isEnded = item._status === "ENDED";
-  const isCanceled = item._status === "CANCELED";
+
+  const isEnded = item?._status === "ENDED";
+  const isCanceled = item?._status === "CANCELED";
   const isDisabled = isEnded || isCanceled;
 
   let badge: BadgeProps = { label: "진행중", tone: "primary" };
   if (isCanceled) badge = { label: "취소됨", tone: "error" };
   else if (isEnded) badge = { label: "모임끝", tone: "neutral" };
+
+  const locationName =
+    typeof (item as any)?.locationName === "string" && (item as any).locationName.trim()
+      ? (item as any).locationName
+      : "장소 미정";
 
   return (
     <Card
@@ -201,16 +212,17 @@ const HostedMeetingItem = React.memo(({ item, onPress }: { item: HostedItemWithS
     >
       <View style={styles.cardHeader}>
         <Text style={[t.typography.titleMedium, { flex: 1, marginRight: 8 }]} numberOfLines={1}>
-          {item.title}
+          {item?.title ?? "(제목 없음)"}
         </Text>
         <Badge {...badge} />
       </View>
+
       <View style={styles.cardBody}>
         <Text style={t.typography.bodySmall} numberOfLines={1}>
-          📍 {item.location?.name ?? "장소 미정"}
+          📍 {locationName}
         </Text>
         <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]} numberOfLines={1}>
-          📅 {item.dateText} · 👥 {item.memberCount}명
+          📅 {item?.dateText ?? ""} · 👥 {typeof item?.memberCount === "number" ? item.memberCount : 0}명
         </Text>
       </View>
     </Card>
@@ -225,52 +237,44 @@ export default function HostedMeetingsScreen() {
   const t = useAppTheme();
   const router = useRouter();
   const [filter, setFilter] = useState<FilterKey>("ACTIVE");
-  
-  // Custom Hook 사용
+
   const { items, isLoading, refreshing, onRefresh } = useHostedMeetings();
 
-  // 필터링 및 섹션 분리 (Memoization)
   const { displayList, endedSectionList } = useMemo(() => {
     const active: HostedItemWithStatus[] = [];
     const canceled: HostedItemWithStatus[] = [];
     const ended: HostedItemWithStatus[] = [];
 
-    // 최신순 정렬 (ID가 시간순이라 가정하거나 별도 timestamp 필드 사용)
-    const sorted = [...items].reverse(); 
+    const sorted = [...(items ?? [])].reverse();
 
     sorted.forEach((item) => {
-      if (item._status === "CANCELED") canceled.push(item);
-      else if (item._status === "ENDED") ended.push(item);
+      if (item?._status === "CANCELED") canceled.push(item);
+      else if (item?._status === "ENDED") ended.push(item);
       else active.push(item);
     });
 
     if (filter === "CANCELED") return { displayList: canceled, endedSectionList: [] };
     if (filter === "ENDED") return { displayList: ended, endedSectionList: [] };
-    
-    // ACTIVE: 진행중 목록 + 하단 완료 목록
+
     return { displayList: active, endedSectionList: ended };
   }, [items, filter]);
 
-  // FlatList 아이템 렌더러
-  const renderItem = useCallback(({ item }: { item: HostedItemWithStatus }) => (
-    <HostedMeetingItem item={item} onPress={() => router.push(`/meetings/${item.id}`)} />
-  ), [router]);
+  const renderItem = useCallback(
+    ({ item }: { item: HostedItemWithStatus }) => (
+      <HostedMeetingItem item={item} onPress={() => router.push(`/meetings/${String(item?.id ?? "")}`)} />
+    ),
+    [router]
+  );
 
-  // 하단 완료 섹션 렌더러
   const ListFooter = useMemo(() => {
-    if (filter !== "ACTIVE" || endedSectionList.length === 0) return null;
+    if (filter !== "ACTIVE" || (endedSectionList ?? []).length === 0) return null;
+
     return (
-      <View style={styles.endedSection}>
-        <Text style={[t.typography.titleSmall, { color: t.colors.textSub, marginBottom: 12 }]}>
-          완료된 모임
-        </Text>
+      <View style={[styles.endedSection, { borderTopColor: t.colors.border }]}>
+        <Text style={[t.typography.titleSmall, { color: t.colors.textSub, marginBottom: 12 }]}>완료된 모임</Text>
         <View style={{ gap: 12 }}>
-          {endedSectionList.map((item) => (
-            <HostedMeetingItem 
-              key={item.id} 
-              item={item} 
-              onPress={() => {}} 
-            />
+          {(endedSectionList ?? []).map((item) => (
+            <HostedMeetingItem key={String(item?.id ?? "")} item={item} onPress={() => {}} />
           ))}
         </View>
       </View>
@@ -279,12 +283,7 @@ export default function HostedMeetingsScreen() {
 
   return (
     <AppLayout padded={false}>
-      <TopBar
-        title="내가 만든 모임"
-        showBorder
-        showBack
-        onPressBack={() => router.back()}
-      />
+      <TopBar title="내가 만든 모임" showBorder showBack onPressBack={() => router.back()} />
 
       <FilterChips value={filter} onChange={setFilter} />
 
@@ -292,29 +291,25 @@ export default function HostedMeetingsScreen() {
         <ListSkeleton />
       ) : (
         <FlatList
-          data={displayList}
+          data={displayList ?? []}
           renderItem={renderItem}
-          keyExtractor={(item) => String(item.id)}
+          keyExtractor={(item) => String(item?.id ?? "")}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: t.spacing.space[7] }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          
-          // ✅ EmptyView 깜빡임 방지: 로딩 중이 아니고 데이터가 없을 때만 표시
           ListEmptyComponent={
-            endedSectionList.length === 0 ? (
-              <EmptyView 
-                title="만든 모임이 없어요" 
-                description="새로운 모임을 주최해보세요!" 
+            (endedSectionList ?? []).length === 0 ? (
+              <EmptyView
+                title="만든 모임이 없어요"
+                description="새로운 모임을 주최해보세요!"
                 style={{ marginTop: 40 }}
                 iconName="create-outline"
               />
             ) : null
           }
           ListFooterComponent={ListFooter}
-          
-          // 성능 최적화
           initialNumToRender={10}
           windowSize={5}
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={Platform.OS === "android"}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         />
       )}
@@ -359,6 +354,10 @@ const styles = StyleSheet.create({
     marginTop: 24,
     paddingTop: 24,
     borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
   },
 });
+
+// 3줄 요약
+// - MyMeetingItem이 locationName(string)으로 바뀌어서 item.location?.name 접근을 item.locationName으로 교체했습니다.
+// - 로딩/데이터가 undefined여도 화면이 안 깨지도록 안전한 기본값 처리와 String 캐스팅을 추가했습니다.
+// - ended 섹션 border 색도 theme border로 맞춰 일관되게 처리했습니다.

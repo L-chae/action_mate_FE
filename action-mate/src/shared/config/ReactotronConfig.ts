@@ -3,67 +3,72 @@ import Reactotron from "reactotron-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeModules, Platform } from "react-native";
 
-// ✅ 필요 시 직접 PC IP를 고정해서 사용하세요 (자동 host 추출이 실패할 때)
-const MY_IP = "192.168.10.45";
-
+// Types
 type TronType = typeof Reactotron;
 
+// 전역 객체 타입 정의 (Fast Refresh 시 설정 유지용)
 const globalAny = global as unknown as {
   __REACTOTRON__?: TronType;
   __REACTOTRON_ORIGINAL_CONSOLE__?: {
-    log: typeof console.log;
-    warn: typeof console.warn;
-    error: typeof console.error;
+    log: (...args: any[]) => void;
+    warn: (...args: any[]) => void;
+    error: (...args: any[]) => void;
   };
 };
 
-function safeGetHostFromScriptURL(): string | undefined {
-  const scriptURL = (NativeModules as any)?.SourceCode?.scriptURL as string | undefined;
-  if (!scriptURL) return undefined;
+/**
+ * [Host 자동 감지 함수]
+ * 1. Expo Go (Wi-Fi): 실행 중인 스크립트 주소(scriptURL)에서 IP를 추출합니다.
+ * 2. Android Emulator: 10.0.2.2를 반환합니다.
+ * 3. iOS Simulator / USB: localhost를 반환합니다.
+ */
+function getHost(): string {
+  try {
+    const scriptURL = (NativeModules as any)?.SourceCode?.scriptURL as string | undefined;
+    
+    // 1. scriptURL이 있으면 IP 추출 (Wi-Fi 연결 시 핵심)
+    if (scriptURL) {
+      const address = scriptURL.split("://")[1]?.split("/")[0];
+      const ip = address?.split(":")[0];
+      if (ip) return ip;
+    }
 
-  // 예: exp://192.168.0.10:19000, http://192.168.0.10:8081/index.bundle?...
-  const afterProtocol = scriptURL.split("://")?.[1];
-  if (!afterProtocol) return undefined;
+    // 2. scriptURL이 없거나 파싱 실패 시 기본값 (에뮬레이터/USB)
+    if (Platform.OS === "android") return "10.0.2.2";
+    return "localhost";
 
-  const hostPortPath = afterProtocol.split("/")?.[0] ?? "";
-  const host = hostPortPath.split(":")?.[0]?.trim();
-  return host || undefined;
-}
-
-function pickHost(): string {
-  const detected = safeGetHostFromScriptURL();
-
-  // 자동 감지된 host가 있으면 우선 사용
-  if (detected) return detected;
-
-  // 에뮬레이터 기본값 (실기기/Expo Go라면 보통 MY_IP가 필요)
-  if (Platform.OS === "android") return "10.0.2.2";
-  return "localhost";
+  } catch (e) {
+    return "localhost";
+  }
 }
 
 let tron: TronType = Reactotron;
-
+const MY_PC_IP="192.168.10.57";
 if (__DEV__) {
-  // Fast Refresh로 중복 연결/console 납치 방지
+  // Fast Refresh로 인한 중복 실행 방지
   if (!globalAny.__REACTOTRON__) {
-    const host = pickHost();
+    
+    const detectedHost = getHost();
 
     tron = Reactotron.setAsyncStorageHandler(AsyncStorage)
       .configure({
         name: "Action Mate",
-        host: MY_IP, // 자동 연결이 안 되면 이 줄로 고정
+        host: MY_PC_IP,
       })
       .useReactNative({
         asyncStorage: true,
-        networking: { ignoreUrls: /symbolicate/ },
+        networking: {
+          ignoreUrls: /symbolicate/,
+        },
         errors: true,
+        editor: false,
         overlay: false,
       })
       .connect();
 
     globalAny.__REACTOTRON__ = tron;
 
-    // console 원본 보관 후 Reactotron으로 라우팅 (앱 셧다운 방지)
+    // [Console Patching]
     if (!globalAny.__REACTOTRON_ORIGINAL_CONSOLE__) {
       globalAny.__REACTOTRON_ORIGINAL_CONSOLE__ = {
         log: console.log,
@@ -72,14 +77,26 @@ if (__DEV__) {
       };
     }
 
-    (console as any).log = (...args: any[]) => (tron as any).log?.(...args);
-    (console as any).warn = (...args: any[]) => (tron as any).warn?.(...args);
-    (console as any).error = (...args: any[]) => (tron as any).error?.(...args);
+    // ✅ Fix: (tron as any)를 사용하여 TS(2556) Spread Argument 오류 해결
+    console.log = (...args: any[]) => {
+      globalAny.__REACTOTRON_ORIGINAL_CONSOLE__?.log(...args);
+      (tron as any).log?.(...args);
+    };
 
-    // 연결 상태 확인용 (Reactotron에서 바로 보임)
-    (tron as any).log?.(`[Reactotron] connected (host=${host})`);
+    console.warn = (...args: any[]) => {
+      globalAny.__REACTOTRON_ORIGINAL_CONSOLE__?.warn(...args);
+      (tron as any).warn?.(...args);
+    };
+
+    console.error = (...args: any[]) => {
+      globalAny.__REACTOTRON_ORIGINAL_CONSOLE__?.error(...args);
+      (tron as any).error?.(...args);
+    };
+
+    (tron as any).log?.(`[Reactotron] Configured & Connected! Host: ${detectedHost}`);
+    
   } else {
-    tron = globalAny.__REACTOTRON__ ?? Reactotron;
+    tron = globalAny.__REACTOTRON__;
   }
 }
 

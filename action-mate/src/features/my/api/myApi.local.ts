@@ -9,7 +9,7 @@ type MeetingApiLocalModule = typeof meetingApiLocalDefault & {
 };
 
 // ----------------------------------------------------------------------
-// 1) Helpers & Mappers
+// 1) Helpers
 // ----------------------------------------------------------------------
 
 const mapJoinStatus = (status?: MembershipStatus): "MEMBER" | "PENDING" | undefined => {
@@ -19,26 +19,41 @@ const mapJoinStatus = (status?: MembershipStatus): "MEMBER" | "PENDING" | undefi
 };
 
 const toMyItem = (m: MeetingPost): MyMeetingItem => {
-  const meetingTime = typeof m.meetingTime === "string" ? m.meetingTime : "";
-  const dateText = meetingTime.includes("T") ? meetingTime.split("T")[0] : meetingTime;
+  const meetingTime = typeof m?.meetingTime === "string" ? m.meetingTime : "";
+  const fallbackDate = meetingTime.includes("T") ? meetingTime.split("T")[0] ?? "" : meetingTime;
+
+  const title = typeof m?.title === "string" && m.title.trim() ? m.title : "(제목 없음)";
+  const locationName =
+    typeof m?.location?.name === "string" && m.location.name.trim() ? m.location.name : "장소 미정";
+
+  const currentCountRaw = (m?.capacity as any)?.current;
+  const memberCount =
+    typeof currentCountRaw === "number" && Number.isFinite(currentCountRaw)
+      ? Math.max(0, Math.trunc(currentCountRaw))
+      : typeof currentCountRaw === "string" && currentCountRaw.trim() !== ""
+        ? Math.max(0, Math.trunc(Number(currentCountRaw) || 0))
+        : 0;
 
   return {
-    id: String(m.id),
-    title: m.title?.trim() ? m.title : "(제목 없음)",
-    location: { name: m.location?.name?.trim() ? m.location.name : "장소 미정" },
-    dateText: m.meetingTimeText ?? dateText,
-    memberCount: Number((m.capacity as any)?.current ?? 0) || 0,
-    myJoinStatus: mapJoinStatus(m.myState?.membershipStatus),
+    id: String(m?.id ?? "unknown_post"),
+    title,
+    locationName,
+    dateText: typeof m?.meetingTimeText === "string" && m.meetingTimeText.trim() ? m.meetingTimeText : fallbackDate,
+    memberCount,
+    myJoinStatus: mapJoinStatus(m?.myState?.membershipStatus),
   };
 };
 
 const applyPatchToPost = (origin: MeetingPost, patch: Partial<MyMeetingItem>): MeetingPost => {
+  const nextTitle = typeof patch?.title === "string" ? patch.title : undefined;
+  const nextLocationName = typeof patch?.locationName === "string" ? patch.locationName : undefined;
+
   return {
     ...origin,
-    title: patch.title ?? origin.title,
+    title: nextTitle ?? origin.title,
     location: {
       ...(origin.location as any),
-      name: patch.location?.name ?? origin.location?.name,
+      name: nextLocationName ?? origin.location?.name,
     } as any,
   };
 };
@@ -49,8 +64,7 @@ const applyPatchToPost = (origin: MeetingPost, patch: Partial<MyMeetingItem>): M
 
 const getCurrentUserId = () => {
   const user = useAuthStore.getState().user;
-  // 백엔드/프론트에서 "loginId === id"처럼 동작하는 경우가 많아서 loginId 우선
-  return user ? String((user as any).loginId ?? user.id) : "guest";
+  return user ? String((user as any)?.loginId ?? user?.id ?? "guest") : "guest";
 };
 
 function getMeetingsDB(): MeetingPost[] {
@@ -67,23 +81,23 @@ export const myApiLocal = {
     const user = useAuthStore.getState().user;
 
     return {
-      id: user ? String((user as any).id ?? "guest") : "guest",
-      nickname: user?.nickname?.trim() ? user.nickname : "액션메이트",
+      id: user ? String((user as any)?.id ?? "guest") : "guest",
+      nickname: typeof user?.nickname === "string" && user.nickname.trim() ? user.nickname : "액션메이트",
       avatarUrl: user?.avatarUrl ?? null,
+      avatarImageName: (user as any)?.avatarImageName ?? null,
     };
   },
 
   async updateProfile(payload: MyProfile): Promise<MyProfile> {
-    // 서버가 없으므로 store만 갱신 (실제 화면 즉시 반영용)
     await useAuthStore.getState().updateProfile({
-      nickname: payload.nickname,
-      avatarUrl: payload.avatarUrl ?? null,
+      nickname: payload?.nickname,
+      avatarUrl: payload?.avatarUrl ?? null,
+      avatarImageName: payload?.avatarImageName ?? null,
     });
     return payload;
   },
 
   async getSummary(): Promise<MySummary> {
-    // ✅ MySummary = UserReputation(avgRate/orgTime) 기준
     return {
       avgRate: 4.6,
       orgTime: 12,
@@ -95,8 +109,8 @@ export const myApiLocal = {
     const myId = getCurrentUserId();
 
     const hosted = db.filter((m) => {
-      const hostId = m.host?.id;
-      return String(hostId) === myId || m.myState?.membershipStatus === "HOST";
+      const hostId = (m as any)?.host?.id;
+      return String(hostId ?? "") === myId || (m as any)?.myState?.membershipStatus === "HOST";
     });
 
     return hosted.map(toMyItem);
@@ -106,7 +120,7 @@ export const myApiLocal = {
     const db = getMeetingsDB();
 
     const joined = db.filter(
-      (m) => m.myState?.membershipStatus === "MEMBER" || m.myState?.membershipStatus === "PENDING",
+      (m) => (m as any)?.myState?.membershipStatus === "MEMBER" || (m as any)?.myState?.membershipStatus === "PENDING"
     );
 
     return joined
@@ -120,7 +134,7 @@ export const myApiLocal = {
 
   async updateHostedMeeting(id: string, patch: Partial<MyMeetingItem>): Promise<MyMeetingItem> {
     const db = getMeetingsDB();
-    const idx = db.findIndex((m) => String(m.id) === String(id));
+    const idx = db.findIndex((m) => String(m?.id ?? "") === String(id));
     if (idx === -1) throw new Error("모임을 찾을 수 없습니다.");
 
     db[idx] = applyPatchToPost(db[idx], patch);
@@ -129,9 +143,16 @@ export const myApiLocal = {
 
   async deleteHostedMeeting(id: string): Promise<void> {
     const db = getMeetingsDB();
-    const idx = db.findIndex((m) => String(m.id) === String(id));
+    const idx = db.findIndex((m) => String(m?.id ?? "") === String(id));
     if (idx !== -1) db.splice(idx, 1);
   },
 };
 
 export default myApiLocal;
+
+/**
+ * 3줄 요약
+ * - MyMeetingItem을 locationName(string) 기반으로 맞추고, mock MeetingPost에서도 안전하게 변환합니다.
+ * - MyProfile은 UserSummary 형태(avatarUrl/avatarImageName)로 반환/업데이트하도록 통일했습니다.
+ * - 누락/타입 흔들림은 기본값 처리로 UI가 깨지지 않게 방어했습니다.
+ */

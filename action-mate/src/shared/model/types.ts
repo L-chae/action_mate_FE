@@ -2,13 +2,12 @@
 
 /**
  * 이 파일은 "UI에서 안정적으로 쓰는 타입(UI Model)"을 기준으로 둡니다.
- * - 백엔드가 불안정/느린 경우: API 레이어에서 Raw(서버응답) -> UI(표준화/기본값/Id정규화)로 한 번만 정리한 뒤
- *   화면에서는 UI Model만 쓰는 방식이 유지보수에 가장 안전합니다.
+ * - 백엔드 Raw(서버응답) -> UI(표준화/기본값/Id정규화) 변환은 mapper에서 1회만 수행하는 것을 권장합니다.
  */
 
 // 1) 기본 Alias (런타임 변환 강제 없이 의미만 부여)
-export type ISODateString = string;
-export type ISODateTimeString = string;
+export type ISODateString = string; // YYYY-MM-DD
+export type ISODateTimeString = string; // YYYY-MM-DDTHH:mm:ss...
 
 /**
  * ✅ 서버/DB 원본 Id (불안정 서버 대비)
@@ -33,34 +32,54 @@ export const normalizeId = (id: Id): NormalizedId => String(id);
  */
 export type Maybe<T> = T | null | undefined;
 
-// 2) 공통 Enum (프론트 편의를 위해 Gender는 영문 유지)
+// 2) 공통 Enum (UI 편의: Gender는 영문 유지)
 export type Gender = "male" | "female";
+
+/**
+ * ✅ 백엔드 명세 기준 성별
+ * - OpenAPI: M/F
+ */
+export type ServerGender = "M" | "F";
 
 export type PostCategory = "운동" | "오락" | "식사" | "자유";
 export type PostState = "OPEN" | "STARTED" | "ENDED" | "FULL" | "CANCELED";
 export type JoinMode = "INSTANT" | "APPROVAL";
-export type ApplicantState = "APPROVED" | "REJECTED" | "PENDING";
-export type MyParticipationStatus = "HOST" | "MEMBER" | "PENDING" | "NONE";
+
+/**
+ * ✅ 신청/참여 상태 (명세 기준)
+ * - Applicant.state: HOST|MEMBER|REJECTED|PENDING|NONE
+ */
+export type ApplicantState = "HOST" | "MEMBER" | "REJECTED" | "PENDING" | "NONE";
+
+/**
+ * ✅ 내 참여 상태 (명세 기준)
+ * - Post.myParticipationStatus: HOST|MEMBER|PENDING|REJECTED|NONE
+ */
+export type MyParticipationStatus = "HOST" | "MEMBER" | "PENDING" | "REJECTED" | "NONE";
 
 // 3) 유저 관련
 
 /**
  * ✅ 서버 Raw 유저 요약 (서버 불안정/타입 혼재 대응)
+ * - 다양한 키를 mapper에서 흡수할 수 있도록 최소 필드만 유지
  */
 export type UserSummaryRaw = {
   id: Id;
-  nickname: string;
+  nickname?: string | null;
+  // 서버가 imageName / imageUrl 등 다양한 형태로 줄 수 있음
   avatarUrl?: string | null;
+  profileImageName?: string | null;
+  profileImageUrl?: string | null;
 };
 
 /**
  * ✅ UI 유저 요약 (id는 문자열로 정규화된 상태)
- * - 화면/상태관리/캐시 키에서 안정적으로 사용 가능
  */
 export type UserSummary = {
   id: NormalizedId;
   nickname: string;
-  avatarUrl?: string | null;
+  avatarUrl?: string | null; // UI에서 바로 쓸 수 있는 URL(가능하면)
+  avatarImageName?: string | null; // 서버 파일명(필요 시)
 };
 
 /**
@@ -71,34 +90,41 @@ export type UserReputation = {
   orgTime: number;
 };
 
-// 백엔드에서 내려오는 원본 프로필 타입 (변환 전)
-export type ServerGender = "남" | "여";
-
+/**
+ * ✅ 백엔드 프로필 응답(raw) (OpenAPI: /users/{userId}/profile)
+ * - id/avgRate/orgTime 필수, 나머지 optional
+ * - profileImageName 사용
+ * - gender: M/F
+ */
 export interface ServerProfile {
   id: string;
-  nickname: string;
-  profileImageUrl?: string;
-  birth: string;
-  gender: ServerGender; // 서버는 한글
+  nickname?: string;
+  profileImageName?: string;
+  birth?: string; // date
+  gender?: ServerGender;
   avgRate: number;
   orgTime: number;
 }
 
-// 프론트 내부에서 쓸 유저 객체 (변환 후)
+/**
+ * ✅ 프론트 내부에서 쓸 유저 프로필(UI)
+ * - gender는 영문으로 표준화
+ * - imageName + imageUrl 둘 다 들고 있으면 화면/캐시/업로드 흐름이 단순해짐
+ */
 export interface UserProfile {
-  id: string;
+  id: NormalizedId;
   nickname: string;
-  profileImageUrl?: string;
-  birth: string;
-  gender: Gender; // 프론트는 영문
+  profileImageName?: string | null;
+  profileImageUrl?: string | null;
+  birth?: ISODateString | null;
+  gender: Gender;
   avgRate: number;
   orgTime: number;
 }
 
 /**
  * ✅ Location (UI 기준)
- * - 불안정한 서버에서 좌표가 없을 수도 있으므로 null 허용(기본값 규칙에 의한 안정화 가능)
- * - 지도 기능이 꼭 필요하면 API 레이어에서 null 여부를 먼저 검사하는 흐름이 안전합니다.
+ * - 백엔드 명세는 locationName + 위경도이므로 UI는 최소로 맞춥니다.
  */
 export type Location = {
   name: string;
@@ -109,7 +135,6 @@ export type Location = {
 
 /**
  * ✅ Location Raw (서버 응답 다양성 수용)
- * - 일부 서버는 lat/lng, 일부는 latitude/longitude 등 다양한 키를 사용
  */
 export type LocationRaw = Partial<{
   name: string;
@@ -121,7 +146,7 @@ export type LocationRaw = Partial<{
 }>;
 
 /**
- * ✅ Capacity (UI 기준, current/max는 기본값(0)으로라도 항상 존재하도록 정리 권장)
+ * ✅ Capacity (UI 기준)
  */
 export type Capacity = {
   current: number;
@@ -138,7 +163,6 @@ export type CapacityInput = {
 
 /**
  * ✅ Capacity Raw (서버 응답 다양성 수용)
- * - max 대신 total을 주는 서버 대응
  */
 export type CapacityRaw = Partial<{
   current: number;
@@ -146,44 +170,49 @@ export type CapacityRaw = Partial<{
   total: number;
 }>;
 
-// 4) 게시글 (기존 유지)
+// 4) 게시글 (UI Model)
 export interface Post {
-  id: number;
+  id: NormalizedId;
+
   category: PostCategory;
   title: string;
   content: string;
-  writerId: string;
-  writerNickname: string;
-  writerImageUrl?: string;
 
-  meetingTime: ISODateString;
+  writerId: NormalizedId;
+  writerNickname: string;
+  writerImageName?: string | null;
+  writerImageUrl?: string | null;
+
+  meetingTime: ISODateTimeString;
 
   locationName: string;
-  longitude: number;
-  latitude: number;
+  longitude: number | null;
+  latitude: number | null;
 
   currentCount: number;
   capacity: number;
 
   state: PostState;
   joinMode: JoinMode;
-  lastModified: ISODateString;
+  lastModified: ISODateTimeString;
+
   myParticipationStatus: MyParticipationStatus;
 }
 
-// 5) 기타 (기존 유지)
+// 5) 기타 (UI Model)
 export interface Applicant {
-  postId: number;
-  userId: string;
+  postId: NormalizedId;
+  userId: NormalizedId;
   state: ApplicantState;
 }
 
 export interface ChatRoom {
   roomId: number;
-  opponentId: string;
+  opponentId: NormalizedId;
   opponentNickname: string;
-  opponentProfileImageUrl?: string;
-  postId: number;
+  opponentProfileImageName?: string | null;
+  opponentProfileImageUrl?: string | null;
+  postId: NormalizedId;
   unReadCount: number;
   lastMessageContent: string;
 }
@@ -191,8 +220,13 @@ export interface ChatRoom {
 export interface Message {
   messageId: number;
   roomId: number;
-  postId: number;
+  postId: NormalizedId;
   postTitle: string;
-  senderId: string;
+  senderId: NormalizedId;
   content: string;
 }
+
+// 3줄 요약
+// - 백엔드 명세(M/F, profileImageName, Applicant/Participation enum)를 UI Model에 반영했습니다.
+// - UI에서 안전하게 쓰도록 id는 NormalizedId(string)로 통일하고, 이미지 name/url를 함께 담도록 확장했습니다.
+// - meetingTime/lastModified는 date-time(ISODateTimeString)로 정정했습니다.

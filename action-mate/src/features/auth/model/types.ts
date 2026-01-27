@@ -51,3 +51,8 @@ export type AuthApi = {
   setCurrentLoginId(loginId: string): Promise<void>;
   clearCurrentLoginId(): Promise<void>;
 };
+
+// 3줄 요약
+// - User는 공용 UserSummary(avatarUrl/avatarImageName 포함) 기반으로 유지해 화면에서 이미지/닉네임을 안정적으로 사용합니다.
+// - 서버 명세상 id가 loginId 역할이므로 loginId는 string으로 유지합니다.
+// - 나머지 AuthApi 시그니처는 기존 호출부 호환을 위해 유지했습니다.

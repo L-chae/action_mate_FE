@@ -1,16 +1,25 @@
 // src/features/auth/model/authStore.ts
 import { create } from "zustand";
-import { authApi, USE_MOCK_AUTO_LOGIN, MOCK_AUTO_LOGIN_CREDENTIALS } from "@/features/auth/api/authApi";
-import { getAccessToken, getRefreshToken } from "@/shared/api/authToken";
+import {
+  authApi,
+  MOCK_AUTO_LOGIN_CREDENTIALS,
+  USE_MOCK_AUTO_LOGIN,
+} from "@/features/auth/api/authApi";
+import {
+  clearAuthTokens,
+  getAccessToken,
+  getCurrentUserId,
+  getRefreshToken,
+  setCurrentUserId,
+} from "@/shared/api/authToken";
 import type { User } from "./types";
 
 /**
  * Auth Store
  *
- * 설계 의도(왜 이렇게?):
- * - hydrate는 "앱 부팅 안정성"이 목표 → 실패 시 깨끗하게 세션을 정리하고 비로그인으로 수렴
- * - "세션 존재" 판단은 loginId + (access 또는 refresh) 둘 다를 보는 게 안전
- *   → loginId만 남아있는 유령 세션/토큰만 남은 유령 토큰을 빠르게 정리
+ * 설계 의도:
+ * - hydrate는 "앱 부팅 안정성"이 목표 → 실패 시 세션 정리 후 비로그인으로 수렴
+ * - "세션 존재" 판단은 (currentUserId or legacyLoginId) + (access 또는 refresh) 조합으로 판단
  */
 
 type AuthState = {
@@ -33,8 +42,6 @@ type AuthState = {
 };
 
 function sanitizeUserPatch(patch: Partial<User>): Partial<User> {
-  // 왜 막나?:
-  // - id/loginId는 관계키/세션키로 쓰이므로 UI에서 실수로 덮어써도 상태가 깨지지 않게 방어
   const next: Partial<User> = { ...patch };
   delete (next as any).id;
   delete (next as any).loginId;
@@ -42,8 +49,21 @@ function sanitizeUserPatch(patch: Partial<User>): Partial<User> {
 }
 
 async function resetSessionSafely() {
-  // clearCurrentLoginId 내부에서 tokens + currentUserId까지 정리(=세션 정리)
-  await authApi.clearCurrentLoginId().catch(() => undefined);
+  // ✅ shared 토큰/세션 + legacy currentLoginId(있다면)까지 같이 정리
+  await Promise.allSettled([
+    clearAuthTokens(),
+    authApi.clearCurrentLoginId().catch(() => undefined),
+  ]);
+}
+
+async function persistLoginId(loginId: string) {
+  const safeLoginId = String(loginId ?? "").trim();
+  if (!safeLoginId) return;
+
+  await Promise.allSettled([
+    setCurrentUserId(safeLoginId),
+    authApi.setCurrentLoginId(safeLoginId).catch(() => undefined), // legacy 호환
+  ]);
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -53,23 +73,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   hydrateFromStorage: async () => {
     try {
-      const [lastLoginId, accessToken, refreshToken] = await Promise.all([
-        authApi.getCurrentLoginId(),
-        getAccessToken(),
-        getRefreshToken(),
-      ]);
+      const [storedUserId, legacyLoginId, accessToken, refreshToken] =
+        await Promise.all([
+          getCurrentUserId(),
+          authApi.getCurrentLoginId().catch(() => null),
+          getAccessToken(),
+          getRefreshToken(),
+        ]);
 
+      const loginId = storedUserId ?? legacyLoginId ?? null;
       const hasAnyToken = !!accessToken || !!refreshToken;
 
       // ✅ 세션/토큰 조합이 깨진 경우를 먼저 정리
-      // - loginId만 있고 토큰이 없으면: 서버 호출해봐야 401로 끝날 확률이 높음
-      // - 토큰만 있고 loginId가 없으면: hydrate에서 누굴 조회할지 모름(유령 토큰)
-      if (!lastLoginId || !hasAnyToken) {
-        if (lastLoginId || hasAnyToken) {
+      if (!loginId || !hasAnyToken) {
+        if (loginId || hasAnyToken) {
           await resetSessionSafely();
         }
 
-        if (!lastLoginId && USE_MOCK_AUTO_LOGIN) {
+        if (!loginId && USE_MOCK_AUTO_LOGIN) {
           await tryAutoMockLogin(set);
           return;
         }
@@ -78,15 +99,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return;
       }
 
-      // 세션이 있으면 유저 조회
-      const user = await authApi.getUserByLoginId(lastLoginId);
+      // 세션이 있으면 유저 조회 (명세상 userId === loginId)
+      const user = await authApi.getUserByLoginId(loginId);
 
       if (!user) {
-        // 세션은 있는데 유저를 못 가져오면 정리(일관성)
         await resetSessionSafely();
         set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
       }
+
+      // 저장소 키가 legacy만 남아있을 수 있어, 여기서 한 번 통일 저장
+      await persistLoginId(user.loginId);
 
       set({ hasHydrated: true, isLoggedIn: true, user });
     } catch {
@@ -96,11 +119,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   login: (user: User) => {
-    set({ isLoggedIn: true, user });
+    const nextUser: User = user ?? (null as any);
+    if (!nextUser) {
+      set({ isLoggedIn: false, user: null });
+      return;
+    }
 
-    // 로그인 성공 시 loginId 세션 저장(실패해도 UI 흐름은 유지)
-    // (authApi.login 내부에서도 저장하지만, 화면에서 직접 user만 세팅하는 흐름을 대비)
-    authApi.setCurrentLoginId(user.loginId).catch(() => undefined);
+    set({ isLoggedIn: true, user: nextUser });
+
+    // 로그인 성공 시 currentUserId 저장(실패해도 UI 흐름은 유지)
+    persistLoginId(nextUser.loginId).catch(() => undefined);
   },
 
   setUser: (user: User | null) => {
@@ -123,8 +151,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: optimisticUser });
 
     try {
-      // 2) 서버/로컬 반영(서버 명세 없으면 remote에서 throw)
-      const updatedUser = await authApi.updateUser(currentUser.loginId, safePatch);
+      // 2) 서버/로컬 반영(서버 명세에 update 없음 → remote에서는 throw 가능)
+      const updatedUser = await authApi.updateUser(
+        currentUser.loginId,
+        safePatch
+      );
 
       // 3) 응답으로 확정
       set({ user: updatedUser });
@@ -145,8 +176,16 @@ async function tryAutoMockLogin(setState: (p: Partial<AuthState>) => void) {
       loginId: MOCK_AUTO_LOGIN_CREDENTIALS.loginId,
       password: MOCK_AUTO_LOGIN_CREDENTIALS.password,
     });
+
+    await persistLoginId(user?.loginId ?? "");
+
     setState({ hasHydrated: true, isLoggedIn: true, user });
   } catch {
     setState({ hasHydrated: true, isLoggedIn: false, user: null });
   }
 }
+
+// 3줄 요약
+// - 로그인 식별자는 명세상 userId==loginId로 보고 currentUserId 기반으로 hydrate하도록 정리했습니다.
+// - legacy currentLoginId도 같이 읽고/저장해 마이그레이션 중에도 세션이 끊기지 않게 했습니다.
+// - 세션 정리는 clearAuthTokens + legacy clearCurrentLoginId를 함께 호출해 “유령 세션”을 방지했습니다.

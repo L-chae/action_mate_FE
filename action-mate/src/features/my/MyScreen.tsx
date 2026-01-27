@@ -14,6 +14,8 @@ import {
   Text,
   View,
   Alert,
+  ActivityIndicator,
+  TouchableOpacity,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -136,15 +138,16 @@ export default function MyScreen() {
 
   const styles = useMemo(() => makeStyles(t), [t]);
 
-  // 의도: store 타입이 프로젝트마다 다를 수 있어 최소 캐스팅으로만 안전하게 사용
+  // Store actions
   const logout = useAuthStore((st) => (st as any).logout as (() => Promise<void>) | undefined);
   const user = useAuthStore((st) => ((st as any).user ?? (st as any).me) as any);
   const userAvatarUrl = user?.avatarUrl ?? null;
 
+  // States
   const [refreshing, setRefreshing] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true); // 초기 로딩 상태 추가
+  const [apiError, setApiError] = useState<string | null>(null); // 에러 상태 추가
   const [hasNoti, setHasNoti] = useState(false);
-
-  // 강하게 숨김: 계정 관리 모달
   const [accountModalOpen, setAccountModalOpen] = useState(false);
 
   const [profile, setProfile] = useState<MyProfile>({
@@ -206,8 +209,11 @@ export default function MyScreen() {
 
   /* ---------------- load ---------------- */
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (isRefresh = false) => {
     try {
+      if (!isRefresh) setInitialLoading(true);
+      setApiError(null);
+
       const [p, sum] = await Promise.all([myApi.getProfile(), myApi.getSummary()]);
       setProfile(p);
 
@@ -218,8 +224,14 @@ export default function MyScreen() {
         avgRate: Number.isFinite(avgRate) ? avgRate : 0,
         orgTime: Number.isFinite(orgTime) ? orgTime : 0,
       });
-    } catch (e) {
-      console.error("MyScreen load error:", e);
+    } catch (e: any) {
+      // ✅ Reactotron 멈춤 해결 핵심: 에러 객체 전체(e)가 아닌 메시지만 로깅
+      const errorMsg = e.response?.data?.message || e.message || "Unknown Error";
+      console.log(`[MyScreen Load Error] ${errorMsg}`);
+      
+      setApiError("정보를 불러오지 못했습니다.");
+    } finally {
+      if (!isRefresh) setInitialLoading(false);
     }
   }, []);
 
@@ -232,22 +244,24 @@ export default function MyScreen() {
     }
   }, []);
 
+  // 초기 진입 로드
   useEffect(() => {
-    loadAll();
+    loadAll(false);
     checkHasNoti();
   }, [loadAll, checkHasNoti]);
 
   useFocusEffect(
     useCallback(() => {
-      loadAll();
+      // 포커스 시에는 조용히 데이터 갱신 (로딩화면 X)
+      // loadAll(true); // 필요하다면 주석 해제 (너무 잦은 깜빡임 방지 위해 선택 사항)
       checkHasNoti();
-    }, [loadAll, checkHasNoti])
+    }, [checkHasNoti])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadAll(), checkHasNoti()]);
+      await Promise.all([loadAll(true), checkHasNoti()]);
     } finally {
       setRefreshing(false);
     }
@@ -257,7 +271,6 @@ export default function MyScreen() {
 
   const tempStr = calculateMannerTemp(summary.avgRate);
   const temp = Number(tempStr);
-
   const ratingDisplay = summary.avgRate ? Number(summary.avgRate).toFixed(1) : "0.0";
 
   const pillTone: PillTone = useMemo(() => {
@@ -324,6 +337,28 @@ export default function MyScreen() {
 
   const sheetBottomPad = Math.max(insets.bottom, s.space[3]);
 
+  /* ---------------- Render Logic for Safety ---------------- */
+
+  // 1. 에러 발생 시 UI (멈춤 방지 + 재시도 버튼)
+  if (apiError && !refreshing && !profile.id) {
+    return (
+      <AppLayout padded={false}>
+        <TopBar title="마이페이지" showBorder />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={[t.typography.bodyLarge, { color: t.colors.textSub, marginBottom: 16 }]}>
+            {apiError}
+          </Text>
+          <TouchableOpacity 
+            onPress={() => loadAll(false)}
+            style={{ padding: 12, backgroundColor: t.colors.primary, borderRadius: 8 }}
+          >
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>다시 시도</Text>
+          </TouchableOpacity>
+        </View>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout padded={false}>
       <TopBar
@@ -340,7 +375,7 @@ export default function MyScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: s.space[6] }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* 프로필 카드: Card 톤을 그대로 사용(보더/라운드/패딩 일관성) */}
+        {/* 프로필 카드 */}
         <Card padded={false}>
           <View style={{ paddingHorizontal: s.pagePaddingH, paddingVertical: s.space[4] }}>
             <View style={styles.topRow}>
@@ -429,7 +464,7 @@ export default function MyScreen() {
           </View>
         </Card>
 
-        {/* 메뉴 카드: row형 리스트를 Card 안에 고정 */}
+        {/* 메뉴 카드 */}
         <View style={{ height: s.space[4] }} />
 
         <Card padded={false} style={{ overflow: "hidden" }}>

@@ -14,22 +14,23 @@ export const endpoints = {
     signup: "/users", // POST
     exists: (loginId: string) => `/users/exists?loginId=${encodeURIComponent(loginId)}`, // GET
     profile: (userId: string) => `/users/${encodeURIComponent(userId)}/profile`, // GET
+    image: (filename: string) => `/images/${encodeURIComponent(filename)}`, // GET (image/jpeg|png)
   },
   posts: {
-    list: "/posts", // GET (명세가 단일/배열 혼재 가능 -> 응답은 ensureArray로 방어 권장)
+    list: "/posts", // GET
     create: "/posts", // POST
     hot: "/posts/hot", // GET (latitude/longitude/radiusMeters query)
-    byId: (postId: number | string) => `/posts/id/${postId}`, // GET/PUT/DELETE
+    byId: (postId: number | string) => `/posts/id/${encodeURIComponent(String(postId))}`, // GET/PUT/DELETE
     byCategory: (category: string) => `/posts/category/${encodeURIComponent(category)}`, // GET
-    nearby: "/posts/nearby", // GET (query)
-    applicants: (postId: number | string) => `/posts/${postId}/applicants`, // POST/GET/DELETE
+    nearby: "/posts/nearby", // GET (latitude/longitude/radiusMeters/category query)
+    applicants: (postId: number | string) => `/posts/${encodeURIComponent(String(postId))}/applicants`, // POST/GET/DELETE
     decideApplicant: (postId: number | string, userId: string) =>
-      `/posts/${postId}/applicants/${encodeURIComponent(userId)}`, // PATCH
-    ratings: (postId: number | string) => `/posts/${postId}/ratings`, // POST
+      `/posts/${encodeURIComponent(String(postId))}/applicants/${encodeURIComponent(userId)}`, // PATCH
+    ratings: (postId: number | string) => `/posts/${encodeURIComponent(String(postId))}/ratings`, // POST
   },
   message: {
-    rooms: "/message/room", // GET (명세는 단일객체로 되어있을 수 있어 ensureArray로 방어 권장)
-    room: (roomId: number | string) => `/message/room/${roomId}`, // GET/POST(text/plain)
+    rooms: "/message/room", // GET
+    room: (roomId: number | string) => `/message/room/${encodeURIComponent(String(roomId))}`, // GET/POST(text/plain)
     sendNew: "/message", // POST(JSON)
   },
   reports: {
