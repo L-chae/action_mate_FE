@@ -1,4 +1,6 @@
+// ============================================================================
 // src/features/meetings/model/mappers.ts
+// ============================================================================
 import type { ApplicantDTO, MeetingPostDTO, PostCategoryDTO, PostCreateRequestDTO, PostUpdateRequestDTO } from "./dto";
 import type { CategoryKey, MeetingPost, MeetingUpsert, MembershipStatus, Participant, PostStatus } from "./types";
 import { MEETING_UI_DEFAULTS } from "./types";
@@ -127,16 +129,11 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
   const canJoinInfo = calcCanJoin(dto);
 
   const locationRaw = makeLocationRawFromDto(dto);
-  const location = {
-    ...mapCapacityRawToCapacity({}) /* noop to keep structure familiar */,
-    ...locationRaw,
-  } as unknown; // (타입 혼선 방지용 임시) 아래에서 Location 형태로 확정
-
   const mappedLocation = (() => {
     const name = isNonEmptyString(locationRaw.name) ? locationRaw.name : MEETING_UI_DEFAULTS.locationName;
-    const latitude = toNumberOrNull(locationRaw.latitude ?? locationRaw.lat) ?? null;
-    const longitude = toNumberOrNull(locationRaw.longitude ?? locationRaw.lng) ?? null;
-    const address = isNonEmptyString(locationRaw.address) ? locationRaw.address : null;
+    const latitude = toNumberOrNull((locationRaw as any)?.latitude ?? (locationRaw as any)?.lat) ?? null;
+    const longitude = toNumberOrNull((locationRaw as any)?.longitude ?? (locationRaw as any)?.lng) ?? null;
+    const address = isNonEmptyString((locationRaw as any)?.address) ? (locationRaw as any).address : null;
     return { name, latitude, longitude, address };
   })();
 
@@ -166,7 +163,6 @@ export const toMeetingPost = (dto: MeetingPostDTO): MeetingPost => {
     content,
     meetingTime,
 
-    // 서버 DTO에 address가 없으면 undefined 유지 (화면에서 안전 처리)
     address: undefined,
 
     location: mappedLocation,
@@ -237,7 +233,9 @@ export const toPostUpdateRequest = (patch: Partial<MeetingUpsert>): PostUpdateRe
 
 export const toMembershipStatusFromApplicant = (dto: ApplicantDTO): MembershipStatus => {
   switch (dto.state) {
-    case "APPROVED":
+    case "HOST":
+      return "HOST";
+    case "MEMBER":
       return "MEMBER";
     case "REJECTED":
       return "REJECTED";

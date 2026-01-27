@@ -1,11 +1,7 @@
 // src/features/auth/model/authStore.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
-import {
-  authApi,
-  MOCK_AUTO_LOGIN_CREDENTIALS,
-  USE_MOCK_AUTO_LOGIN,
-} from "@/features/auth/api/authApi";
+import { authApi, MOCK_AUTO_LOGIN_CREDENTIALS, USE_MOCK_AUTO_LOGIN } from "@/features/auth/api/authApi";
 import {
   clearAuthTokens,
   getAccessToken,
@@ -37,7 +33,7 @@ type AuthState = {
 const AUTH_USER_STORAGE_KEY = "auth.user.v1";
 
 function sanitizeUserPatch(patch: Partial<User>): Partial<User> {
-  const next: Partial<User> = { ...patch };
+  const next: Partial<User> = { ...(patch ?? {}) };
   delete (next as any).id;
   delete (next as any).loginId;
   return next;
@@ -52,34 +48,38 @@ function isUserLike(v: unknown): v is User {
   return !!o && typeof o === "object" && typeof o.loginId === "string" && o.loginId.trim().length > 0;
 }
 
+function normalizeUser(u: unknown): User | null {
+  if (!isUserLike(u)) return null;
+  const loginId = normalizeLoginId((u as any)?.loginId);
+  const id = normalizeLoginId((u as any)?.id ?? loginId) || loginId;
+  if (!loginId) return null;
+
+  return {
+    ...(u as User),
+    id,
+    loginId,
+    nickname: normalizeLoginId((u as any)?.nickname) || "알 수 없음",
+    gender: (u as any)?.gender ?? "male",
+    birthDate: String((u as any)?.birthDate ?? ""),
+    avatarUrl: (u as any)?.avatarUrl ?? null,
+    avatarImageName: (u as any)?.avatarImageName ?? null,
+  };
+}
+
 async function loadStoredUser(): Promise<User | null> {
   try {
     const raw = await AsyncStorage.getItem(AUTH_USER_STORAGE_KEY);
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as unknown;
-    if (!isUserLike(parsed)) {
+    const normalized = normalizeUser(parsed);
+
+    if (!normalized) {
       await AsyncStorage.removeItem(AUTH_USER_STORAGE_KEY);
       return null;
     }
 
-    const safeLoginId = normalizeLoginId((parsed as any)?.loginId);
-    const safeId = normalizeLoginId((parsed as any)?.id ?? safeLoginId) || safeLoginId;
-    if (!safeLoginId) {
-      await AsyncStorage.removeItem(AUTH_USER_STORAGE_KEY);
-      return null;
-    }
-
-    return {
-      ...(parsed as User),
-      id: safeId,
-      loginId: safeLoginId,
-      nickname: normalizeLoginId((parsed as any)?.nickname) || "알 수 없음",
-      gender: (parsed as any)?.gender ?? "male",
-      birthDate: String((parsed as any)?.birthDate ?? ""),
-      avatarUrl: (parsed as any)?.avatarUrl ?? null,
-      avatarImageName: (parsed as any)?.avatarImageName ?? null,
-    };
+    return normalized;
   } catch {
     await AsyncStorage.removeItem(AUTH_USER_STORAGE_KEY).catch(() => undefined);
     return null;
@@ -92,27 +92,17 @@ async function persistUser(user: User | null): Promise<void> {
       await AsyncStorage.removeItem(AUTH_USER_STORAGE_KEY);
       return;
     }
-    const loginId = normalizeLoginId(user?.loginId);
-    if (!loginId) return;
 
-    const payload: User = {
-      ...user,
-      id: normalizeLoginId((user as any)?.id ?? loginId) || loginId,
-      loginId,
-      nickname: normalizeLoginId((user as any)?.nickname) || "알 수 없음",
-      gender: (user as any)?.gender ?? "male",
-      birthDate: String((user as any)?.birthDate ?? ""),
-      avatarUrl: (user as any)?.avatarUrl ?? null,
-      avatarImageName: (user as any)?.avatarImageName ?? null,
-    };
+    const normalized = normalizeUser(user);
+    if (!normalized?.loginId) return;
 
-    await AsyncStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(payload));
+    await AsyncStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(normalized));
   } catch {
     // ignore
   }
 }
 
-async function resetSessionSafely() {
+async function resetSessionSafely(): Promise<void> {
   await Promise.allSettled([
     clearAuthTokens(),
     AsyncStorage.removeItem(AUTH_USER_STORAGE_KEY),
@@ -120,7 +110,7 @@ async function resetSessionSafely() {
   ]);
 }
 
-async function persistLoginId(loginId: string) {
+async function persistLoginId(loginId: string): Promise<void> {
   const safeLoginId = normalizeLoginId(loginId);
   if (!safeLoginId) return;
 
@@ -137,21 +127,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   hydrateFromStorage: async () => {
     try {
-      const [storedUserId, legacyLoginId, accessToken, refreshToken, storedUser] =
-        await Promise.all([
-          getCurrentUserId(),
-          authApi.getCurrentLoginId().catch(() => null),
-          getAccessToken(),
-          getRefreshToken(),
-          loadStoredUser(),
-        ]);
+      const [storedUserId, legacyLoginId, accessToken, refreshToken, storedUser] = await Promise.all([
+        getCurrentUserId(),
+        authApi.getCurrentLoginId().catch(() => null),
+        getAccessToken(),
+        getRefreshToken(),
+        loadStoredUser(),
+      ]);
 
-      const loginId = storedUserId ?? legacyLoginId ?? normalizeLoginId(storedUser?.loginId) ?? null;
-      const hasAnyToken = !!accessToken || !!refreshToken;
+      const loginId =
+        normalizeLoginId(storedUserId) ||
+        normalizeLoginId(legacyLoginId) ||
+        normalizeLoginId(storedUser?.loginId) ||
+        "";
 
-      // 세션/토큰 조합이 깨진 경우를 먼저 정리
-      if (!loginId || !hasAnyToken) {
-        if (loginId || hasAnyToken) {
+      const hasAccessToken = !!normalizeLoginId(accessToken);
+      const hasRefreshToken = !!normalizeLoginId(refreshToken);
+
+      // ✅ refresh는 서버 권한 불일치(403) 가능성이 커서 "accessToken 존재"를 로그인 조건으로 둠
+      // - loginId만 있거나 refreshToken만 있는 상태는 불완전 세션으로 보고 정리
+      if (!loginId || !hasAccessToken) {
+        if (loginId || hasAccessToken || hasRefreshToken || storedUser) {
           await resetSessionSafely();
         }
 
@@ -166,21 +162,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // ✅ 저장된 user가 있으면 네트워크 없이 바로 복구
       if (storedUser) {
-        await Promise.allSettled([persistLoginId(storedUser.loginId), persistUser(storedUser)]);
-        set({ hasHydrated: true, isLoggedIn: true, user: storedUser });
-        return;
+        const normalized = normalizeUser(storedUser);
+        if (normalized) {
+          await Promise.allSettled([persistLoginId(normalized.loginId), persistUser(normalized)]);
+          set({ hasHydrated: true, isLoggedIn: true, user: normalized });
+          return;
+        }
       }
 
       // ✅ 레거시(예: user 미저장) 대비: 1회만 서버 조회로 채우고 이후부터 저장
       const fetchedUser = await authApi.getUserByLoginId(loginId);
-      if (!fetchedUser) {
+      const normalizedFetched = normalizeUser(fetchedUser);
+
+      if (!normalizedFetched) {
         await resetSessionSafely();
         set({ hasHydrated: true, isLoggedIn: false, user: null });
         return;
       }
 
-      await Promise.allSettled([persistLoginId(fetchedUser.loginId), persistUser(fetchedUser)]);
-      set({ hasHydrated: true, isLoggedIn: true, user: fetchedUser });
+      await Promise.allSettled([persistLoginId(normalizedFetched.loginId), persistUser(normalizedFetched)]);
+      set({ hasHydrated: true, isLoggedIn: true, user: normalizedFetched });
     } catch {
       await resetSessionSafely();
       set({ hasHydrated: true, isLoggedIn: false, user: null });
@@ -188,7 +189,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   login: (user: User) => {
-    const nextUser: User | null = user ?? null;
+    const nextUser = normalizeUser(user);
     if (!nextUser?.loginId) {
       set({ isLoggedIn: false, user: null });
       persistUser(null).catch(() => undefined);
@@ -197,14 +198,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     set({ isLoggedIn: true, user: nextUser });
 
-    Promise.allSettled([persistLoginId(nextUser.loginId), persistUser(nextUser)]).catch(
-      () => undefined,
-    );
+    Promise.allSettled([persistLoginId(nextUser.loginId), persistUser(nextUser)]).catch(() => undefined);
   },
 
   setUser: (user: User | null) => {
-    set({ user, isLoggedIn: !!user });
-    persistUser(user).catch(() => undefined);
+    const next = user ? normalizeUser(user) : null;
+    set({ user: next, isLoggedIn: !!next });
+    persistUser(next).catch(() => undefined);
   },
 
   logout: async () => {
@@ -217,19 +217,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!currentUser) return;
 
     const safePatch = sanitizeUserPatch(patch);
+    const optimisticUser = normalizeUser({ ...currentUser, ...safePatch }) ?? currentUser;
 
     // 1) 낙관적 업데이트
-    const optimisticUser: User = { ...currentUser, ...safePatch };
     set({ user: optimisticUser });
     persistUser(optimisticUser).catch(() => undefined);
 
     try {
-      // 2) 서버 반영(서버 명세에 update 없음 → remote에서는 throw 가능)
+      // 2) 서버 반영(remote는 /users/update multipart 구현)
       const updatedUser = await authApi.updateUser(currentUser.loginId, safePatch);
+      const normalizedUpdated = normalizeUser(updatedUser) ?? updatedUser;
 
       // 3) 확정 저장
-      set({ user: updatedUser });
-      await Promise.allSettled([persistLoginId(updatedUser.loginId), persistUser(updatedUser)]);
+      set({ user: normalizedUpdated });
+      await Promise.allSettled([persistLoginId((normalizedUpdated as any)?.loginId ?? ""), persistUser(normalizedUpdated)]);
     } catch (e) {
       // 4) 실패 시 롤백
       set({ user: currentUser });
@@ -246,17 +247,18 @@ async function tryAutoMockLogin(setState: (p: Partial<AuthState>) => void) {
       password: MOCK_AUTO_LOGIN_CREDENTIALS.password,
     });
 
-    await Promise.allSettled([persistLoginId(user?.loginId ?? ""), persistUser(user ?? null)]);
+    const normalized = normalizeUser(user);
+    await Promise.allSettled([persistLoginId(normalized?.loginId ?? ""), persistUser(normalized)]);
 
-    setState({ hasHydrated: true, isLoggedIn: true, user: user ?? null });
+    setState({ hasHydrated: true, isLoggedIn: !!normalized, user: normalized });
   } catch {
     setState({ hasHydrated: true, isLoggedIn: false, user: null });
   }
 }
 
-/**
- * 3줄 요약
- * - User를 AsyncStorage에 저장/복구하도록 추가해, 부팅 시 기본적으로 네트워크 조회 없이 로그인 상태를 복원합니다.
- * - 레거시(유저 미저장) 케이스만 1회 서버 조회로 채우고 이후부터 저장합니다.
- * - login/setUser/updateProfile/logout에서 user 저장/정리를 함께 처리해 상태-저장소 일관성을 맞춥니다.
- */
+/*
+요약(3줄)
+- refresh 403 가능성을 전제로, 하이드레이션 로그인 조건을 “loginId + accessToken”으로 강화(불완전 세션은 정리).
+- 저장된 user는 런타임 가드/정규화 후 즉시 복구하고, 없으면 1회 서버 프로필 조회로 채워 저장.
+- 프로필 업데이트는 낙관적 반영→서버 반영 실패 시 롤백으로 UI 안정성 유지.
+*/

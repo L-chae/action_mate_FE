@@ -1,4 +1,6 @@
+// ============================================================================
 // src/features/meetings/model/dto.ts
+// ============================================================================
 /**
  * ✅ Meetings(Remote) DTO (OpenAPI 기반)
  * - 백엔드 스키마가 바뀌면 여기만 수정하도록 분리
@@ -71,10 +73,12 @@ export type PostUpdateRequestDTO = Partial<{
   joinMode: JoinModeDTO;
 }>;
 
+export type ApplicantStatusDTO = "HOST" | "MEMBER" | "REJECTED" | "PENDING";
+
 export type ApplicantDTO = {
   postId: number;
   userId: string;
-  state: "APPROVED" | "REJECTED" | "PENDING";
+  state: ApplicantStatusDTO;
 };
 
 export type RatingRequestDTO = {

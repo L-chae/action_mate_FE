@@ -1,4 +1,6 @@
+// ============================================================================
 // src/features/meetings/api/meetingApi.ts
+// ============================================================================
 import { client } from "@/shared/api/apiClient";
 import { endpoints } from "@/shared/api/endpoints";
 import { nowIso } from "@/shared/utils/timeText";
@@ -26,7 +28,6 @@ import {
   toPostCategory,
   toPostCreateRequest,
   toPostUpdateRequest,
-  toMembershipStatusFromApplicant,
 } from "../model/mappers";
 
 // -----------------------------------------------------------------------------
@@ -313,7 +314,8 @@ const toNumberOrNull = (v: unknown): number | null => {
 };
 
 const getLat = (loc: any): number | null => toNumberOrNull(loc?.latitude ?? loc?.lat ?? loc?.y ?? loc?.Lat ?? loc?.LAT);
-const getLng = (loc: any): number | null => toNumberOrNull(loc?.longitude ?? loc?.lng ?? loc?.x ?? loc?.Lng ?? loc?.LNG);
+const getLng = (loc: any): number | null =>
+  toNumberOrNull(loc?.longitude ?? loc?.lng ?? loc?.x ?? loc?.Lng ?? loc?.LNG);
 
 function ensureCapacity(raw: any): MeetingPost["capacity"] {
   const max = num(raw?.capacity?.max ?? raw?.capacity?.total ?? raw?.capacity?.max ?? raw?.capacity ?? raw?.max ?? 4, 4);
@@ -374,7 +376,8 @@ function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: numbe
 
       if (hasBase && hasA && hasB) {
         return (
-          haversineKm(lat!, lng!, aLat as number, aLng as number) - haversineKm(lat!, lng!, bLat as number, bLng as number)
+          haversineKm(lat!, lng!, aLat as number, aLng as number) -
+          haversineKm(lat!, lng!, bLat as number, bLng as number)
         );
       }
       return parseDistance((a as any)?.distanceText) - parseDistance((b as any)?.distanceText);
@@ -589,7 +592,7 @@ export const meetingApiLocal: MeetingApiWithUnsafe = {
       clonePost({
         ...(m as any),
         distanceText: dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)}km`,
-      } as any)
+      } as any),
     );
   },
 
@@ -646,9 +649,18 @@ export const meetingApiLocal: MeetingApiWithUnsafe = {
       ? ({
           ...((prev as any)?.location ?? {}),
           ...((patch as any)?.location ?? {}),
-          name: str((patch as any)?.location?.name ?? (prev as any)?.location?.name, (prev as any)?.location?.name ?? "장소 미정"),
-          latitude: toNumberOrNull((patch as any)?.location?.latitude ?? (patch as any)?.location?.lat) ?? (prev as any)?.location?.latitude ?? null,
-          longitude: toNumberOrNull((patch as any)?.location?.longitude ?? (patch as any)?.location?.lng) ?? (prev as any)?.location?.longitude ?? null,
+          name: str(
+            (patch as any)?.location?.name ?? (prev as any)?.location?.name,
+            (prev as any)?.location?.name ?? "장소 미정",
+          ),
+          latitude:
+            toNumberOrNull((patch as any)?.location?.latitude ?? (patch as any)?.location?.lat) ??
+            (prev as any)?.location?.latitude ??
+            null,
+          longitude:
+            toNumberOrNull((patch as any)?.location?.longitude ?? (patch as any)?.location?.lng) ??
+            (prev as any)?.location?.longitude ??
+            null,
         } as any)
       : (prev as any)?.location;
 
@@ -722,7 +734,12 @@ export const meetingApiLocal: MeetingApiWithUnsafe = {
 
     const nextPost: MeetingPost = {
       ...(target as any),
-      capacity: { ...((target as any)?.capacity ?? {}), max, current: isMember ? Math.max(0, current - 1) : current, total: max } as any,
+      capacity: {
+        ...((target as any)?.capacity ?? {}),
+        max,
+        current: isMember ? Math.max(0, current - 1) : current,
+        total: max,
+      } as any,
       myState: { membershipStatus: "NONE", ...calcCanJoin(target) } as any,
     } as any;
 
@@ -804,6 +821,9 @@ export const meetingApiLocal: MeetingApiWithUnsafe = {
 
 // -----------------------------------------------------------------------------
 // Remote Implementation (meetingApi.remote.ts 통합)
+// - 신청/처리 API는 서버 규격을 강제:
+//   - 신청 POST: 성공/실패 모두 string 가능 (DTO 기대 금지)
+//   - 처리 PATCH: body는 반드시 JSON string ("MEMBER" | "REJECTED")
 // -----------------------------------------------------------------------------
 function pickDefined<T extends Record<string, any>>(obj: T): Partial<T> {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
@@ -814,24 +834,50 @@ function ensureArrayRemote<T>(v: T | T[] | null | undefined): T[] {
   return Array.isArray(v) ? v : [v];
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+const isMeetingPostDTO = (v: unknown): v is MeetingPostDTO => {
+  if (!isRecord(v)) return false;
+  return (
+    typeof (v as any).id === "number" &&
+    typeof (v as any).title === "string" &&
+    typeof (v as any).meetingTime === "string" &&
+    typeof (v as any).state === "string" &&
+    typeof (v as any).joinMode === "string" &&
+    typeof (v as any).category === "string"
+  );
+};
+
+const isApplicantDTO = (v: unknown): v is ApplicantDTO => {
+  if (!isRecord(v)) return false;
+  return typeof (v as any).postId === "number" && typeof (v as any).userId === "string" && typeof (v as any).state === "string";
+};
+
+const timeMs = (iso?: string) => {
+  const t = iso ? new Date(iso).getTime() : Number.NaN;
+  return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
+};
+
 async function safeFetchPost(id: number | string): Promise<MeetingPost | null> {
   try {
-    const res = await client.get<MeetingPostDTO>(endpoints.posts.byId(id));
+    const res = await client.get<unknown>(endpoints.posts.byId(id));
+    if (!isMeetingPostDTO(res.data)) return null;
     return toMeetingPost(res.data);
   } catch {
     return null;
   }
 }
 
-async function patchApplicantState(meetingId: number | string, userId: string, state: "APPROVED" | "REJECTED") {
+type ApplicantDecisionBody = "MEMBER" | "REJECTED";
+
+async function patchApplicantState(meetingId: number | string, userId: string, state: ApplicantDecisionBody) {
   const url = endpoints.posts.decideApplicant(meetingId, userId);
 
-  try {
-    await client.patch(url, { state }, { headers: { "Content-Type": "application/json" } });
-    return;
-  } catch {
-    await client.patch(url, state, { headers: { "Content-Type": "text/plain" } });
-  }
+  // ✅ 서버 규격: body는 반드시 JSON string ("MEMBER" | "REJECTED")
+  // - axios에 문자열을 그대로 넣으면 quotes 없이 전송될 수 있어 JSON.stringify로 강제
+  await client.patch(url, JSON.stringify(state), {
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export const meetingApiRemote: MeetingApi = {
@@ -839,18 +885,41 @@ export const meetingApiRemote: MeetingApi = {
     const anyOpts = (arguments[0] ?? {}) as any;
     const latitude = anyOpts?.latitude ?? anyOpts?.lat;
     const longitude = anyOpts?.longitude ?? anyOpts?.lng;
-    const radiusMeters = anyOpts?.radiusMeters ?? (typeof anyOpts?.radiusKm === "number" ? anyOpts.radiusKm * 1000 : undefined);
+    const radiusMeters =
+      anyOpts?.radiusMeters ?? (typeof anyOpts?.radiusKm === "number" ? anyOpts.radiusKm * 1000 : undefined);
 
     let list: MeetingPost[] = [];
 
-    if (typeof latitude === "number" && typeof longitude === "number") {
-      const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(endpoints.posts.hot, {
-        params: pickDefined({ latitude, longitude, radiusMeters }),
-      });
-      list = ensureArrayRemote(res.data).map(toMeetingPost);
-    } else {
-      const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(endpoints.posts.list);
-      list = ensureArrayRemote(res.data).map(toMeetingPost);
+    try {
+      if (typeof latitude === "number" && typeof longitude === "number") {
+        const res = await client.get<unknown>(endpoints.posts.hot, {
+          params: pickDefined({ latitude, longitude, radiusMeters }),
+        });
+        list = ensureArrayRemote(res.data as any)
+          .filter(isMeetingPostDTO)
+          .map((dto) => {
+            try {
+              return toMeetingPost(dto);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean) as MeetingPost[];
+      } else {
+        const res = await client.get<unknown>(endpoints.posts.list);
+        list = ensureArrayRemote(res.data as any)
+          .filter(isMeetingPostDTO)
+          .map((dto) => {
+            try {
+              return toMeetingPost(dto);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean) as MeetingPost[];
+      }
+    } catch {
+      list = [];
     }
 
     const hot = list
@@ -864,9 +933,8 @@ export const meetingApiRemote: MeetingApi = {
       })
       .map((m) => {
         const mt = (m as any)?.meetingTime as string | undefined;
-        const t = mt ? new Date(mt).getTime() : Number.NaN;
-        const min = Number.isFinite(t) ? (t - Date.now()) / 60000 : Number.POSITIVE_INFINITY;
-        return { m, min };
+        const min = (timeMs(mt) - Date.now()) / 60000;
+        return { m, min: Number.isFinite(min) ? min : Number.POSITIVE_INFINITY };
       })
       .filter(({ min }) => (withinMinutes == null ? true : min >= 0 && min <= withinMinutes))
       .sort((a, b) => a.min - b.min)
@@ -892,11 +960,21 @@ export const meetingApiRemote: MeetingApi = {
     const serverCategory = category === "ALL" ? null : toPostCategory(category);
     const url = serverCategory ? endpoints.posts.byCategory(serverCategory) : endpoints.posts.list;
 
-    const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(url);
-    const list = ensureArrayRemote(res.data).map(toMeetingPost);
+    const res = await client.get<unknown>(url);
+
+    const list = ensureArrayRemote(res.data as any)
+      .filter(isMeetingPostDTO)
+      .map((dto) => {
+        try {
+          return toMeetingPost(dto);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as MeetingPost[];
 
     if (sort === "SOON") {
-      return [...list].sort((a, b) => new Date((a as any)?.meetingTime).getTime() - new Date((b as any)?.meetingTime).getTime());
+      return [...list].sort((a, b) => timeMs((a as any)?.meetingTime) - timeMs((b as any)?.meetingTime));
     }
     if (sort === "LATEST") {
       return [...list].sort((a, b) => String((b as any)?.id ?? "").localeCompare(String((a as any)?.id ?? "")));
@@ -907,7 +985,7 @@ export const meetingApiRemote: MeetingApi = {
   async listMeetingsAround(lat, lng, { radiusKm = 1, category, sort } = {}) {
     const serverCategory = category && category !== "ALL" ? toPostCategory(category) : undefined;
 
-    const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(endpoints.posts.nearby, {
+    const res = await client.get<unknown>(endpoints.posts.nearby, {
       params: pickDefined({
         latitude: lat,
         longitude: lng,
@@ -917,23 +995,41 @@ export const meetingApiRemote: MeetingApi = {
       }),
     });
 
-    return ensureArrayRemote(res.data).map(toMeetingPost);
+    return ensureArrayRemote(res.data as any)
+      .filter(isMeetingPostDTO)
+      .map((dto) => {
+        try {
+          return toMeetingPost(dto);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as MeetingPost[];
   },
 
   async getMeeting(id) {
-    const res = await client.get<MeetingPostDTO>(endpoints.posts.byId(id));
+    const res = await client.get<unknown>(endpoints.posts.byId(id));
+    if (!isMeetingPostDTO(res.data)) {
+      return { id: String(id), status: "OPEN" } as unknown as MeetingPost;
+    }
     return toMeetingPost(res.data);
   },
 
   async createMeeting(data: MeetingUpsert) {
     const payload = toPostCreateRequest(data);
-    const res = await client.post<MeetingPostDTO>(endpoints.posts.create, pickDefined(payload));
+    const res = await client.post<unknown>(endpoints.posts.create, pickDefined(payload));
+    if (!isMeetingPostDTO(res.data)) {
+      return { id: "0", status: "OPEN" } as unknown as MeetingPost;
+    }
     return toMeetingPost(res.data);
   },
 
   async updateMeeting(id, patch: Partial<MeetingUpsert>) {
     const payload = toPostUpdateRequest(patch);
-    const res = await client.put<MeetingPostDTO>(endpoints.posts.byId(id), pickDefined(payload));
+    const res = await client.put<unknown>(endpoints.posts.byId(id), pickDefined(payload));
+    if (!isMeetingPostDTO(res.data)) {
+      return { id: String(id), status: "OPEN" } as unknown as MeetingPost;
+    }
     return toMeetingPost(res.data);
   },
 
@@ -942,35 +1038,60 @@ export const meetingApiRemote: MeetingApi = {
     await client.delete(endpoints.posts.byId(id));
 
     return {
-      post: before ? { ...(before as any), status: "CANCELED" } : ({ id: String(id), status: "CANCELED" } as unknown as MeetingPost),
+      post: before ? ({ ...(before as any), status: "CANCELED" } as MeetingPost) : ({ id: String(id), status: "CANCELED" } as unknown as MeetingPost),
     };
   },
 
   async joinMeeting(id) {
-    const res = await client.post<ApplicantDTO>(endpoints.posts.applicants(id));
-    const membershipStatus = toMembershipStatusFromApplicant(res.data);
+    // ✅ 서버 규격: Body 없음, 성공도 string 가능 → DTO 기대 금지
+    const before = await safeFetchPost(id);
+    await client.post<unknown>(endpoints.posts.applicants(id));
 
-    const post = (await safeFetchPost(id)) ?? ({ id: String(id) } as unknown as MeetingPost);
+    const post = (await safeFetchPost(id)) ?? before ?? ({ id: String(id) } as unknown as MeetingPost);
+
+    // ✅ 가능하면 서버가 내려준 myState를 우선(불일치/지연 대비), 없으면 joinMode로 추론
+    const serverStatus = post?.myState?.membershipStatus;
+    const fallback: MembershipStatus =
+      post?.joinMode === "APPROVAL" ? "PENDING" : "MEMBER";
+
+    const membershipStatus: MembershipStatus =
+      serverStatus && serverStatus !== "NONE" ? serverStatus : fallback;
+
     return { post, membershipStatus };
   },
 
   async cancelJoin(id) {
+    // ✅ 서버 규격: 성공 string 가능, 실패는 ErrorResponse/string 가능
     await client.delete(endpoints.posts.applicants(id));
     const post = (await safeFetchPost(id)) ?? ({ id: String(id) } as unknown as MeetingPost);
     return { post };
   },
 
   async getParticipants(meetingId) {
-    const res = await client.get<ApplicantDTO[] | ApplicantDTO>(endpoints.posts.applicants(meetingId));
-    return ensureArrayRemote(res.data).map(toParticipant);
+    const res = await client.get<unknown>(endpoints.posts.applicants(meetingId));
+
+    const list = ensureArrayRemote(res.data as any)
+      .filter(isApplicantDTO)
+      .map((dto) => {
+        try {
+          return toParticipant(dto);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as Participant[];
+
+    return list;
   },
 
   async approveParticipant(meetingId, userId) {
-    await patchApplicantState(meetingId, String(userId), "APPROVED");
+    // ✅ 서버 규격: PATCH body는 JSON string "MEMBER"
+    await patchApplicantState(meetingId, String(userId), "MEMBER");
     return this.getParticipants(meetingId);
   },
 
   async rejectParticipant(meetingId, userId) {
+    // ✅ 서버 규격: PATCH body는 JSON string "REJECTED"
     await patchApplicantState(meetingId, String(userId), "REJECTED");
     return this.getParticipants(meetingId);
   },
@@ -999,8 +1120,3 @@ if (__DEV__) {
 }
 
 export default meetingApi;
-
-// 3줄 요약
-// - meetingApi.local/remote/mocks(Seed/Host/Comments)를 meetingApi.ts 하나로 통합했고, seed는 8개로 축소했습니다.
-// - mock 모드에서만 __getMockDataUnsafe로 내부 DB를 조회할 수 있게 유지했습니다(외부에서 안전하게 의존 가능).
-// - EXPO_PUBLIC_USE_MOCK가 없으면 dev는 mock, prod는 remote로 동작합니다.

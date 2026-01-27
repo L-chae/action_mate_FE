@@ -1,27 +1,18 @@
 // src/features/auth/api/authApi.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
-import type { AxiosError } from "axios";
 import type { AuthApi, LoginInput, ResetRequestResult, SignupInput, User } from "@/features/auth/model/types";
-import { client } from "@/shared/api/apiClient";
+import { client, normalizeApiError } from "@/shared/api/apiClient";
 import { endpoints } from "@/shared/api/endpoints";
-import type { ApiUserProfileResponse, ExistsResponse, TokenResponse } from "@/shared/api/schemas";
+import type { ExistsResponse, ProfileRequest, TokenResponse } from "@/shared/api/schemas";
 import { clearAuthTokens, getCurrentUserId, setAuthTokens, setCurrentUserId } from "@/shared/api/authToken";
-import {
-  mapExistsResponseToAvailability,
-  mapLoginInputToLoginRequest,
-  mapSignupInputToSignupRequest,
-  mapTokenResponseToTokens,
-  mapUserProfileResponseToAuthUser,
-} from "@/features/auth/model/mappers";
-import { mapErrorResponse } from "@/shared/model/mappers";
+import { mapLoginInputToLoginRequest, mapSignupInputToSignupRequest } from "@/features/auth/model/mappers";
 import type { Id } from "@/shared/model/types";
 
 // -----------------------------------------------------------------------------
 // Flags (Mock/Remote 선택은 한 곳에서만 관리)
 // -----------------------------------------------------------------------------
 export const USE_MOCK_AUTH: boolean = __DEV__ && process.env.EXPO_PUBLIC_USE_MOCK === "true";
-
 export const USE_MOCK_AUTO_LOGIN: boolean = USE_MOCK_AUTH && process.env.EXPO_PUBLIC_MOCK_AUTO_LOGIN === "true";
 
 export const MOCK_AUTO_LOGIN_CREDENTIALS = {
@@ -60,10 +51,10 @@ function findUserIndexByIdOrLoginId(users: StoredUser[], idOrLoginId: Id): numbe
   const key = normKey(idOrLoginId);
   if (!key) return -1;
 
-  const byId = users.findIndex((u) => normKey(u?.id) === key);
+  const byId = users.findIndex((u) => normKey((u as any)?.id) === key);
   if (byId !== -1) return byId;
 
-  return users.findIndex((u) => normKey(u?.loginId) === key);
+  return users.findIndex((u) => normKey((u as any)?.loginId) === key);
 }
 
 function sanitizeUserForUi(u: User | null | undefined): User | null {
@@ -89,7 +80,7 @@ async function ensureSeeded(): Promise<void> {
     seedOncePromise ??
     (async () => {
       const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-      const isCorrupted = users.some((u) => !u?.loginId);
+      const isCorrupted = users.some((u) => !(u as any)?.loginId);
 
       if (users.length === 0 || isCorrupted) {
         const demo: StoredUser[] = [
@@ -129,7 +120,7 @@ export const localAuthApi: AuthApi = {
 
     const target = normKey(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    const found = users.find((u) => normKey(u?.loginId) === target);
+    const found = users.find((u) => normKey((u as any)?.loginId) === target);
 
     if (!found) return null;
 
@@ -142,25 +133,25 @@ export const localAuthApi: AuthApi = {
 
     const target = normKey(loginId);
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    const exists = users.some((u) => normKey(u?.loginId) === target);
+    const exists = users.some((u) => normKey((u as any)?.loginId) === target);
     return !exists;
   },
 
   async signup(input: SignupInput): Promise<User> {
     await ensureSeeded();
 
-    const loginId = String(input?.loginId ?? "").trim();
+    const loginId = String((input as any)?.loginId ?? "").trim();
     const loginKey = normKey(loginId);
-    const nickname = String(input?.nickname ?? "").trim();
+    const nickname = String((input as any)?.nickname ?? "").trim();
 
     if (!loginId) throw new Error("아이디를 입력해주세요.");
     if (!nickname || nickname.length < 2) throw new Error("닉네임은 2글자 이상 입력해주세요.");
-    if (String(input?.password ?? "").length < 4) throw new Error("비밀번호는 4자 이상으로 입력해주세요.");
-    if (!input?.gender) throw new Error("성별을 선택해주세요.");
-    if (!input?.birthDate) throw new Error("생년월일을 입력해주세요.");
+    if (String((input as any)?.password ?? "").length < 4) throw new Error("비밀번호는 4자 이상으로 입력해주세요.");
+    if (!(input as any)?.gender) throw new Error("성별을 선택해주세요.");
+    if (!(input as any)?.birthDate) throw new Error("생년월일을 입력해주세요.");
 
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    if (users.some((u) => normKey(u?.loginId) === loginKey)) {
+    if (users.some((u) => normKey((u as any)?.loginId) === loginKey)) {
       throw new Error("이미 사용 중인 아이디예요.");
     }
 
@@ -169,27 +160,27 @@ export const localAuthApi: AuthApi = {
       id: loginId,
       loginId,
       nickname,
-      gender: input.gender,
-      birthDate: input.birthDate,
+      gender: (input as any)?.gender,
+      birthDate: (input as any)?.birthDate,
       avatarUrl: null,
       avatarImageName: null,
-    };
+    } as User;
 
-    await writeJSON(KEY_USERS, [...users, { ...(sanitizeUserForUi(newUser) as User), password: input.password }]);
+    await writeJSON(KEY_USERS, [...users, { ...(sanitizeUserForUi(newUser) as User), password: String((input as any)?.password ?? "") }]);
     return sanitizeUserForUi(newUser) as User;
   },
 
   async login(input: LoginInput): Promise<User> {
     await ensureSeeded();
 
-    const loginId = String(input?.loginId ?? "").trim();
+    const loginId = String((input as any)?.loginId ?? "").trim();
     const target = normKey(loginId);
 
     const users = await readJSON<StoredUser[]>(KEY_USERS, []);
-    const found = users.find((u) => normKey(u?.loginId) === target);
+    const found = users.find((u) => normKey((u as any)?.loginId) === target);
 
     if (!found) throw new Error("존재하지 않는 아이디예요.");
-    if (String(found?.password ?? "") !== String(input?.password ?? "")) {
+    if (String((found as any)?.password ?? "") !== String((input as any)?.password ?? "")) {
       throw new Error("비밀번호가 일치하지 않아요.");
     }
 
@@ -224,11 +215,11 @@ export const localAuthApi: AuthApi = {
     const updated: StoredUser = {
       ...existing,
       ...sanitizedPatch,
-      id: existing.id,
-      loginId: existing.loginId,
-      password: existing.password,
-      avatarUrl: (sanitizedPatch as any)?.avatarUrl ?? existing.avatarUrl ?? null,
-      avatarImageName: (sanitizedPatch as any)?.avatarImageName ?? existing.avatarImageName ?? null,
+      id: (existing as any).id,
+      loginId: (existing as any).loginId,
+      password: (existing as any).password,
+      avatarUrl: (sanitizedPatch as any)?.avatarUrl ?? (existing as any)?.avatarUrl ?? null,
+      avatarImageName: (sanitizedPatch as any)?.avatarImageName ?? (existing as any)?.avatarImageName ?? null,
     };
 
     users[idx] = updated;
@@ -283,7 +274,7 @@ export const localAuthApi: AuthApi = {
 };
 
 // -----------------------------------------------------------------------------
-// Remote AuthApi (OpenAPI 기반)
+// Remote AuthApi (서버 확정 명세 기반)
 // -----------------------------------------------------------------------------
 
 const JSON_HEADERS = {
@@ -291,140 +282,148 @@ const JSON_HEADERS = {
 } as const;
 
 function extractHttpStatus(e: unknown): number | undefined {
-  return axios.isAxiosError(e) ? e.response?.status : undefined;
+  if (axios.isAxiosError(e)) return e.response?.status;
+  const n = (e as any)?.normalized;
+  if (n && typeof n.status === "number") return n.status;
+  return undefined;
 }
 
 function toErrorMessage(e: unknown, fallback = "요청 처리 중 오류가 발생했습니다."): string {
-  if (axios.isAxiosError(e)) {
-    const data = e.response?.data;
-    const mapped = mapErrorResponse(data);
-    if (mapped?.message && mapped.message !== "알 수 없는 오류") return mapped.message;
+  const normalized = normalizeApiError(e);
+  const status = normalized?.status ?? null;
 
-    const status = e.response?.status;
-    if (status === 401) return "인증이 만료되었거나 올바르지 않습니다. 다시 로그인해주세요.";
-    if (status === 403) return "권한이 없습니다.";
-    if (status === 404) return "요청한 리소스를 찾을 수 없습니다.";
-    if (status && status >= 500) return "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
-
-    if ((e as AxiosError)?.code === "ECONNABORTED") {
-      return "요청 시간이 초과되었습니다. 네트워크를 확인해주세요.";
-    }
+  if (axios.isAxiosError(e) && (e as any)?.code === "ECONNABORTED") {
+    return "요청 시간이 초과되었습니다. 네트워크를 확인해주세요.";
   }
 
-  if (e instanceof Error && e.message) return e.message;
-  return fallback;
-}
+  if (status === 401) return "인증이 만료되었거나 올바르지 않습니다. 다시 로그인해주세요.";
+  if (status === 403) return "권한이 없거나 서버 권한 설정이 일치하지 않습니다. 다시 로그인해주세요.";
+  if (status === 404) return "요청한 리소스를 찾을 수 없습니다.";
+  if (typeof status === "number" && status >= 500) return "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
 
-async function safeLogoutOnServer(): Promise<void> {
-  try {
-    await client.get(endpoints.auth.logout);
-  } catch {
-    // ignore
-  }
+  const msg = String(normalized?.message ?? "").trim();
+  return msg ? msg : fallback;
 }
 
 function normalizeLoginId(v: unknown): string {
   return String(v ?? "").trim();
 }
 
-function normalizeIdCandidate(v: unknown): string | null {
-  if (typeof v === "string") {
-    const t = v.trim();
-    return t ? t : null;
-  }
-  if (typeof v === "number" && Number.isFinite(v)) return String(v);
-  return null;
+function toUiGenderFromServer(g: unknown): "male" | "female" {
+  const v = String(g ?? "").trim().toUpperCase();
+  return v === "F" ? "female" : "male";
 }
 
-/**
- * 로그인 응답(TokenResponse)에서 userId/loginId/id 등을 최대한 안전하게 추출
- * - 서버 명세가 바뀌거나, 백엔드가 userId를 내려주는 경우에 대비
- */
-function extractUserIdFromTokenResponse(data: unknown): string | null {
-  const d = data as any;
-
-  const candidates: unknown[] = [
-    d?.userId,
-    d?.id,
-    d?.memberId,
-    d?.accountId,
-    d?.loginId,
-    d?.data?.userId,
-    d?.data?.id,
-    d?.data?.memberId,
-    d?.data?.accountId,
-    d?.data?.loginId,
-  ];
-
-  for (const c of candidates) {
-    const v = normalizeIdCandidate(c);
-    if (v) return v;
-  }
-  return null;
+function toServerGenderFromUi(g: unknown): "M" | "F" {
+  const v = String(g ?? "").trim().toLowerCase();
+  if (v === "f" || v === "female") return "F";
+  if (v === "m" || v === "male") return "M";
+  const upper = String(g ?? "").trim().toUpperCase();
+  if (upper === "F") return "F";
+  if (upper === "M") return "M";
+  return "M";
 }
 
-/**
- * "내 프로필" 엔드포인트가 존재하면 우선 사용 (/users/me 등)
- * - 존재하지 않거나 실패하면 null
- */
-async function tryFetchMyProfile(): Promise<User | null> {
-  const anyEndpoints = endpoints as unknown as any;
-  const anyUsers = anyEndpoints?.users;
-  const anyAuth = anyEndpoints?.auth;
-
-  const endpointCandidates: unknown[] = [anyUsers?.me, anyUsers?.profileMe, anyAuth?.me];
-
-  for (const ep of endpointCandidates) {
-    try {
-      const url =
-        typeof ep === "string"
-          ? ep
-          : typeof ep === "function" && (ep as Function).length === 0
-            ? (ep as Function)()
-            : null;
-
-      if (!url || typeof url !== "string") continue;
-
-      const res = await client.get<ApiUserProfileResponse>(url);
-      return mapUserProfileResponseToAuthUser(res.data);
-    } catch {
-      // ignore
-    }
-  }
-
-  return null;
+function normalizeBirthDate(v: unknown): string {
+  const s = String(v ?? "").trim();
+  return s || "2000-01-01";
 }
 
-/**
- * 식별자(로그인아이디 or userId)로 프로필을 가져오는 공통 로직
- * - 프로젝트마다 실제 엔드포인트 이름이 다를 수 있어, 존재하는 함수를 우선 탐색
- */
-async function fetchUserProfileByIdentifier(identifier: string): Promise<User | null> {
-  const id = normalizeLoginId(identifier);
-  if (!id) return null;
+function mapProfileRequestToAuthUser(profile: unknown, fallbackUserId: string): User {
+  const p = (profile ?? {}) as any;
+  const userId = normalizeLoginId(p?.userId ?? fallbackUserId) || fallbackUserId || "unknown";
 
-  const anyEndpoints = endpoints as unknown as any;
-  const anyUsers = anyEndpoints?.users;
+  const nickname = String(p?.nickname ?? "").trim() || "알 수 없음";
+  const birth = normalizeBirthDate(p?.birth);
+  const gender = toUiGenderFromServer(p?.gender);
 
-  const url =
-    typeof anyUsers?.profileByLoginId === "function"
-      ? anyUsers.profileByLoginId(id)
-      : typeof anyUsers?.byLoginId === "function"
-        ? anyUsers.byLoginId(id)
-        : typeof anyUsers?.profile === "function"
-          ? anyUsers.profile(id)
-          : null;
+  const profileValue = p?.profile;
+  const avatarCandidate = typeof profileValue === "string" && profileValue.trim() ? profileValue.trim() : null;
 
-  if (!url || typeof url !== "string") {
-    throw new Error("유저 프로필 조회 엔드포인트가 설정되어 있지 않습니다.");
-  }
+  return {
+    id: userId,
+    loginId: userId,
+    nickname,
+    gender,
+    birthDate: birth,
+    avatarUrl: avatarCandidate,
+    avatarImageName: avatarCandidate,
+  } as User;
+}
+
+function extractTokens(data: unknown): { accessToken: string; refreshToken: string } | null {
+  const d = (data ?? {}) as any;
+  const access = typeof d?.accessToken === "string" ? d.accessToken : null;
+  const refresh = typeof d?.refreshToken === "string" ? d.refreshToken : null;
+  if (!access || !refresh) return null;
+  return { accessToken: access, refreshToken: refresh };
+}
+
+async function fetchUserProfileByUserId(userId: string): Promise<User> {
+  const id = normalizeLoginId(userId);
+  if (!id) throw new Error("유저 아이디가 올바르지 않습니다.");
+
+  const res = await client.get<ProfileRequest>(endpoints.users.profile(id));
+  const data = (res as any)?.data ?? null;
 
   try {
-    const res = await client.get<ApiUserProfileResponse>(url);
-    return mapUserProfileResponseToAuthUser(res.data);
-  } catch (e) {
-    if (extractHttpStatus(e) === 404) return null;
-    throw e;
+    // 외부 mapper가 존재하면(프로젝트 기존 로직) 우선 활용, 실패 시 fallback
+    const anyMappers = require("@/features/auth/model/mappers") as any;
+    const mapper = anyMappers?.mapUserProfileResponseToAuthUser;
+    const mapped = typeof mapper === "function" ? mapper(data) : null;
+    if (mapped) return mapped as User;
+  } catch {
+    // ignore
+  }
+
+  return mapProfileRequestToAuthUser(data, id);
+}
+
+function parseExistsResponse(data: ExistsResponse | unknown): boolean {
+  if (typeof data === "boolean") return data;
+
+  const d = data as any;
+  if (d && typeof d.exists === "boolean") return d.exists;
+  if (d && typeof d.available === "boolean") return d.available;
+  return false;
+}
+
+function isLocalFileUri(uri: string): boolean {
+  const u = String(uri ?? "").trim().toLowerCase();
+  return u.startsWith("file://") || u.startsWith("content://") || u.startsWith("ph://");
+}
+
+function appendJsonPart(form: FormData, name: string, obj: unknown): void {
+  const json = JSON.stringify(obj ?? {});
+  try {
+    const blob = new Blob([json], { type: "application/json" });
+    form.append(name, blob as any);
+  } catch {
+    form.append(name, json as any);
+  }
+}
+
+function appendImagePartIfAny(form: FormData, patch: Partial<User>): void {
+  const anyPatch = (patch ?? {}) as any;
+
+  const fileLike =
+    anyPatch?.image ??
+    anyPatch?.avatarFile ??
+    anyPatch?.file ??
+    (typeof anyPatch?.uri === "string" ? anyPatch : null) ??
+    null;
+
+  if (fileLike && typeof fileLike?.uri === "string" && String(fileLike.uri).trim()) {
+    const uri = String(fileLike.uri).trim();
+    const name = String(fileLike?.name ?? "profile.jpg");
+    const type = String(fileLike?.type ?? "image/jpeg");
+    form.append("image", { uri, name, type } as any);
+    return;
+  }
+
+  const avatarUrl = typeof anyPatch?.avatarUrl === "string" ? anyPatch.avatarUrl.trim() : "";
+  if (avatarUrl && isLocalFileUri(avatarUrl)) {
+    form.append("image", { uri: avatarUrl, name: "profile.jpg", type: "image/jpeg" } as any);
   }
 }
 
@@ -434,7 +433,8 @@ export const remoteAuthApi: AuthApi = {
     if (!id) return null;
 
     try {
-      return await fetchUserProfileByIdentifier(id);
+      // ✅ /api/**는 기본적으로 ACCESS 필요 (로그인 이후 사용 전제)
+      return await fetchUserProfileByUserId(id);
     } catch (e) {
       throw new Error(toErrorMessage(e));
     }
@@ -445,72 +445,68 @@ export const remoteAuthApi: AuthApi = {
     if (!id) return false;
 
     try {
+      // ✅ /users/exists 는 permitAll, 200 boolean (true=사용가능, false=사용불가)
       const res = await client.get<ExistsResponse>(endpoints.users.exists(id));
-      return mapExistsResponseToAvailability(res.data);
-    } catch {
-      try {
-        const user = await remoteAuthApi.getUserByLoginId(id);
-        return user == null;
-      } catch {
-        return false;
-      }
+      return parseExistsResponse((res as any)?.data);
+    } catch (e) {
+      // 네트워크/서버 오류면 보수적으로 "불가" 처리
+      return false;
     }
   },
 
   async signup(input: SignupInput): Promise<User> {
     const body = mapSignupInputToSignupRequest(input);
-    const loginId = normalizeLoginId(input?.loginId);
+    const loginId = normalizeLoginId((input as any)?.loginId);
 
     try {
+      // ✅ /users permitAll, 성공 시 string("성공")일 수 있어도 오류로 취급 금지
       await client.post(endpoints.users.signup, body, { headers: JSON_HEADERS });
 
-      const user = await remoteAuthApi.getUserByLoginId(loginId);
-      if (user) return user;
-
+      // signup 직후엔 ACCESS가 없으므로 /users/{id}/profile 호출 시 401 가능 → 로컬 구성으로 반환
       return {
         id: loginId || "unknown",
         loginId: loginId || "unknown",
-        nickname: String(input?.nickname ?? "").trim() || "알 수 없음",
-        gender: input?.gender ?? "male",
-        birthDate: input?.birthDate ?? "",
+        nickname: String((input as any)?.nickname ?? "").trim() || "알 수 없음",
+        gender: (input as any)?.gender ?? "male",
+        birthDate: String((input as any)?.birthDate ?? "").trim() || "",
         avatarUrl: null,
         avatarImageName: null,
-      };
+      } as User;
     } catch (e) {
       throw new Error(toErrorMessage(e));
     }
   },
 
   async login(input: LoginInput): Promise<User> {
-    const loginId = normalizeLoginId(input?.loginId);
+    const loginId = normalizeLoginId((input as any)?.loginId);
 
     try {
       const req = mapLoginInputToLoginRequest(input);
 
+      // ✅ /auth/login permitAll
       const res = await client.post<TokenResponse>(endpoints.auth.login, req, { headers: JSON_HEADERS });
 
-      const tokens = mapTokenResponseToTokens(res.data);
+      const tokens = extractTokens((res as any)?.data);
       if (!tokens?.accessToken || !tokens?.refreshToken) {
         throw new Error("토큰을 발급받지 못했습니다.");
       }
 
       await setAuthTokens(tokens);
 
-      const userIdFromLogin = extractUserIdFromTokenResponse(res.data);
-      const identifier = normalizeLoginId(userIdFromLogin ?? loginId);
-
-      if (identifier) {
-        await setCurrentUserId(identifier);
+      // ✅ 토큰 subject = username(=userId) 전제: 로그인 입력 id를 currentUserId로 저장
+      if (loginId) {
+        await setCurrentUserId(loginId);
       }
 
-      const user = (await tryFetchMyProfile()) ?? (identifier ? await fetchUserProfileByIdentifier(identifier) : null);
+      // ✅ /users/{id}/profile (ACCESS)
+      const user = loginId ? await fetchUserProfileByUserId(loginId) : null;
 
       if (!user) {
         await clearAuthTokens();
         throw new Error("회원 정보를 불러올 수 없습니다.");
       }
 
-      const stableId = normalizeLoginId((user as any)?.id ?? (user as any)?.loginId ?? identifier);
+      const stableId = normalizeLoginId((user as any)?.id ?? (user as any)?.loginId ?? loginId);
       if (stableId) {
         await setCurrentUserId(stableId);
       }
@@ -518,7 +514,9 @@ export const remoteAuthApi: AuthApi = {
       return user;
     } catch (e) {
       const status = extractHttpStatus(e);
-      if (status === 401) throw new Error("아이디 또는 비밀번호가 일치하지 않습니다.");
+      // ✅ 로그인 실패는 403(ErrorResponse) 가능
+      if (status === 401 || status === 403) throw new Error("아이디 또는 비밀번호가 일치하지 않습니다.");
+      await clearAuthTokens();
       throw new Error(toErrorMessage(e));
     }
   },
@@ -539,8 +537,59 @@ export const remoteAuthApi: AuthApi = {
     throw new Error("서버 명세에 비밀번호 재설정 API가 없습니다.");
   },
 
-  async updateUser(_id: string, _patch: Partial<User>): Promise<User> {
-    throw new Error("서버에 회원 정보 수정 API가 아직 없습니다.");
+  async updateUser(id: string, patch: Partial<User>): Promise<User> {
+    try {
+      // ✅ multipart 규칙 강제: data 파트명 고정, data.userId는 로그인 사용자와 동일
+      const current = await getCurrentUserId();
+      const userId = normalizeLoginId(current ?? id);
+      if (!userId) throw new Error("로그인 정보가 없습니다. 다시 로그인해주세요.");
+
+      // 기존 프로필을 가져와 누락 필드를 채움(서버는 nickname/gender/birth만 저장)
+      let existing: User | null = null;
+      try {
+        existing = await fetchUserProfileByUserId(userId);
+      } catch {
+        existing = null;
+      }
+
+      const nickname =
+        String((patch as any)?.nickname ?? "").trim() ||
+        String((existing as any)?.nickname ?? "").trim() ||
+        "알 수 없음";
+
+      const birth =
+        normalizeBirthDate((patch as any)?.birthDate ?? (existing as any)?.birthDate ?? "");
+
+      const uiGender = (patch as any)?.gender ?? (existing as any)?.gender ?? "male";
+      const serverGender = toServerGenderFromUi(uiGender);
+
+      const profilePayload: ProfileRequest = {
+        userId,
+        nickname,
+        gender: serverGender,
+        birth,
+        // 서버가 저장하지 않더라도 필드 요구 스키마를 맞춤
+        profile: String((existing as any)?.avatarUrl ?? "") || "",
+      };
+
+      const form = new FormData();
+      appendJsonPart(form, "data", profilePayload);
+      appendImagePartIfAny(form, patch);
+
+      await client.put(endpoints.users.update, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      // 수정 후 최신 프로필 재조회
+      const updated = await fetchUserProfileByUserId(userId);
+
+      // 업데이트 후에도 currentUserId는 동일해야 함
+      await setCurrentUserId(userId);
+
+      return sanitizeUserForUi(updated) as User;
+    } catch (e) {
+      throw new Error(toErrorMessage(e));
+    }
   },
 
   async getCurrentLoginId(): Promise<string | null> {
@@ -554,7 +603,7 @@ export const remoteAuthApi: AuthApi = {
   },
 
   async clearCurrentLoginId(): Promise<void> {
-    await safeLogoutOnServer();
+    // ✅ 서버에 /auth/logout 없음
     await clearAuthTokens();
   },
 };
@@ -565,7 +614,9 @@ export const remoteAuthApi: AuthApi = {
 export const authApi: AuthApi = USE_MOCK_AUTH ? localAuthApi : remoteAuthApi;
 export default authApi;
 
-// 3줄 요약
-// - local/remote/index로 나뉜 AuthApi를 authApi.ts 한 파일로 통합했습니다.
-// - USE_MOCK_AUTH 플래그로 구현체 선택을 한 곳에서만 관리합니다.
-// - 기존 동작(토큰/세션 저장, 에러 메시지 방어, 프로필 로딩 fallback)을 유지했습니다.
+/*
+요약(3줄)
+- 서버 확정 명세로 remoteAuthApi를 단순화(/users/exists는 boolean, 로그인 실패는 403 가능, 프로필은 /users/{id}/profile).
+- 프로필 수정은 multipart(data+image) 규칙을 강제하고 data.userId를 로그인 사용자로 고정해 500(mismatch) 위험을 줄임.
+- 에러 메시지는 normalizeApiError 기반으로 string/ErrorResponse/spring-default-error 혼합을 안전 처리.
+*/
