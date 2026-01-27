@@ -9,20 +9,23 @@ import type {
   MeetingUpsert,
   HotMeetingItem,
   MembershipStatus,
+  CategoryKey,
+  PostStatus,
+  JoinMode,
 } from "../model/types";
+import type { Location } from "@/shared/model/types";
 
 /**
  * ✅ Local Meeting API (Mock)
  *
  * 핵심 의도
- * - capacity는 항상 { max, current }를 보장(정렬/버튼/뱃지 안정)
+ * - UI 모델(특히 location/capacity)을 "항상 안전한 형태"로 반환
  * - seed/구버전 shape은 normalizeSeedToPost에서 흡수
- * - 외부(UI)에서 객체를 실수로 mutate해도 내부 상태(_DATA)가 망가지지 않게
- * "반환 시 얕은 복사 + 중첩 핵심 필드 복사"를 적용
+ * - UI에서 객체 mutate 실수로 내부 상태(_DATA)가 오염되지 않게 clone 반환
  */
 
 // ----------------------------------------------------------------------
-// ✅ 1. Helpers (반드시 _DATA 선언보다 위에 있어야 합니다)
+// ✅ 1) Helpers (반드시 _DATA 선언보다 위)
 // ----------------------------------------------------------------------
 
 const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -34,61 +37,98 @@ const toTimeMs = (iso?: string) => {
   return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
 };
 
-const num = (v: any, fallback = 0) => {
-  const n = Number(v);
+const num = (v: unknown, fallback = 0) => {
+  const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
 
-// 🚩 에러의 원인이었던 str 함수를 위로 올림
-const str = (v: any, fallback = "") => (typeof v === "string" ? v : fallback);
+const str = (v: unknown, fallback = "") => (typeof v === "string" ? v : fallback);
 
-const getLat = (loc: any) => num(loc?.lat ?? loc?.latitude, 0);
-const getLng = (loc: any) => num(loc?.lng ?? loc?.longitude, 0);
+const isOneOf = <T extends string>(v: unknown, list: readonly T[]): v is T =>
+  typeof v === "string" && (list as readonly string[]).includes(v);
+
+const CATEGORY_KEYS: readonly CategoryKey[] = ["SPORTS", "GAMES", "MEAL", "STUDY", "ETC"] as const;
+const STATUS_KEYS: readonly PostStatus[] = ["OPEN", "FULL", "CANCELED", "STARTED", "ENDED"] as const;
+const JOIN_KEYS: readonly JoinMode[] = ["INSTANT", "APPROVAL"] as const;
+
+const toCategoryKey = (v: unknown): CategoryKey => {
+  if (isOneOf(v, CATEGORY_KEYS)) return v;
+  // 구버전 seed(한글 카테고리) 방어
+  if (v === "운동") return "SPORTS";
+  if (v === "오락") return "GAMES";
+  if (v === "식사") return "MEAL";
+  return "ETC";
+};
+
+const toStatus = (v: unknown): PostStatus => (isOneOf(v, STATUS_KEYS) ? v : "OPEN");
+const toJoinMode = (v: unknown): JoinMode => (isOneOf(v, JOIN_KEYS) ? v : "INSTANT");
+
+const toNumberOrNull = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+};
+
+const getLat = (loc: any): number | null =>
+  toNumberOrNull(loc?.latitude ?? loc?.lat ?? loc?.y ?? loc?.Lat ?? loc?.LAT);
+const getLng = (loc: any): number | null =>
+  toNumberOrNull(loc?.longitude ?? loc?.lng ?? loc?.x ?? loc?.Lng ?? loc?.LNG);
 
 function clonePost(p: MeetingPost): MeetingPost {
-  // 왜 복사?:
-  // - UI에서 post.capacity.current++ 같은 실수로 내부 _DATA가 오염되면
-  //   이후 화면/정렬/버튼 상태가 연쇄적으로 깨짐
   return {
-    ...(p as any),
-    location: p.location ? ({ ...(p.location as any) } as any) : (p.location as any),
-    capacity: p.capacity ? ({ ...(p.capacity as any) } as any) : (p.capacity as any),
-    myState: p.myState ? ({ ...(p.myState as any) } as any) : (p.myState as any),
-    host: p.host ? ({ ...(p.host as any) } as any) : (p.host as any),
-  } as any;
+    ...p,
+    location: p.location ? ({ ...(p.location as any) } as any) : p.location,
+    capacity: p.capacity ? ({ ...(p.capacity as any) } as any) : p.capacity,
+    myState: p.myState ? ({ ...(p.myState as any) } as any) : p.myState,
+    host: p.host ? ({ ...(p.host as any) } as any) : p.host,
+  };
 }
 
 function ensureCapacity(raw: any): MeetingPost["capacity"] {
-  const max = num(raw?.capacity?.max ?? raw?.capacity?.total ?? raw?.capacityTotal ?? raw?.capacity ?? raw?.max ?? 4, 4);
+  const max = num(
+    raw?.capacity?.max ??
+      raw?.capacity?.total ??
+      raw?.capacityTotal ??
+      raw?.capacity ??
+      raw?.max ??
+      4,
+    4,
+  );
   const current = num(
-    raw?.capacity?.current ?? raw?.currentCount ?? raw?.capacityJoined ?? raw?.capacityCurrent ?? raw?.current ?? 0,
-    0
+    raw?.capacity?.current ??
+      raw?.currentCount ??
+      raw?.capacityJoined ??
+      raw?.capacityCurrent ??
+      raw?.current ??
+      0,
+    0,
   );
 
-  const safeMax = Math.max(1, max);
-  const safeCurrent = Math.max(0, Math.min(current, safeMax));
+  const safeMax = Math.max(1, Math.trunc(max));
+  const safeCurrent = Math.max(0, Math.min(Math.trunc(current), safeMax));
 
-  return {
-    max: safeMax,
-    current: safeCurrent,
-    // UI 구버전 호환용 alias
-    total: safeMax,
-  } as any;
+  return { max: safeMax, current: safeCurrent, total: safeMax } as any;
 }
 
-function ensureLocation(raw: any) {
-  const name = str(raw?.location?.name ?? raw?.locationName ?? raw?.locationText ?? raw?.place ?? "", "");
-  const lat = getLat(raw?.location ?? raw);
-  const lng = getLng(raw?.location ?? raw);
+function ensureLocation(raw: any): Location {
+  const base = raw?.location ?? raw;
+
+  const name = str(
+    base?.name ?? raw?.locationName ?? raw?.locationText ?? raw?.place ?? "",
+    "",
+  ).trim();
+
+  const latitude = getLat(base);
+  const longitude = getLng(base);
+
+  const addressRaw = base?.address ?? raw?.address;
+  const address =
+    addressRaw == null ? null : typeof addressRaw === "string" ? addressRaw : null;
 
   return {
-    name,
-    lat,
-    lng,
-    // 구버전 코드 호환용 alias
-    latitude: lat,
-    longitude: lng,
-    address: raw?.location?.address ?? raw?.address ?? undefined,
+    name: name || "장소 미정",
+    latitude: latitude,
+    longitude: longitude,
+    address,
   };
 }
 
@@ -98,7 +138,9 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
@@ -118,11 +160,14 @@ function sortList(list: MeetingPost[], sort: HomeSort, lat?: number, lng?: numbe
       const bLat = getLat(b.location);
       const bLng = getLng(b.location);
 
-      const hasA = Number.isFinite(aLat) && Number.isFinite(aLng);
-      const hasB = Number.isFinite(bLat) && Number.isFinite(bLng);
+      const hasA = Number.isFinite(aLat ?? NaN) && Number.isFinite(aLng ?? NaN);
+      const hasB = Number.isFinite(bLat ?? NaN) && Number.isFinite(bLng ?? NaN);
 
       if (hasBase && hasA && hasB) {
-        return haversineKm(lat!, lng!, aLat, aLng) - haversineKm(lat!, lng!, bLat, bLng);
+        return (
+          haversineKm(lat!, lng!, aLat as number, aLng as number) -
+          haversineKm(lat!, lng!, bLat as number, bLng as number)
+        );
       }
       return parseDistance(a.distanceText) - parseDistance(b.distanceText);
     }
@@ -144,78 +189,116 @@ function calcCanJoin(post: MeetingPost): { canJoin: boolean; reason?: string } {
   return { canJoin: true };
 }
 
+function normalizeHost(raw: any) {
+  const fallback = (HOST_USERS as any)?.me ?? {
+    id: "me",
+    nickname: "나",
+    avatarUrl: null,
+    avgRate: 0,
+    orgTime: 0,
+  };
+
+  const id = str(raw?.id ?? fallback.id, fallback.id);
+  const nickname = str(raw?.nickname ?? fallback.nickname, fallback.nickname);
+  const avatarUrl = raw?.avatarUrl === null ? null : str(raw?.avatarUrl, "") || null;
+
+  const avgRate = num(raw?.avgRate ?? fallback.avgRate ?? 0, 0);
+  const orgTime = Math.max(0, Math.trunc(num(raw?.orgTime ?? fallback.orgTime ?? 0, 0)));
+
+  return { id, nickname, avatarUrl, avgRate, orgTime, intro: raw?.intro } as any;
+}
+
+function normalizeMyState(raw: any, postForCalc: MeetingPost): MeetingPost["myState"] {
+  const ms = raw?.myState ?? raw;
+  const membershipStatus: MembershipStatus = isOneOf(ms?.membershipStatus, [
+    "NONE",
+    "MEMBER",
+    "PENDING",
+    "HOST",
+    "CANCELED",
+    "REJECTED",
+  ] as const)
+    ? ms.membershipStatus
+    : "NONE";
+
+  if (membershipStatus !== "NONE") {
+    return {
+      membershipStatus,
+      canJoin: false,
+      reason: ms?.reason ? String(ms.reason) : undefined,
+    } as any;
+  }
+
+  const canJoinInfo = calcCanJoin(postForCalc);
+  return {
+    membershipStatus: "NONE",
+    canJoin: canJoinInfo.canJoin,
+    reason: canJoinInfo.reason,
+  } as any;
+}
+
 function normalizeSeedToPost(raw: any): MeetingPost {
   const meetingTime = str(raw?.meetingTime ?? raw?.meetingTimeIso, nowIso());
   const location = ensureLocation(raw);
   const capacity = ensureCapacity(raw);
 
-  const basePostForCanJoin: MeetingPost = {
+  const base: MeetingPost = {
     id: String(raw?.id ?? `m_${Date.now()}`),
-    category: raw?.category ?? "ETC",
-    title: str(raw?.title, ""),
-    content: raw?.content ?? undefined,
+    category: toCategoryKey(raw?.category),
+    title: str(raw?.title, "").trim() || "(제목 없음)",
+    content: typeof raw?.content === "string" ? raw.content : undefined,
     meetingTime,
-    durationMinutes: raw?.durationMinutes ?? undefined,
+    durationMinutes: typeof raw?.durationMinutes === "number" ? raw.durationMinutes : undefined,
     location,
     capacity,
-    joinMode: raw?.joinMode ?? "INSTANT",
-    conditions: raw?.conditions ?? undefined,
-    items: raw?.items ?? undefined,
-    status: raw?.status ?? "OPEN",
-    distanceText: raw?.distanceText ?? undefined,
-    meetingTimeText: raw?.meetingTimeText ?? undefined,
-    host: raw?.host ?? undefined,
-    myState: raw?.myState ?? undefined,
-  };
+    joinMode: toJoinMode(raw?.joinMode),
+    conditions: typeof raw?.conditions === "string" ? raw.conditions : undefined,
+    items: typeof raw?.items === "string" ? raw.items : undefined,
+    status: toStatus(raw?.status),
+    distanceText: typeof raw?.distanceText === "string" ? raw.distanceText : undefined,
+    meetingTimeText: typeof raw?.meetingTimeText === "string" ? raw.meetingTimeText : undefined,
+    host: raw?.host ? normalizeHost(raw.host) : undefined,
+    myState: undefined,
+    address: location?.address ?? undefined,
+  } as any;
 
   return {
-    ...basePostForCanJoin,
-    myState:
-      raw?.myState ??
-      ({
-        membershipStatus: "NONE",
-        ...calcCanJoin(basePostForCanJoin),
-      } as any),
+    ...base,
+    myState: normalizeMyState(raw?.myState, base),
   };
 }
 
 // ----------------------------------------------------------------------
-// ✅ 2. Data Initialization (Helpers 정의 이후에 실행됨)
+// ✅ 2) Data Initialization
 // ----------------------------------------------------------------------
 
-// ✅ Local State Deep Copy (seed normalize)
-// 이제 str, normalizeSeedToPost가 정의된 상태이므로 에러가 나지 않습니다.
 let _DATA: MeetingPost[] = (JSON.parse(JSON.stringify(MOCK_MEETINGS_SEED)) as any[]).map(normalizeSeedToPost);
-
-// ✅ 참여자 더미 데이터 저장소
 const _PARTICIPANTS: Record<string, Participant[]> = {};
-
-// ✅ 평가 기록 저장소 (Mock)
 const _MEETING_LAST_STARS: Record<string, number> = {};
 
 // ----------------------------------------------------------------------
-// ✅ 3. Remaining Helpers (데이터 의존성이 있는 함수들)
+// ✅ 3) Remaining Helpers
 // ----------------------------------------------------------------------
 
 const ensureParticipants = (meetingId: string) => {
-  if (!_PARTICIPANTS[meetingId]) {
-    _PARTICIPANTS[meetingId] = [
-      {
-        id: "u_test_1",
-        nickname: "테니스왕",
-        avatarUrl: "https://i.pravatar.cc/150?u=test1",
-        status: "PENDING",
-        appliedAt: new Date(Date.now() - 3600_000).toISOString(),
-      },
-      {
-        id: "u_test_2",
-        nickname: "초보에요",
-        avatarUrl: null,
-        status: "MEMBER",
-        appliedAt: new Date(Date.now() - 7200_000).toISOString(),
-      },
-    ];
-  }
+  if (_PARTICIPANTS[meetingId]) return;
+
+  _PARTICIPANTS[meetingId] = [
+    {
+      id: "u_test_1",
+      nickname: "테니스왕",
+      avatarUrl: "https://i.pravatar.cc/150?u=test1",
+      status: "PENDING",
+      appliedAt: new Date(Date.now() - 3600_000).toISOString(),
+    },
+    {
+      id: "u_test_2",
+      nickname: "초보에요",
+      avatarUrl: null,
+      status: "MEMBER",
+      appliedAt: new Date(Date.now() - 7200_000).toISOString(),
+    },
+  ];
 };
 
 function minutesUntil(iso?: string) {
@@ -234,12 +317,7 @@ function remainingSeats(post: MeetingPost) {
 function recomputeMyState(post: MeetingPost): MeetingPost["myState"] {
   const prev = post.myState as any;
   const status = prev?.membershipStatus ?? "NONE";
-
-  // 왜 유지?:
-  // - 이미 HOST/MEMBER/PENDING인 상태에서 updateMeeting 등으로
-  //   canJoin을 다시 계산해버리면 UI가 "참여 가능"처럼 보이는 오해가 생김
   if (status !== "NONE") return prev;
-
   return {
     membershipStatus: "NONE",
     ...calcCanJoin(post),
@@ -247,7 +325,7 @@ function recomputeMyState(post: MeetingPost): MeetingPost["myState"] {
 }
 
 // ----------------------------------------------------------------------
-// ✅ 4. API Export
+// ✅ 4) API Export
 // ----------------------------------------------------------------------
 
 export const meetingApiLocal: MeetingApi = {
@@ -294,7 +372,9 @@ export const meetingApiLocal: MeetingApi = {
       .map((m) => {
         const mLat = getLat(m.location);
         const mLng = getLng(m.location);
-        return { m, dist: haversineKm(lat, lng, mLat, mLng) };
+        const valid = Number.isFinite(mLat ?? NaN) && Number.isFinite(mLng ?? NaN);
+        const dist = valid ? haversineKm(lat, lng, mLat as number, mLng as number) : Number.POSITIVE_INFINITY;
+        return { m, dist };
       })
       .filter(({ dist }) => dist <= radiusKm);
 
@@ -304,7 +384,7 @@ export const meetingApiLocal: MeetingApi = {
       clonePost({
         ...m,
         distanceText: dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)}km`,
-      } as any)
+      } as any),
     );
   },
 
@@ -317,18 +397,19 @@ export const meetingApiLocal: MeetingApi = {
 
   async createMeeting(data: MeetingUpsert) {
     await delay(800);
-    const newId = String(Date.now());
 
+    const newId = String(Date.now());
     const maxRaw = (data.capacity as any)?.max ?? (data.capacity as any)?.total ?? 4;
-    const max = Math.max(1, num(maxRaw, 4));
+    const max = Math.max(1, Math.trunc(num(maxRaw, 4)));
     const current = 1; // 호스트 포함
 
     const loc = ensureLocation({ location: data.location });
+    const host = normalizeHost((HOST_USERS as any)?.me);
 
     const newPost: MeetingPost = {
       id: newId,
       category: data.category,
-      title: data.title,
+      title: (data.title?.trim() ? data.title : "(제목 없음)") as any,
       content: data.content,
       meetingTime: data.meetingTime,
       durationMinutes: data.durationMinutes,
@@ -339,9 +420,11 @@ export const meetingApiLocal: MeetingApi = {
       conditions: data.conditions,
       items: data.items,
       distanceText: "0km",
+      meetingTimeText: undefined,
+      host,
       myState: { membershipStatus: "HOST", canJoin: false } as any,
-      host: HOST_USERS.me,
-    };
+      address: loc.address ?? undefined,
+    } as any;
 
     _DATA.unshift(newPost);
     return clonePost(newPost);
@@ -353,11 +436,26 @@ export const meetingApiLocal: MeetingApi = {
     if (idx === -1) throw new Error("Meeting not found");
 
     const prev = _DATA[idx];
-    const nextLocation = patch.location ? { ...(prev.location as any), ...(patch.location as any) } : prev.location;
+
+    const nextLocation = patch.location
+      ? ({
+          ...(prev.location as any),
+          ...(patch.location as any),
+          name: str((patch.location as any)?.name ?? prev.location?.name, prev.location?.name ?? "장소 미정"),
+          latitude:
+            toNumberOrNull((patch.location as any)?.latitude ?? (patch.location as any)?.lat) ??
+            prev.location?.latitude ??
+            null,
+          longitude:
+            toNumberOrNull((patch.location as any)?.longitude ?? (patch.location as any)?.lng) ??
+            prev.location?.longitude ??
+            null,
+        } as any)
+      : prev.location;
 
     const patchMax = (patch.capacity as any)?.max ?? (patch.capacity as any)?.total;
     const prevMax = num((prev.capacity as any)?.max ?? (prev.capacity as any)?.total, 4);
-    const nextMax = typeof patchMax === "number" ? Math.max(1, patchMax) : prevMax;
+    const nextMax = typeof patchMax === "number" && Number.isFinite(patchMax) ? Math.max(1, Math.trunc(patchMax)) : prevMax;
 
     const prevCurrent = num((prev.capacity as any)?.current, 0);
     const nextCurrent = Math.min(prevCurrent, nextMax);
@@ -368,11 +466,12 @@ export const meetingApiLocal: MeetingApi = {
       meetingTime: patch.meetingTime ?? prev.meetingTime,
       location: nextLocation as any,
       capacity: { ...(prev.capacity as any), max: nextMax, current: nextCurrent, total: nextMax } as any,
-    };
+      title: (patch.title?.trim() ? patch.title : prev.title) as any,
+    } as any;
 
     next.myState = recomputeMyState(next);
-
     _DATA[idx] = next;
+
     return clonePost(next);
   },
 
@@ -405,10 +504,9 @@ export const meetingApiLocal: MeetingApi = {
       ...target,
       capacity: { ...(target.capacity as any), max, current: newCurrent, total: max } as any,
       myState: { membershipStatus: newStatus, canJoin: false } as any,
-    };
+    } as any;
 
     _DATA[idx] = nextPost;
-
     return { post: clonePost(nextPost), membershipStatus: newStatus };
   },
 
@@ -431,10 +529,9 @@ export const meetingApiLocal: MeetingApi = {
         total: max,
       } as any,
       myState: { membershipStatus: "NONE", ...calcCanJoin(target) } as any,
-    };
+    } as any;
 
     _DATA[idx] = nextPost;
-
     return { post: clonePost(nextPost) };
   },
 
@@ -452,6 +549,7 @@ export const meetingApiLocal: MeetingApi = {
 
     const list = _PARTICIPANTS[key];
     const target = list.find((p) => String(p.id) === String(userId));
+
     if (target && target.status === "PENDING") {
       target.status = "MEMBER";
 
@@ -465,7 +563,7 @@ export const meetingApiLocal: MeetingApi = {
         _DATA[mIdx] = {
           ...m,
           capacity: { ...(m.capacity as any), max, current: next, total: max } as any,
-        };
+        } as any;
         _DATA[mIdx].myState = recomputeMyState(_DATA[mIdx]);
       }
     }
@@ -498,9 +596,9 @@ export const meetingApiLocal: MeetingApi = {
     const post = _DATA[idx];
     if (post.host) {
       post.host = {
-        ...post.host,
+        ...(post.host as any),
         avgRate: stars,
-        orgTime: (post.host.orgTime ?? 0) + 1,
+        orgTime: Math.max(0, Math.trunc(num((post.host as any)?.orgTime ?? 0, 0))) + 1,
       } as any;
     }
 

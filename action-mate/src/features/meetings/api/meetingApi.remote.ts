@@ -1,7 +1,6 @@
 // src/features/meetings/api/meetingApi.remote.ts
 import { client } from "@/shared/api/apiClient";
 import { endpoints } from "@/shared/api/endpoints";
-
 import type { MeetingApi, MeetingPost, MeetingUpsert, HotMeetingItem } from "../model/types";
 import type { MeetingPostDTO, ApplicantDTO } from "../model/dto";
 import {
@@ -29,8 +28,8 @@ function ensureArray<T>(v: T | T[] | null | undefined): T[] {
 }
 
 /**
- * 삭제/조인/취소 등에서 최소 응답만 주는 서버를 대비해,
- * 가능한 경우 최신 Post를 한번 읽어와 UI 일관성을 유지합니다.
+ * 삭제/조인/취소 등에서 최소 응답만 주는 서버 대비:
+ * 가능한 경우 최신 Post를 한번 읽어와 UI 일관성을 유지
  */
 async function safeFetchPost(id: number | string): Promise<MeetingPost | null> {
   try {
@@ -56,6 +55,19 @@ function remainingSeats(post: MeetingPost) {
   return Math.max(0, max - current);
 }
 
+async function patchApplicantState(meetingId: number | string, userId: string, state: "APPROVED" | "REJECTED") {
+  const url = endpoints.posts.decideApplicant(meetingId, userId);
+
+  // 1) JSON 시도
+  try {
+    await client.patch(url, { state }, { headers: { "Content-Type": "application/json" } });
+    return;
+  } catch {
+    // 2) text/plain 시도(서버가 문자열만 받는 경우)
+    await client.patch(url, state, { headers: { "Content-Type": "text/plain" } });
+  }
+}
+
 export const meetingApiRemote: MeetingApi = {
   // 1) 핫한 모임
   async listHotMeetings({ limit = 6, withinMinutes = 180 } = {}) {
@@ -63,13 +75,11 @@ export const meetingApiRemote: MeetingApi = {
     const latitude = anyOpts?.latitude ?? anyOpts?.lat;
     const longitude = anyOpts?.longitude ?? anyOpts?.lng;
     const radiusMeters =
-      anyOpts?.radiusMeters ??
-      (typeof anyOpts?.radiusKm === "number" ? anyOpts.radiusKm * 1000 : undefined);
+      anyOpts?.radiusMeters ?? (typeof anyOpts?.radiusKm === "number" ? anyOpts.radiusKm * 1000 : undefined);
 
     let list: MeetingPost[] = [];
 
     if (typeof latitude === "number" && typeof longitude === "number") {
-      // OpenAPI: /posts/hot
       const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(endpoints.posts.hot, {
         params: pickDefined({
           latitude,
@@ -79,7 +89,6 @@ export const meetingApiRemote: MeetingApi = {
       });
       list = ensureArray(res.data).map(toMeetingPost);
     } else {
-      // fallback: /posts 전체
       const res = await client.get<MeetingPostDTO[] | MeetingPostDTO>(endpoints.posts.list);
       list = ensureArray(res.data).map(toMeetingPost);
     }
@@ -168,9 +177,7 @@ export const meetingApiRemote: MeetingApi = {
     await client.delete(endpoints.posts.byId(id));
 
     return {
-      post: before
-        ? { ...before, status: "CANCELED" }
-        : ({ id: String(id), status: "CANCELED" } as unknown as MeetingPost),
+      post: before ? { ...before, status: "CANCELED" } : ({ id: String(id), status: "CANCELED" } as unknown as MeetingPost),
     };
   },
 
@@ -198,23 +205,23 @@ export const meetingApiRemote: MeetingApi = {
 
   // 11) 승인
   async approveParticipant(meetingId, userId) {
-    await client.patch(endpoints.posts.decideApplicant(meetingId, String(userId)), "APPROVED", {
-      headers: { "Content-Type": "application/json" },
-    });
+    await patchApplicantState(meetingId, String(userId), "APPROVED");
     return this.getParticipants(meetingId);
   },
 
   // 12) 거절
   async rejectParticipant(meetingId, userId) {
-    await client.patch(endpoints.posts.decideApplicant(meetingId, String(userId)), "REJECTED", {
-      headers: { "Content-Type": "application/json" },
-    });
+    await patchApplicantState(meetingId, String(userId), "REJECTED");
     return this.getParticipants(meetingId);
   },
 
   // 13) 별점 평가
   async submitMeetingRating(req: { meetingId: string; stars: number }): Promise<unknown> {
-    await client.post(endpoints.posts.ratings(req.meetingId), { stars: req.stars } as any);
+    // 서버 구현이 score/stars 중 하나만 받는 경우가 있어 둘 다 포함(호환성 ↑)
+    await client.post(endpoints.posts.ratings(req.meetingId), {
+      score: req.stars,
+      stars: req.stars,
+    } as any);
     return { ok: true };
   },
 };
