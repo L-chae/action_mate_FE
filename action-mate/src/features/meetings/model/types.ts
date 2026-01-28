@@ -1,4 +1,6 @@
+// ============================================================================
 // src/features/meetings/model/types.ts
+// ============================================================================
 import type {
   Capacity,
   CapacityInput,
@@ -27,19 +29,10 @@ export type HomeSort = "LATEST" | "NEAR" | "SOON";
 export type JoinMode = SharedJoinMode;
 
 export type PostStatus = "OPEN" | "FULL" | "CANCELED" | "STARTED" | "ENDED";
-export type MembershipStatus =
-  | "NONE"
-  | "MEMBER"
-  | "PENDING"
-  | "HOST"
-  | "CANCELED"
-  | "REJECTED";
+export type MembershipStatus = "NONE" | "MEMBER" | "PENDING" | "HOST" | "CANCELED" | "REJECTED";
 
 /**
  * ✅ UI 기본값 규칙(표준)
- * - address는 "표시용 문자열"이라서, 빈 문자열을 기본값으로 두면 렌더 분기가 단순해짐
- * - 하지만 서버 결측(null)도 들어올 수 있으니 타입은 null까지 허용하고,
- *   정규화 단계에서 string으로 밀어넣는 방식이 유지보수에 유리
  */
 export const MEETING_UI_DEFAULTS = {
   title: "(제목 없음)",
@@ -93,10 +86,6 @@ export type MeetingPostRaw = MeetingShapeRaw & {
   meetingTimeText?: string;
   distanceText?: string;
 
-  /**
-   * ✅ 서버에서 null/빈문자/undefined로 올 수 있는 영역
-   * - Raw는 변형되지 않은 값이 들어오므로 null을 허용하는 게 안전
-   */
   address?: string | null;
 
   host?: HostSummaryRaw;
@@ -152,6 +141,11 @@ export type MeetingShape = {
   durationMinutes?: number;
 
   location: MeetingLocation;
+
+  /**
+   * ✅ UI에서는 max를 필수로 둬서 폼/검증을 단순화
+   * - 서버는 number/null/undefined 혼재 가능 → mapper에서 Capacity로 정규화
+   */
   capacity: MeetingCapacityInput;
 
   joinMode: JoinMode;
@@ -159,12 +153,6 @@ export type MeetingShape = {
   items?: string;
 };
 
-/**
- * ✅ MeetingPost(UI)
- * - id는 NormalizedId(string)
- * - address: 화면 표시용이지만, 서버/목업에서 null이 들어오는 케이스가 흔하므로 허용
- *   (렌더링은 DetailContent에서 (addressText || distanceText) 조건으로 이미 안전)
- */
 export type MeetingPost = Omit<MeetingShape, "capacity"> & {
   id: NormalizedId;
   status: PostStatus;
@@ -180,9 +168,6 @@ export type MeetingPost = Omit<MeetingShape, "capacity"> & {
   myState?: MyState;
 };
 
-/**
- * ✅ MeetingUpsert(UI)
- */
 export type MeetingUpsert = MeetingShape;
 
 // 조회 옵션
@@ -203,9 +188,6 @@ export type HotMeetingItem = {
   capacity: MeetingCapacity;
 };
 
-/**
- * --- API Interface ---
- */
 export interface MeetingApi {
   listHotMeetings(opts?: { limit?: number; withinMinutes?: number }): Promise<HotMeetingItem[]>;
   listMeetings(opts?: { category?: CategoryKey | "ALL"; sort?: HomeSort }): Promise<MeetingPost[]>;

@@ -145,8 +145,8 @@ export async function clearCurrentUserId(): Promise<void> {
  * 토큰을 한 번에 설정(로그인/갱신 응답 처리에 편리)
  */
 export async function setAuthTokens(tokens: { accessToken: string; refreshToken: string }): Promise<void> {
-  const access = tokens?.accessToken ?? "";
-  const refresh = tokens?.refreshToken ?? "";
+  const access = String(tokens?.accessToken ?? "");
+  const refresh = String(tokens?.refreshToken ?? "");
   await Promise.all([setAccessToken(access), setRefreshToken(refresh)]);
 }
 
@@ -189,9 +189,7 @@ export async function withAuthHeader(headers: Record<string, string> = {}): Prom
 /**
  * Refresh 토큰 헤더 헬퍼(필요 시)
  */
-export async function withRefreshAuthHeader(
-  headers: Record<string, string> = {}
-): Promise<Record<string, string>> {
+export async function withRefreshAuthHeader(headers: Record<string, string> = {}): Promise<Record<string, string>> {
   const token = await getRefreshToken();
   if (!token) return headers;
 
@@ -201,7 +199,7 @@ export async function withRefreshAuthHeader(
   };
 }
 
-// 3줄 요약
-// - ShortOrg 키(shortorg.*)로 정리하고, 기존 actionmate.* 값이 있으면 자동 마이그레이션하도록 수정했습니다.
-// - SecureStore 미지원/오류 상황에서도 앱이 죽지 않도록 in-memory fallback + try/catch로 방어했습니다.
-// - 빈 문자열 저장 시 자동 삭제 처리로 토큰 상태 꼬임을 줄였습니다.
+// 요약(3줄)
+// - SecureStore 미지원/오류 시 in-memory fallback으로 앱 셧다운을 방지.
+// - legacy 키(actionmate.*)를 자동 마이그레이션해 기존 사용자 세션을 보존.
+// - Authorization은 항상 Bearer 형식을 전제로 헤더 헬퍼를 유지.

@@ -97,8 +97,3 @@ export const mapApiPostToMyMeetingItem = (
   const uiPost = mapApiPostToPost(raw as any, { apiBaseUrl: opts?.apiBaseUrl ?? API_BASE_URL });
   return mapPostToMyMeetingItem(uiPost);
 };
-
-// 3줄 요약
-// - MyProfile은 /users/{userId}/profile(OpenAPI) 응답을 shared mapper로 표준화 후 필요한 필드만 사용합니다.
-// - MyMeetingItem은 공용 Post(UI)에서 목록에 필요한 필드만 뽑아 locationName/dateText로 단순화했습니다.
-// - Raw(ApiPost)로 오는 케이스도 깨지지 않게 “ApiPost → UI Post → MyMeetingItem” 경로를 추가했습니다.

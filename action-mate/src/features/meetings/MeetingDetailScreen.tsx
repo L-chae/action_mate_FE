@@ -1,4 +1,4 @@
-// src/features/meetings/MeetingDetailScreen.tsx
+// FILE: src/features/meetings/MeetingDetailScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,16 +22,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
-// ✅ Store & API
 import { useAuthStore } from "@/features/auth/model/authStore";
-import { meetingApi } from "@/features/meetings/api/meetingApi";
+import { meetingApi, MEETING_COMMENTS_MOCK } from "@/features/meetings/api/meetingApi";
 import { findDMThreadByMeetingId } from "@/features/dm/api/dmApi";
 import type { Comment, MeetingPost, Participant } from "@/features/meetings/model/types";
 
-// ✅ MOCK (댓글 표시용)
-import { MEETING_COMMENTS_MOCK } from "@/features/meetings/mocks/meetingMockData";
-
-// ✅ UI & Hooks
 import AppLayout from "@/shared/ui/AppLayout";
 import TopBar from "@/shared/ui/TopBar";
 import NotiButton from "@/shared/ui/NotiButton";
@@ -76,14 +71,14 @@ function hexToRgba(hex: string, alpha: number) {
 }
 
 const makeStyles = (t: AppTheme) => {
-  const baseText =
-    t?.colors?.textMain ?? t?.colors?.icon?.default ?? t?.colors?.primary ?? "#000000";
+  const baseText = t?.colors?.textMain ?? t?.colors?.icon?.default ?? t?.colors?.primary ?? "#000000";
   const overlay = hexToRgba(baseText, 0.5);
   const handle =
     t?.colors?.neutral?.[200] ??
     t?.colors?.neutral?.[100] ??
     t?.colors?.icon?.default ??
-    t?.colors?.textMain;
+    t?.colors?.textMain ??
+    "#999999";
 
   return StyleSheet.create({
     center: { flex: 1, justifyContent: "center", alignItems: "center" },
@@ -181,9 +176,7 @@ export default function MeetingDetailScreen() {
   });
 
   useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", (e) =>
-      setKeyboardHeight(e.endCoordinates.height)
-    );
+    const showSub = Keyboard.addListener("keyboardDidShow", (e) => setKeyboardHeight(e.endCoordinates.height));
     const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
     return () => {
       showSub.remove();
@@ -191,9 +184,6 @@ export default function MeetingDetailScreen() {
     };
   }, []);
 
-  // ✅ 거리 표시가 늦게 나오는 문제 개선:
-  // 1) lastKnown 위치로 즉시 1차 계산(빠름)
-  // 2) current 위치로 2차 보정(정확)
   useEffect(() => {
     const targetLat = Number((post as any)?.location?.latitude ?? (post as any)?.location?.lat);
     const targetLng = Number((post as any)?.location?.longitude ?? (post as any)?.location?.lng);
@@ -221,7 +211,6 @@ export default function MeetingDetailScreen() {
         return;
       }
 
-      // ✅ 빠른 1차: 마지막으로 알고 있는 위치(대부분 즉시 반환)
       try {
         const last = await Location.getLastKnownPositionAsync({
           maxAge: 2 * 60 * 1000,
@@ -230,24 +219,16 @@ export default function MeetingDetailScreen() {
 
         const myLat = Number(last?.coords?.latitude);
         const myLng = Number(last?.coords?.longitude);
-        if (Number.isFinite(myLat) && Number.isFinite(myLng)) {
-          setDist(myLat, myLng);
-        }
+        if (Number.isFinite(myLat) && Number.isFinite(myLng)) setDist(myLat, myLng);
       } catch {
         // ignore
       }
 
-      // ✅ 정확한 2차: 현재 위치(느릴 수 있으나 도착하면 덮어씀)
       try {
-        const cur = await Location.getCurrentPositionAsync({
-          accuracy: pickAccuracy("normal"),
-        } as any);
-
+        const cur = await Location.getCurrentPositionAsync({ accuracy: pickAccuracy("normal") } as any);
         const myLat = Number(cur?.coords?.latitude);
         const myLng = Number(cur?.coords?.longitude);
-        if (Number.isFinite(myLat) && Number.isFinite(myLng)) {
-          setDist(myLat, myLng);
-        }
+        if (Number.isFinite(myLat) && Number.isFinite(myLng)) setDist(myLat, myLng);
       } catch {
         // ignore
       }
@@ -267,17 +248,10 @@ export default function MeetingDetailScreen() {
   const membership = post?.myState?.membershipStatus ?? "NONE";
   const canJoin = post?.myState?.canJoin ?? post?.status === "OPEN";
 
-  const pendingCount = useMemo(
-    () => participants.filter((p) => p.status === "PENDING").length,
-    [participants]
-  );
+  const pendingCount = useMemo(() => participants.filter((p) => p.status === "PENDING").length, [participants]);
 
   const contentBottomPadding = useMemo(() => {
-    return (
-      (isKeyboardVisible ? 0 : bottomBarHeight) +
-      20 +
-      (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0)
-    );
+    return (isKeyboardVisible ? 0 : bottomBarHeight) + 20 + (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
   }, [bottomBarHeight, isKeyboardVisible, keyboardHeight]);
 
   const displayHost = useMemo(() => {
@@ -293,9 +267,6 @@ export default function MeetingDetailScreen() {
     return { ...post, host: displayHost ?? post.host };
   }, [post, displayHost]);
 
-  // ✅ DetailContent가 어디서든 안정적으로 쓸 수 있도록:
-  // - post.distanceText + location.distanceText 모두 채움
-  // - 주소 라인 결합은 DetailContent에서도 처리하지만, 여기서도 보강
   const displayPostWithDistance = useMemo(() => {
     const base = displayPost ?? post;
     const dist = String(distanceText ?? "").trim();
@@ -310,8 +281,7 @@ export default function MeetingDetailScreen() {
   const handleScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-      const distanceFromBottom =
-        contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
+      const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
       stickToBottomRef.current = distanceFromBottom < 24;
     },
     [contentBottomPadding]
@@ -328,12 +298,12 @@ export default function MeetingDetailScreen() {
       const m = await meetingApi.getMeeting(meetingId);
       setPost(m);
 
-      setComments(MEETING_COMMENTS_MOCK);
+      setComments(Array.isArray(MEETING_COMMENTS_MOCK) ? MEETING_COMMENTS_MOCK : []);
 
       const hostId = m.host?.id ? String(m.host.id) : "";
       if (m.myState?.membershipStatus === "HOST" || hostId === String(currentUserId)) {
         const parts = await meetingApi.getParticipants(String(m.id));
-        setParticipants(parts);
+        setParticipants(Array.isArray(parts) ? parts : []);
       } else {
         setParticipants([]);
       }
@@ -409,7 +379,7 @@ export default function MeetingDetailScreen() {
           pathname: "/dm/[threadId]",
           params: {
             threadId: existingThread.id,
-            nickname: existingThread.otherUser.nickname,
+            nickname: existingThread.otherUser?.nickname ?? "상대",
             meetingTitle: post.title,
           },
         } as any);
@@ -417,11 +387,11 @@ export default function MeetingDetailScreen() {
         router.push({
           pathname: "/dm/[threadId]",
           params: {
-            threadId: `new_${post.id}_${post.host?.id}`,
+            threadId: `new_${post.id}_${post.host?.id ?? "host"}`,
             meetingId: post.id,
             meetingTitle: post.title,
-            nickname: post.host?.nickname,
-            opponentId: post.host?.id,
+            nickname: post.host?.nickname ?? "상대",
+            opponentId: post.host?.id ?? "",
           },
         } as any);
       }
@@ -442,8 +412,7 @@ export default function MeetingDetailScreen() {
       );
       setEditingComment(null);
     } else {
-      const replyNickname =
-        (replyTarget as any)?.author?.nickname ?? (replyTarget as any)?.authorNickname ?? "알 수 없음";
+      const replyNickname = (replyTarget as any)?.author?.nickname ?? (replyTarget as any)?.authorNickname ?? "알 수 없음";
 
       const newComment: Comment = {
         id: `new_${Date.now()}`,
@@ -480,20 +449,11 @@ export default function MeetingDetailScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {displayHost && (
-        <ProfileModal
-          visible={profileVisible}
-          user={displayHost}
-          onClose={() => setProfileVisible(false)}
-        />
-      )}
+      {displayHost ? (
+        <ProfileModal visible={profileVisible} user={displayHost} onClose={() => setProfileVisible(false)} />
+      ) : null}
 
-      <Modal
-        visible={menuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuVisible(false)}
-      >
+      <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
         <Pressable style={s.modalOverlay} onPress={() => setMenuVisible(false)}>
           <Pressable
             style={[
@@ -508,14 +468,14 @@ export default function MeetingDetailScreen() {
               style={s.menuItem}
               onPress={() => {
                 setMenuVisible(false);
-                router.push(`/meetings/edit/${(post as any).id}` as any);
+                router.push(`/meetings/edit/${(post as any)?.id}` as any);
               }}
             >
               <Ionicons name="pencil-outline" size={20} color={t.colors.textMain} />
               <Text style={t.typography.bodyLarge}>게시글 수정</Text>
             </Pressable>
 
-            <View style={[s.menuDivider, { backgroundColor: t.colors.neutral[100] }]} />
+            <View style={[s.menuDivider, { backgroundColor: t.colors.neutral?.[100] ?? t.colors.border }]} />
 
             <Pressable
               style={s.menuItem}
@@ -528,7 +488,7 @@ export default function MeetingDetailScreen() {
                     style: "destructive",
                     onPress: async () => {
                       try {
-                        await meetingApi.cancelMeeting(String((post as any).id));
+                        await meetingApi.cancelMeeting(String((post as any)?.id));
                         router.back();
                       } catch {
                         Alert.alert("오류", "삭제 실패");
@@ -555,19 +515,19 @@ export default function MeetingDetailScreen() {
           renderRight={() =>
             isAuthor ? (
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                {pendingCount > 0 && (
+                {pendingCount > 0 ? (
                   <View style={{ marginRight: 10 }}>
                     <NotiButton
-                      color={t.colors.icon.default}
+                      color={t.colors.icon?.default ?? t.colors.textMain}
                       backgroundColor={t.colors.background}
                       count={pendingCount}
                       size={24}
-                      onPress={() => router.push(`/meetings/manage/${(post as any).id}` as any)}
+                      onPress={() => router.push(`/meetings/manage/${(post as any)?.id}` as any)}
                     />
                   </View>
-                )}
+                ) : null}
                 <Pressable onPress={() => setMenuVisible(true)} hitSlop={12} style={{ padding: 4 }}>
-                  <Ionicons name="ellipsis-vertical" size={24} color={t.colors.icon.default} />
+                  <Ionicons name="ellipsis-vertical" size={24} color={t.colors.icon?.default ?? t.colors.textMain} />
                 </Pressable>
               </View>
             ) : null
@@ -615,11 +575,7 @@ export default function MeetingDetailScreen() {
                 const node = findNodeHandle(inputRef.current);
                 const responder = (scrollViewRef.current as any)?.getScrollResponder?.();
                 if (node && responder?.scrollResponderScrollNativeHandleToKeyboard) {
-                  responder.scrollResponderScrollNativeHandleToKeyboard(
-                    node,
-                    Platform.OS === "android" ? 20 : 12,
-                    true
-                  );
+                  responder.scrollResponderScrollNativeHandleToKeyboard(node, Platform.OS === "android" ? 20 : 12, true);
                 } else {
                   scrollToBottomSoon(true);
                 }
@@ -638,7 +594,7 @@ export default function MeetingDetailScreen() {
             onJoin={handleJoin}
             onCancelJoin={handleCancelJoin}
             onEnterChat={handleEnterChat}
-            onManage={() => router.push(`/meetings/manage/${(post as any).id}` as any)}
+            onManage={() => router.push(`/meetings/manage/${(post as any)?.id}` as any)}
             onLayoutHeight={setBottomBarHeight}
           />
         </KeyboardAvoidingView>
@@ -649,7 +605,8 @@ export default function MeetingDetailScreen() {
 
 /*
 요약:
-1) lastKnown 위치로 먼저 거리 계산해 “즉시 표시”하고, current 위치로 뒤에서 “정확 보정”합니다.
-2) post.distanceText + post.location.distanceText를 함께 채워 DetailContent 어디서든 거리 표기가 안정적입니다.
-3) 권한/좌표 실패 시 빈 값 처리 + 언마운트 setState 방지로 크래시/잔상 노출을 막습니다.
+1) 댓글 목업 import를 meetingApi로 통일하고, theme 접근은 optional 체이닝으로 크래시를 방지했습니다.
+2) 참여자/채팅 진입 파라미터를 방어적으로 구성해 누락 데이터에도 안전합니다.
+3) menu/뱃지/색상 접근에서 neutral/icon 필드 미존재 케이스를 기본값으로 처리했습니다.
 */
+// END FILE

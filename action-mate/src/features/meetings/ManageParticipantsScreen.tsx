@@ -1,4 +1,4 @@
-// ManageParticipantsScreen.tsx
+// FILE: src/features/meetings/ManageParticipantsScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -27,7 +27,6 @@ import type { MeetingPost, Participant, MembershipStatus } from "@/features/meet
 
 type TabKey = "PENDING" | "CONFIRMED";
 
-// ✅ FlatList sticky 안정 패턴
 type Row =
   | { _type: "STICKY" }
   | { _type: "EMPTY" }
@@ -40,7 +39,7 @@ export default function ManageParticipantsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
-  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const id = Array.isArray((params as any)?.id) ? (params as any).id[0] : (params as any)?.id;
 
   const me = useAuthStore((s) => s.user);
   const currentUserId = me?.id ? String(me.id) : "guest";
@@ -63,7 +62,6 @@ export default function ManageParticipantsScreen() {
   const isHost =
     post?.myState?.membershipStatus === "HOST" || (post?.host?.id != null && String(post.host.id) === currentUserId);
 
-  // ✅ derived lists
   const pending = useMemo(() => participants.filter((p) => p.status === "PENDING"), [participants]);
   const confirmed = useMemo(() => participants.filter((p) => isConfirmedStatus(p.status)), [participants]);
 
@@ -71,15 +69,12 @@ export default function ManageParticipantsScreen() {
     const base = tab === "PENDING" ? pending : confirmed;
     const q = query.trim().toLowerCase();
     if (!q) return base;
-
     return base.filter((p) => String(p.nickname ?? "").toLowerCase().includes(q));
   }, [tab, pending, confirmed, query]);
 
-  // ✅ access guards
   const isReady = !loading && !!post;
   const accessDenied = isReady && (!post || !isHost);
 
-  // ✅ load 레이스 방지: 마지막 요청만 반영
   const loadSeq = useRef(0);
 
   const load = useCallback(
@@ -99,7 +94,7 @@ export default function ManageParticipantsScreen() {
         if (hostOk) {
           const parts = await meetingApi.getParticipants(String(m.id) as any);
           if (seq !== loadSeq.current) return;
-          setParticipants(parts);
+          setParticipants(Array.isArray(parts) ? parts : []);
         } else {
           setParticipants([]);
         }
@@ -126,16 +121,14 @@ export default function ManageParticipantsScreen() {
     }
   }, [load]);
 
-  // ✅ 로컬 즉시 업데이트 helpers (optimistic)
   const updateParticipant = useCallback((userId: string, patch: Partial<Participant>) => {
-    setParticipants((prev) => prev.map((p) => (String(p.id) === userId ? { ...p, ...patch } : p)));
+    setParticipants((prev) => prev.map((p) => (String(p.id) === String(userId) ? { ...p, ...patch } : p)));
   }, []);
 
   const removeParticipant = useCallback((userId: string) => {
-    setParticipants((prev) => prev.filter((p) => String(p.id) !== userId));
+    setParticipants((prev) => prev.filter((p) => String(p.id) !== String(userId)));
   }, []);
 
-  // ✅ 승인: 즉시 반영 + 실패 시 롤백 + 서버 응답 반영(가능하면)
   const handleApprove = useCallback(
     async (userId: string) => {
       if (!post) return;
@@ -144,14 +137,11 @@ export default function ManageParticipantsScreen() {
       const prevSnapshot = participantsRef.current;
       setProcessingUserId(userId);
 
-      // ✅ PENDING -> MEMBER
       updateParticipant(userId, { status: "MEMBER" });
 
       try {
         const updated = await meetingApi.approveParticipant(String(post.id) as any, userId);
-        // 서버가 최신 목록을 주는 경우 정합성 고정
         if (Array.isArray(updated)) setParticipants(updated);
-
         Alert.alert("승인 완료", "참여가 확정되었습니다.");
       } catch {
         setParticipants(prevSnapshot);
@@ -163,7 +153,6 @@ export default function ManageParticipantsScreen() {
     [post, processingUserId, updateParticipant]
   );
 
-  // ✅ 거절: 즉시 제거 + 실패 시 롤백 + 서버 응답 반영(가능하면)
   const handleReject = useCallback(
     async (userId: string) => {
       if (!post) return;
@@ -177,7 +166,6 @@ export default function ManageParticipantsScreen() {
             const prevSnapshot = participantsRef.current;
             setProcessingUserId(userId);
 
-            // 즉시 UI 반영 (목록에서 제거)
             removeParticipant(userId);
 
             try {
@@ -196,21 +184,19 @@ export default function ManageParticipantsScreen() {
     [post, removeParticipant]
   );
 
-  // ✅ theme derived
-  const headerBg = withAlpha(t.colors.primary, t.mode === "dark" ? 0.18 : 0.08);
-  const cardBorder = withAlpha(t.colors.primary, t.mode === "dark" ? 0.3 : 0.22);
+  const primary = t?.colors?.primary ?? "#000000";
+  const headerBg = withAlpha(primary, t?.mode === "dark" ? 0.18 : 0.08);
+  const cardBorder = withAlpha(primary, t?.mode === "dark" ? 0.3 : 0.22);
 
   const emptyTitle = tab === "PENDING" ? "대기 중 신청이 없어요" : "확정된 참여자가 없어요";
-  const emptyDesc =
-    tab === "PENDING" ? "새 신청이 들어오면 여기에 표시됩니다." : "승인된 참여자가 생기면 여기에 표시됩니다.";
+  const emptyDesc = tab === "PENDING" ? "새 신청이 들어오면 여기에 표시됩니다." : "승인된 참여자가 생기면 여기에 표시됩니다.";
 
-  // ✅ HeaderTop: 스크롤되는 영역(요약+검색)
   const HeaderTop = useMemo(() => {
     return (
       <View style={{ padding: 16, paddingBottom: 10 }}>
         <View style={[styles.summaryCard, { backgroundColor: headerBg, borderColor: cardBorder }]}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Ionicons name="clipboard-outline" size={18} color={t.colors.primary} style={{ marginRight: 8 }} />
+            <Ionicons name="clipboard-outline" size={18} color={primary} style={{ marginRight: 8 }} />
             <Text style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]} numberOfLines={1}>
               {post?.title ?? "참여자 관리"}
             </Text>
@@ -237,27 +223,22 @@ export default function ManageParticipantsScreen() {
             style={[styles.searchInput, { color: t.colors.textMain }]}
             returnKeyType="search"
           />
-          {query.length > 0 && (
+          {query.length > 0 ? (
             <Pressable onPress={() => setQuery("")} hitSlop={10} style={{ padding: 4 }}>
               <Ionicons name="close-circle" size={18} color={t.colors.textSub} />
             </Pressable>
-          )}
+          ) : null}
         </View>
       </View>
     );
-  }, [t, headerBg, cardBorder, post?.title, pending.length, confirmed.length, query]);
+  }, [t, headerBg, cardBorder, post?.title, pending.length, confirmed.length, query, primary]);
 
-  // ✅ Sticky 영역(탭/섹션 타이틀)
   const StickyHeader = useMemo(() => {
     return (
       <View style={[styles.stickyWrap, { backgroundColor: t.colors.background, borderBottomColor: t.colors.border }]}>
         <View style={[styles.tabs, { borderColor: t.colors.border, backgroundColor: t.colors.surface }]}>
           <TabButton active={tab === "PENDING"} label={`대기 (${pending.length})`} onPress={() => setTab("PENDING")} />
-          <TabButton
-            active={tab === "CONFIRMED"}
-            label={`확정 (${confirmed.length})`}
-            onPress={() => setTab("CONFIRMED")}
-          />
+          <TabButton active={tab === "CONFIRMED"} label={`확정 (${confirmed.length})`} onPress={() => setTab("CONFIRMED")} />
         </View>
 
         <Text style={[t.typography.titleSmall, { color: t.colors.textMain, marginTop: 12 }]}>
@@ -267,7 +248,6 @@ export default function ManageParticipantsScreen() {
     );
   }, [t, tab, pending.length, confirmed.length]);
 
-  // ✅ Empty 상태 (data에 EMPTY row로 넣어 렌더)
   const EmptyState = useMemo(() => {
     if (loading) {
       return (
@@ -302,13 +282,9 @@ export default function ManageParticipantsScreen() {
     );
   }, [loading, accessDenied, t, emptyTitle, emptyDesc]);
 
-  // ✅ FlatList data (첫 아이템이 sticky)
   const listData: Row[] = useMemo(() => {
     const base: Row[] = [{ _type: "STICKY" }];
-
-    // 접근 거부/로딩/필터 결과 없음이면 EMPTY row 추가
     if (loading || accessDenied || filtered.length === 0) return base.concat([{ _type: "EMPTY" }]);
-
     return base.concat(filtered as Row[]);
   }, [loading, accessDenied, filtered]);
 
@@ -331,8 +307,8 @@ export default function ManageParticipantsScreen() {
               {item.avatarUrl ? (
                 <Image source={{ uri: item.avatarUrl }} style={styles.avatarImage} />
               ) : (
-                <View style={[styles.avatarPlaceholder, { backgroundColor: t.colors.neutral[100] }]}>
-                  <Ionicons name="person" size={18} color={t.colors.icon.muted} />
+                <View style={[styles.avatarPlaceholder, { backgroundColor: t.colors.neutral?.[100] ?? t.colors.border }]}>
+                  <Ionicons name="person" size={18} color={t.colors.icon?.muted ?? t.colors.textSub} />
                 </View>
               )}
 
@@ -367,10 +343,7 @@ export default function ManageParticipantsScreen() {
                   <Pressable
                     onPress={() => handleApprove(userId)}
                     hitSlop={10}
-                    style={({ pressed }) => [
-                      styles.primaryAction,
-                      { backgroundColor: t.colors.primary, opacity: pressed ? 0.85 : 1 },
-                    ]}
+                    style={({ pressed }) => [styles.primaryAction, { backgroundColor: t.colors.primary, opacity: pressed ? 0.85 : 1 }]}
                   >
                     <Text style={[t.typography.labelSmall, { color: "white", fontWeight: "800" }]}>승인</Text>
                   </Pressable>
@@ -439,8 +412,9 @@ export default function ManageParticipantsScreen() {
 
 function Pill({ label, tone }: { label: string; tone: "warning" | "success" }) {
   const t = useAppTheme();
-  const bg = withAlpha(tone === "warning" ? t.colors.warning : t.colors.success, 0.14);
-  const fg = tone === "warning" ? t.colors.warning : t.colors.success;
+  const base = tone === "warning" ? t.colors.warning : t.colors.success;
+  const bg = withAlpha(base ?? "#000000", 0.14);
+  const fg = base ?? t.colors.textMain;
 
   return (
     <View style={[styles.pill, { backgroundColor: bg }]}>
@@ -589,3 +563,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
 });
+
+/*
+요약:
+1) theme 컬러 접근을 optional 체이닝+기본값으로 보강해 크래시를 방지했습니다.
+2) 리스트/탭/검색 로직은 유지하면서, API 응답이 비정상일 때도 배열로 안전 처리합니다.
+3) optimistic 업데이트는 그대로 두고, rollback 스냅샷을 항상 보장합니다.
+*/
+// END FILE

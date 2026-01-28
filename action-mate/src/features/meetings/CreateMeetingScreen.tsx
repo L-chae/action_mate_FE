@@ -1,5 +1,5 @@
-// CreateMeetingScreen.tsx
-import React, { useCallback, useState } from "react";
+// FILE: src/features/meetings/CreateMeetingScreen.tsx
+import React, { useCallback, useRef, useState } from "react";
 import { Alert } from "react-native";
 import { Stack, useRouter } from "expo-router";
 
@@ -14,42 +14,41 @@ export default function CreateMeetingScreen() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
 
+  const navOnceRef = useRef(false);
+
   const goHomeOnce = useCallback(() => {
-    // ✅ 라우팅 중복 호출 방지(한 번만)
-    if (router.canGoBack()) {
-      router.dismissAll();
-      router.replace("/(tabs)");
-      return;
+    if (navOnceRef.current) return;
+    navOnceRef.current = true;
+
+    try {
+      const anyRouter = router as any;
+      if (typeof anyRouter?.dismissAll === "function") anyRouter.dismissAll();
+    } catch {
+      // ignore
     }
+
     router.replace("/(tabs)");
   }, [router]);
 
   const handleCreate = useCallback(
     async (formData: MeetingUpsert) => {
       if (submitting) return;
+      if (navOnceRef.current) return;
 
       try {
         setSubmitting(true);
 
-        // ✅ MeetingUpsert(=MeetingShape) 그대로 전송
         const created = await meetingApi.createMeeting(formData);
         const anyCreated = created as any;
 
-        // ✅ API 응답 방어적 파싱(로컬/리모트/래퍼 형태 차이 대응)
         const createdId =
-          anyCreated?.id ??
-          anyCreated?.post?.id ??
-          anyCreated?.meeting?.id ??
-          anyCreated?.data?.id ??
-          null;
+          anyCreated?.id ?? anyCreated?.post?.id ?? anyCreated?.meeting?.id ?? anyCreated?.data?.id ?? null;
 
-        if (createdId) {
-          // ✅ 생성 직후 상세로 이동 (리스트 캐시/갱신 이슈 회피)
+        if (createdId != null) {
           router.replace((`/meetings/${createdId}?v=${Date.now()}` as unknown) as any);
           return;
         }
 
-        // ✅ id를 못 받으면 홈으로
         goHomeOnce();
       } catch (e) {
         console.error(e);
@@ -75,3 +74,11 @@ export default function CreateMeetingScreen() {
     </AppLayout>
   );
 }
+
+/*
+요약:
+1) dismissAll 유무를 방어적으로 처리해 라우팅 API 차이로 인한 크래시를 막았습니다.
+2) 생성 응답 id 파싱을 유지하되, 중복 네비게이션을 navOnceRef로 차단했습니다.
+3) 실패/예외 케이스에서도 submitting 상태 복구가 항상 보장됩니다.
+*/
+// END FILE

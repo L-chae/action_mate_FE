@@ -14,7 +14,6 @@ import {
   Text,
   View,
   Alert,
-  ActivityIndicator,
   TouchableOpacity,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -50,6 +49,18 @@ function mannerIconName(temp: number): keyof typeof Ionicons.glyphMap {
 type PillTone = { text: string; bg: string };
 type GradientColors = readonly [string, string];
 
+function extractHttpStatus(e: any): number | undefined {
+  const s = e?.response?.status;
+  return typeof s === "number" ? s : undefined;
+}
+
+function extractBackendMessage(e: any): string | null {
+  const msg = e?.response?.data?.message ?? e?.response?.data?.error?.message ?? null;
+  if (typeof msg === "string" && msg.trim()) return msg.trim();
+  if (typeof e?.message === "string" && e.message.trim()) return e.message.trim();
+  return null;
+}
+
 /* ---------------- small ui ---------------- */
 
 function MenuRow({
@@ -67,9 +78,7 @@ function MenuRow({
   const s = t.spacing;
 
   const pressedBg =
-    t.mode === "dark"
-      ? withAlpha(t.colors.textSub, 0.16)
-      : withAlpha(t.colors.textSub, 0.08);
+    t.mode === "dark" ? withAlpha(t.colors.textSub, 0.16) : withAlpha(t.colors.textSub, 0.08);
 
   return (
     <Pressable
@@ -138,15 +147,13 @@ export default function MyScreen() {
 
   const styles = useMemo(() => makeStyles(t), [t]);
 
-  // Store actions
   const logout = useAuthStore((st) => (st as any).logout as (() => Promise<void>) | undefined);
   const user = useAuthStore((st) => ((st as any).user ?? (st as any).me) as any);
   const userAvatarUrl = user?.avatarUrl ?? null;
 
-  // States
   const [refreshing, setRefreshing] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true); // 초기 로딩 상태 추가
-  const [apiError, setApiError] = useState<string | null>(null); // 에러 상태 추가
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [hasNoti, setHasNoti] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
 
@@ -154,6 +161,7 @@ export default function MyScreen() {
     id: "",
     nickname: "액션메이트",
     avatarUrl: null,
+    avatarImageName: null,
   });
 
   const [summary, setSummary] = useState<MySummary>({
@@ -166,15 +174,16 @@ export default function MyScreen() {
   /* ---------------- derived ---------------- */
 
   const displayNickname = useMemo(() => {
-    const n = user?.nickname?.trim();
+    const n = typeof user?.nickname === "string" ? user.nickname.trim() : "";
     if (n) return n;
-    return profile.nickname?.trim() || "액션메이트";
-  }, [user?.nickname, profile.nickname]);
+    const pn = typeof profile?.nickname === "string" ? profile.nickname.trim() : "";
+    return pn || "액션메이트";
+  }, [user?.nickname, profile?.nickname]);
 
   const displayAvatarUrl = useMemo(() => {
     if (userAvatarUrl) return userAvatarUrl;
-    return profile.avatarUrl ?? null;
-  }, [userAvatarUrl, profile.avatarUrl]);
+    return profile?.avatarUrl ?? null;
+  }, [userAvatarUrl, profile?.avatarUrl]);
 
   const genderRaw: any = user?.gender;
   const birthRaw: string = user?.birthDate ?? "";
@@ -194,10 +203,10 @@ export default function MyScreen() {
   }, [birthRaw]);
 
   const orgTimeLabel = useMemo(() => {
-    const n = Number(summary.orgTime ?? 0);
+    const n = Number(summary?.orgTime ?? 0);
     if (!Number.isFinite(n) || n <= 0) return "";
     return `모임 ${n}회`;
-  }, [summary.orgTime]);
+  }, [summary?.orgTime]);
 
   const metaLine = useMemo(() => {
     const parts: string[] = [];
@@ -207,33 +216,82 @@ export default function MyScreen() {
     return parts.join(" · ");
   }, [genderLabel, birthLabel, orgTimeLabel]);
 
+  const hasIdentity = useMemo(() => {
+    const id1 = String((user as any)?.loginId ?? user?.id ?? "").trim();
+    const id2 = String(profile?.id ?? "").trim();
+    return Boolean(id1 || id2);
+  }, [user, profile?.id]);
+
   /* ---------------- load ---------------- */
 
-  const loadAll = useCallback(async (isRefresh = false) => {
-    try {
-      if (!isRefresh) setInitialLoading(true);
-      setApiError(null);
+  const loadAll = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (!isRefresh) setInitialLoading(true);
+        setApiError(null);
 
-      const [p, sum] = await Promise.all([myApi.getProfile(), myApi.getSummary()]);
-      setProfile(p);
+        const [pRes, sRes] = await Promise.allSettled([myApi.getProfile(), myApi.getSummary()]);
 
-      const avgRate = clamp(Number((sum as any)?.avgRate ?? 0), 0, 5);
-      const orgTime = Math.max(0, Number((sum as any)?.orgTime ?? 0));
+        // profile
+        if (pRes.status === "fulfilled") {
+          setProfile(pRes.value);
+        } else {
+          const st = extractHttpStatus(pRes.reason);
+          const msg = extractBackendMessage(pRes.reason) ?? "정보를 불러오지 못했습니다.";
+          console.log(`[MyScreen Load Error][profile] status=${String(st ?? "")} msg=${msg}`);
 
-      setSummary({
-        avgRate: Number.isFinite(avgRate) ? avgRate : 0,
-        orgTime: Number.isFinite(orgTime) ? orgTime : 0,
-      });
-    } catch (e: any) {
-      // ✅ Reactotron 멈춤 해결 핵심: 에러 객체 전체(e)가 아닌 메시지만 로깅
-      const errorMsg = e.response?.data?.message || e.message || "Unknown Error";
-      console.log(`[MyScreen Load Error] ${errorMsg}`);
-      
-      setApiError("정보를 불러오지 못했습니다.");
-    } finally {
-      if (!isRefresh) setInitialLoading(false);
-    }
-  }, []);
+          if (st === 401 || st === 403) {
+            try {
+              await logout?.();
+            } finally {
+              router.replace("/(auth)/login");
+            }
+            return;
+          }
+
+          setApiError("정보를 불러오지 못했습니다.");
+        }
+
+        // summary
+        if (sRes.status === "fulfilled") {
+          const avgRate = clamp(Number((sRes.value as any)?.avgRate ?? 0), 0, 5);
+          const orgTime = Math.max(0, Number((sRes.value as any)?.orgTime ?? 0));
+
+          setSummary({
+            avgRate: Number.isFinite(avgRate) ? avgRate : 0,
+            orgTime: Number.isFinite(orgTime) ? orgTime : 0,
+          });
+        } else {
+          const st = extractHttpStatus(sRes.reason);
+          const msg = extractBackendMessage(sRes.reason) ?? "요약 정보를 불러오지 못했습니다.";
+          console.log(`[MyScreen Load Error][summary] status=${String(st ?? "")} msg=${msg}`);
+
+          setSummary((prev) => ({
+            avgRate: Number.isFinite(Number(prev?.avgRate)) ? Number(prev.avgRate) : 0,
+            orgTime: Number.isFinite(Number(prev?.orgTime)) ? Number(prev.orgTime) : 0,
+          }));
+        }
+      } catch (e: any) {
+        const st = extractHttpStatus(e);
+        const msg = extractBackendMessage(e) ?? "정보를 불러오지 못했습니다.";
+        console.log(`[MyScreen Load Error][fatal] status=${String(st ?? "")} msg=${msg}`);
+
+        if (st === 401 || st === 403) {
+          try {
+            await logout?.();
+          } finally {
+            router.replace("/(auth)/login");
+          }
+          return;
+        }
+
+        setApiError("정보를 불러오지 못했습니다.");
+      } finally {
+        if (!isRefresh) setInitialLoading(false);
+      }
+    },
+    [logout, router]
+  );
 
   const checkHasNoti = useCallback(async () => {
     try {
@@ -244,7 +302,6 @@ export default function MyScreen() {
     }
   }, []);
 
-  // 초기 진입 로드
   useEffect(() => {
     loadAll(false);
     checkHasNoti();
@@ -252,8 +309,6 @@ export default function MyScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // 포커스 시에는 조용히 데이터 갱신 (로딩화면 X)
-      // loadAll(true); // 필요하다면 주석 해제 (너무 잦은 깜빡임 방지 위해 선택 사항)
       checkHasNoti();
     }, [checkHasNoti])
   );
@@ -339,25 +394,24 @@ export default function MyScreen() {
 
   /* ---------------- Render Logic for Safety ---------------- */
 
-  // 1. 에러 발생 시 UI (멈춤 방지 + 재시도 버튼)
-  if (apiError && !refreshing && !profile.id) {
+  if (apiError && !refreshing && !hasIdentity) {
     return (
       <AppLayout padded={false}>
         <TopBar title="마이페이지" showBorder />
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={[t.typography.bodyLarge, { color: t.colors.textSub, marginBottom: 16 }]}>
-            {apiError}
-          </Text>
-          <TouchableOpacity 
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: s.pagePaddingH }}>
+          <Text style={[t.typography.bodyLarge, { color: t.colors.textSub, marginBottom: 16 }]}>{apiError}</Text>
+          <TouchableOpacity
             onPress={() => loadAll(false)}
-            style={{ padding: 12, backgroundColor: t.colors.primary, borderRadius: 8 }}
+            style={{ paddingVertical: 12, paddingHorizontal: 16, backgroundColor: t.colors.primary, borderRadius: 10 }}
           >
-            <Text style={{ color: '#fff', fontWeight: 'bold' }}>다시 시도</Text>
+            <Text style={{ color: "#fff", fontWeight: "bold" }}>다시 시도</Text>
           </TouchableOpacity>
         </View>
       </AppLayout>
     );
   }
+
+  const initialChar = String(displayNickname ?? "액션메이트").trim().charAt(0) || "A";
 
   return (
     <AppLayout padded={false}>
@@ -375,28 +429,24 @@ export default function MyScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: s.space[6] }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* 프로필 카드 */}
+        {apiError ? (
+          <View style={{ marginBottom: s.space[3] }}>
+            <Card>
+              <Text style={[t.typography.bodySmall, { color: t.colors.textSub }]}>{apiError}</Text>
+            </Card>
+          </View>
+        ) : null}
+
         <Card padded={false}>
           <View style={{ paddingHorizontal: s.pagePaddingH, paddingVertical: s.space[4] }}>
             <View style={styles.topRow}>
               <Pressable onPress={goProfile} style={styles.profileLeft} hitSlop={8}>
                 <View style={styles.avatarWrap}>
                   {displayAvatarUrl ? (
-                    <Image
-                      source={{ uri: displayAvatarUrl }}
-                      style={[styles.avatar, { borderColor: t.colors.background }]}
-                    />
+                    <Image source={{ uri: displayAvatarUrl }} style={[styles.avatar, { borderColor: t.colors.background }]} />
                   ) : (
-                    <View
-                      style={[
-                        styles.avatar,
-                        styles.avatarFallback,
-                        { backgroundColor: t.colors.primary },
-                      ]}
-                    >
-                      <Text style={[t.typography.titleMedium, { color: "#fff" }]}>
-                        {displayNickname[0]}
-                      </Text>
+                    <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: t.colors.primary }]}>
+                      <Text style={[t.typography.titleMedium, { color: "#fff" }]}>{initialChar}</Text>
                     </View>
                   )}
                 </View>
@@ -405,34 +455,23 @@ export default function MyScreen() {
 
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={styles.nameLine}>
-                    <Text
-                      style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]}
-                      numberOfLines={1}
-                    >
+                    <Text style={[t.typography.titleMedium, { color: t.colors.textMain, flex: 1 }]} numberOfLines={1}>
                       {displayNickname}
                     </Text>
 
                     <View style={[styles.tempPill, { backgroundColor: pillTone.bg }]}>
                       <Ionicons name={iconName} size={12} color={pillTone.text} />
                       <View style={{ width: 4 }} />
-                      <Text style={[t.typography.labelMedium, { color: pillTone.text }]}>
-                        {tempStr}℃
-                      </Text>
+                      <Text style={[t.typography.labelMedium, { color: pillTone.text }]}>{tempStr}℃</Text>
                     </View>
                   </View>
 
                   {metaLine ? (
-                    <Text
-                      style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}
-                      numberOfLines={1}
-                    >
+                    <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]} numberOfLines={1}>
                       {metaLine}
                     </Text>
                   ) : (
-                    <Text
-                      style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]}
-                      numberOfLines={1}
-                    >
+                    <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 4 }]} numberOfLines={1}>
                       프로필을 완성하면 추천이 더 정확해져요
                     </Text>
                   )}
@@ -442,13 +481,10 @@ export default function MyScreen() {
               <View style={styles.ratingRight}>
                 <Ionicons name="star" size={14} color={t.colors.ratingStar} />
                 <View style={{ width: 4 }} />
-                <Text style={[t.typography.labelMedium, { color: t.colors.ratingStar }]}>
-                  {ratingDisplay}
-                </Text>
+                <Text style={[t.typography.labelMedium, { color: t.colors.ratingStar }]}>{ratingDisplay}</Text>
               </View>
             </View>
 
-            {/* 매너온도 바 */}
             <View style={{ marginTop: s.space[4] }}>
               <View style={[styles.barTrack, { backgroundColor: t.colors.border }]}>
                 <Animated.View style={[styles.barFill, { width: widthPct }]}>
@@ -464,33 +500,16 @@ export default function MyScreen() {
           </View>
         </Card>
 
-        {/* 메뉴 카드 */}
         <View style={{ height: s.space[4] }} />
 
         <Card padded={false} style={{ overflow: "hidden" }}>
-          <MenuRow
-            icon="calendar-outline"
-            label="내가 만든 모임"
-            desc="주최한 모임을 확인해요"
-            onPress={() => router.push("/my/hosted" as any)}
-          />
+          <MenuRow icon="calendar-outline" label="내가 만든 모임" desc="주최한 모임을 확인해요" onPress={() => router.push("/my/hosted" as any)} />
           <Divider />
-          <MenuRow
-            icon="people-outline"
-            label="참여한 모임"
-            desc="참여/완료한 모임을 확인해요"
-            onPress={() => router.push("/my/joined" as any)}
-          />
+          <MenuRow icon="people-outline" label="참여한 모임" desc="참여/완료한 모임을 확인해요" onPress={() => router.push("/my/joined" as any)} />
           <Divider />
-          <MenuRow
-            icon="settings-outline"
-            label="설정"
-            desc="알림/계정/앱 설정"
-            onPress={() => router.push("/settings" as any)}
-          />
+          <MenuRow icon="settings-outline" label="설정" desc="알림/계정/앱 설정" onPress={() => router.push("/settings" as any)} />
         </Card>
 
-        {/* 숨김 링크 */}
         <View style={{ marginTop: s.space[4], alignItems: "center" }}>
           <Pressable onPress={() => setAccountModalOpen(true)} style={{ opacity: 0.35 }} hitSlop={8}>
             <Text style={[t.typography.labelSmall, { textDecorationLine: "underline", color: t.colors.textSub }]}>
@@ -499,31 +518,18 @@ export default function MyScreen() {
           </Pressable>
         </View>
 
-        {/* 계정 관리 모달 */}
-        <Modal
-          transparent
-          visible={accountModalOpen}
-          animationType="fade"
-          onRequestClose={() => setAccountModalOpen(false)}
-        >
-          <Pressable
-            onPress={() => setAccountModalOpen(false)}
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: t.colors.scrim }]}
-          />
+        <Modal transparent visible={accountModalOpen} animationType="fade" onRequestClose={() => setAccountModalOpen(false)}>
+          <Pressable onPress={() => setAccountModalOpen(false)} style={[StyleSheet.absoluteFillObject, { backgroundColor: t.colors.scrim }]} />
 
           <View style={[styles.sheetWrap, { paddingBottom: sheetBottomPad }]}>
             <Card padded={false} style={styles.sheetCard}>
               <View style={{ paddingHorizontal: s.pagePaddingH, paddingTop: s.space[4], paddingBottom: s.space[3] }}>
-                <Text style={[t.typography.titleMedium, { color: t.colors.textMain, textAlign: "center" }]}>
-                  계정 관리
-                </Text>
+                <Text style={[t.typography.titleMedium, { color: t.colors.textMain, textAlign: "center" }]}>계정 관리</Text>
 
                 <View style={{ height: s.space[3] }} />
 
                 <Pressable onPress={handleMockWithdraw} style={styles.sheetBtn} hitSlop={6}>
-                  <Text style={[t.typography.labelLarge, { color: t.colors.error, fontWeight: "800" }]}>
-                    회원탈퇴
-                  </Text>
+                  <Text style={[t.typography.labelLarge, { color: t.colors.error, fontWeight: "800" }]}>회원탈퇴</Text>
                 </Pressable>
 
                 <Pressable onPress={() => setAccountModalOpen(false)} style={styles.sheetBtn} hitSlop={6}>
@@ -619,3 +625,8 @@ function makeStyles(t: ReturnType<typeof useAppTheme>) {
     },
   });
 }
+
+// 3줄 요약
+// - TransformError 원인은 이전 코드에 있던 라벨 블록/특수 문법 때문에 TSX 파서가 깨진 것이며, 해당 문법을 제거해 정상 컴파일됩니다.
+// - MyScreen의 “알 수 없는 오류”는 화면 문제가 아니라 myApi.getProfile/getSummary가 실패하는데 메시지가 뭉개져서 생기는 현상입니다(이제 status/msg로 분리 로깅).
+// - 401/403이면 즉시 세션 정리 후 로그인 화면으로 이동해 무한 에러 루프를 방지합니다.

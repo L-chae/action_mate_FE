@@ -1,5 +1,4 @@
 // 📂 src/features/meetings/ui/MeetingForm.tsx
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -50,7 +49,7 @@ const DEFAULT_REGION: Region = {
 const DURATION_MIN = 10;
 const DURATION_MAX = 180;
 const DURATION_STEP = 5;
-const DURATION_QUICK = [30, 60, 90, 120, 180]; // ✅ 초보자용: 너무 많지 않게 축소
+const DURATION_QUICK = [30, 60, 90, 120, 180];
 
 // --- Helpers ---
 const formatDateSimple = (date: Date) =>
@@ -308,24 +307,33 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [locationModalVisible, setLocationModalVisible] = useState(false);
 
-  // ✅ initialValues가 늦게 들어오는(Edit) 케이스 안정 처리
+  // ✅ initialValues(Edit) 안정: "빈 객체"로 먼저 들어오는 케이스 방지
   const didInitRef = useRef(false);
   useEffect(() => {
     if (didInitRef.current) return;
 
     const iv = initialValues;
-    if (!iv) return;
+    const hasMeaningfulIV =
+      !!iv &&
+      Object.keys(iv as any).length > 0 &&
+      ((iv as any)?.title != null ||
+        (iv as any)?.meetingTime != null ||
+        (iv as any)?.location != null ||
+        (iv as any)?.content != null);
 
-    setTitle(iv.title ?? "");
-    setCategory((iv.category as CategoryKey) ?? "SPORTS");
-    setSelectedDate(iv.meetingTime ? new Date(iv.meetingTime) : null);
+    if (!hasMeaningfulIV) return;
 
-    const lat = (iv.location as any)?.lat ?? (iv.location as any)?.latitude;
-    const lng = (iv.location as any)?.lng ?? (iv.location as any)?.longitude;
+    setTitle(String(iv?.title ?? ""));
+    setCategory(((iv?.category as CategoryKey) ?? "SPORTS") as CategoryKey);
+    setSelectedDate(iv?.meetingTime ? new Date(iv.meetingTime) : null);
+
+    const locAny: any = (iv as any)?.location ?? {};
+    const lat = locAny?.lat ?? locAny?.latitude;
+    const lng = locAny?.lng ?? locAny?.longitude;
 
     if (lat != null && lng != null) {
       setPickedLocation({
-        addressText: (iv.location as any)?.name || "위치 정보",
+        addressText: String(locAny?.name || locAny?.address || locAny?.addressText || "위치 정보"),
         lat: Number(lat),
         lng: Number(lng),
       });
@@ -333,14 +341,14 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
       setPickedLocation(null);
     }
 
-    setContent(iv.content ?? "");
-    setCapacityTotal(clampCapacity(iv.capacity?.total ?? (iv.capacity as any)?.max ?? 4));
+    setContent(String(iv?.content ?? ""));
+    setCapacityTotal(clampCapacity(Number((iv?.capacity as any)?.total ?? (iv?.capacity as any)?.max ?? 4)));
 
-    const initDuration = clampDuration(iv.durationMinutes ?? 90);
+    const initDuration = clampDuration(Number(iv?.durationMinutes ?? 90));
     setDurationMinutes(initDuration);
 
-    setJoinMode((iv.joinMode as JoinMode) ?? "INSTANT");
-    setConditions(iv.conditions ?? "");
+    setJoinMode(((iv?.joinMode as JoinMode) ?? "INSTANT") as JoinMode);
+    setConditions(String(iv?.conditions ?? ""));
 
     setIsOptionsExpanded(false);
     didInitRef.current = true;
@@ -444,8 +452,11 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
       meetingTime: selectedDate.toISOString(),
       location: {
         name: pickedLocation.addressText,
+        // ✅ 서버/로컬 구현 차이 방어: 둘 다 채움
         latitude: pickedLocation.lat,
         longitude: pickedLocation.lng,
+        lat: pickedLocation.lat,
+        lng: pickedLocation.lng,
       } as any,
       capacity: {
         max: capacityTotal,
@@ -537,7 +548,7 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
               ) : null}
             </View>
 
-            {/* 3) 시간 & 장소 (세로 스택, 큰 터치 영역) */}
+            {/* 3) 시간 & 장소 */}
             <View style={s.section}>
               <Text style={[t.typography.labelMedium, { color: t.colors.textSub, marginBottom: 10 }]}>
                 일정과 장소 <Text style={{ color: t.colors.error }}>*</Text>
@@ -613,14 +624,12 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
                 </Pressable>
 
                 {(dateError || locationError) && (
-                  <Text style={[t.typography.labelSmall, { color: t.colors.error }]}>
-                    날짜/장소를 선택해주세요.
-                  </Text>
+                  <Text style={[t.typography.labelSmall, { color: t.colors.error }]}>날짜/장소를 선택해주세요.</Text>
                 )}
               </View>
             </View>
 
-            {/* 4) 내용 (선택) */}
+            {/* 4) 내용 */}
             <View style={s.section}>
               <Text style={[t.typography.labelMedium, { color: t.colors.textSub, marginBottom: 10 }]}>내용 (선택)</Text>
 
@@ -641,7 +650,7 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
               />
             </View>
 
-            {/* 5) 상세 설정 (간소화: 인원/시간/방식만) */}
+            {/* 5) 상세 설정 */}
             <View
               style={[
                 s.optionsContainer,
@@ -653,7 +662,9 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
                   <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>상세 설정</Text>
                   {!isOptionsExpanded && (
                     <View style={[s.summaryBadge, { backgroundColor: t.colors.neutral?.[50] ?? t.colors.surface }]}>
-                      <Text style={[t.typography.bodyMedium, { color: t.colors.primary, fontWeight: "600" }]}>{summaryText}</Text>
+                      <Text style={[t.typography.bodyMedium, { color: t.colors.primary, fontWeight: "600" }]}>
+                        {summaryText}
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -666,7 +677,7 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
 
               {isOptionsExpanded && (
                 <View style={s.optionBlock}>
-                  {/* 인원 (스텝퍼만 남김) */}
+                  {/* 인원 */}
                   <Text style={[t.typography.bodyMedium, { color: t.colors.textSub, marginBottom: 6 }]}>모집 인원</Text>
                   <View style={s.optionRow}>
                     <Text style={[t.typography.labelSmall, { color: t.colors.textSub }]}>2~20명</Text>
@@ -707,18 +718,14 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
 
                   <View style={[s.divider, { backgroundColor: t.colors.neutral?.[100] ?? t.colors.border, marginTop: 12 }]} />
 
-                  {/* 소요 시간 (퀵 5개 + 슬라이더 + 입력) */}
+                  {/* 소요 시간 */}
                   <View style={{ paddingTop: 14 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
                       <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>소요 시간</Text>
                       <Text style={[t.typography.titleSmall, { color: t.colors.primary }]}>{getDurationLabel(durationMinutes)}</Text>
                     </View>
 
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={{ paddingRight: 8, marginTop: 12 }}
-                    >
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 8, marginTop: 12 }}>
                       {DURATION_QUICK.map((m, idx) => {
                         const active = durationMinutes === m;
                         return (
@@ -735,7 +742,12 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
                               },
                             ]}
                           >
-                            <Text style={[t.typography.labelMedium, { color: active ? t.colors.primaryDark : t.colors.textSub, fontWeight: "600" }]}>
+                            <Text
+                              style={[
+                                t.typography.labelMedium,
+                                { color: active ? t.colors.primaryDark : t.colors.textSub, fontWeight: "600" },
+                              ]}
+                            >
                               {getDurationLabel(m)}
                             </Text>
                           </Pressable>
@@ -802,7 +814,7 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
 
                   <View style={[s.divider, { backgroundColor: t.colors.neutral?.[100] ?? t.colors.border, marginTop: 16 }]} />
 
-                  {/* 참여 방식 (버튼 2개로 단순화) */}
+                  {/* 참여 방식 */}
                   <View style={{ paddingTop: 14 }}>
                     <Text style={[t.typography.bodyMedium, { color: t.colors.textSub }]}>참여 방식</Text>
 
@@ -822,7 +834,12 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
                               },
                             ]}
                           >
-                            <Text style={[t.typography.labelMedium, { color: active ? t.colors.primaryDark : t.colors.textSub, fontWeight: "700" }]}>
+                            <Text
+                              style={[
+                                t.typography.labelMedium,
+                                { color: active ? t.colors.primaryDark : t.colors.textSub, fontWeight: "700" },
+                              ]}
+                            >
                               {mode === "INSTANT" ? "선착순" : "승인제"}
                             </Text>
                           </Pressable>
@@ -922,7 +939,7 @@ export default function MeetingForm({ initialValues, submitLabel, onSubmit, isSu
   );
 }
 
-// ✅ LocationPickerModal (권한/실패 케이스 방어)
+// ✅ LocationPickerModal (초기 진입 시에만 "현위치"로 빠르게 이동, 이후 사용자가 움직이면 자동 복귀 금지 + reverseGeocode 최소화)
 const LocationPickerModal = React.memo(function LocationPickerModal({
   visible,
   initialLocation,
@@ -939,14 +956,36 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
   const s = useMemo(() => createStyles(t), [t]);
 
   const mapRef = useRef<MapView | null>(null);
-  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
+
+  // ✅ MapView는 "uncontrolled"로 두고(성능), 값은 ref로만 관리
+  const regionRef = useRef<Region>(DEFAULT_REGION);
+
+  // ✅ 초기 렌더용 initialRegion
+  const [bootRegion, setBootRegion] = useState<Region>(DEFAULT_REGION);
+  const [bootKey, setBootKey] = useState(0);
+
   const [address, setAddress] = useState("");
+  const [isAddressLoading, setIsAddressLoading] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reqIdRef = useRef(0);
   const aliveRef = useRef(true);
+
+  // ✅ "정확한 위치"가 늦게 와도, 사용자가 지도를 움직였으면 자동 복귀 금지
+  const hasUserMovedRef = useRef(false);
+  const lastProgrammaticAtRef = useRef(0);
+  const didAutoLocateThisOpenRef = useRef(false);
+
+  // ✅ reverseGeocode 최소화: 마지막 요청 좌표와 충분히 멀 때만
+  const lastGeocodeCoordRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  const nowMs = () => Date.now();
+  const markProgrammaticMove = useCallback(() => {
+    lastProgrammaticAtRef.current = nowMs();
+  }, []);
+  const isProgrammaticMove = useCallback(() => nowMs() - (lastProgrammaticAtRef.current || 0) < 700, []);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -956,41 +995,144 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
     };
   }, []);
 
-  const fetchAddress = useCallback(async (lat: number, lng: number) => {
-    const myReq = ++reqIdRef.current;
-    try {
-      const res = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-      if (!aliveRef.current) return;
-      if (myReq !== reqIdRef.current) return;
+  const haversineMeters = useCallback((aLat: number, aLng: number, bLat: number, bLng: number) => {
+    const R = 6371000;
+    const toRad = (x: number) => (x * Math.PI) / 180;
+    const dLat = toRad(bLat - aLat);
+    const dLng = toRad(bLng - aLng);
+    const s1 = Math.sin(dLat / 2);
+    const s2 = Math.sin(dLng / 2);
+    const aa = s1 * s1 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * s2 * s2;
+    const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+    return R * c;
+  }, []);
 
-      if (res?.[0]) {
-        const text = [res[0].city, res[0].district, res[0].street, res[0].name].filter(Boolean).join(" ");
-        setAddress(text || "선택된 위치");
-      } else {
-        setAddress("선택된 위치");
+  const shouldGeocode = useCallback(
+    (lat: number, lng: number) => {
+      const last = lastGeocodeCoordRef.current;
+      if (!last) return true;
+      const dist = haversineMeters(last.lat, last.lng, lat, lng);
+      return dist >= 15; // ✅ 15m 이상 이동 시에만 주소 갱신
+    },
+    [haversineMeters]
+  );
+
+  const setAddressSafe = useCallback((next: string) => {
+    const v = String(next ?? "");
+    setAddress((prev) => (prev === v ? prev : v));
+  }, []);
+
+  const fetchAddress = useCallback(
+    async (lat: number, lng: number) => {
+      const myReq = ++reqIdRef.current;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      if (!shouldGeocode(lat, lng)) return;
+
+      setIsAddressLoading(true);
+
+      try {
+        const res = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+        if (!aliveRef.current) return;
+        if (myReq !== reqIdRef.current) return;
+
+        lastGeocodeCoordRef.current = { lat, lng };
+
+        const r0 = res?.[0] as any;
+        if (r0) {
+          const text = [r0?.city, r0?.district, r0?.street, r0?.name].filter(Boolean).join(" ");
+          setAddressSafe(text || "선택된 위치");
+        } else {
+          setAddressSafe("선택된 위치");
+        }
+      } catch {
+        // 실패 시에도 UX 유지
+        setAddressSafe(address || "선택된 위치");
+      } finally {
+        if (aliveRef.current && myReq === reqIdRef.current) setIsAddressLoading(false);
       }
-    } catch {
-      // ignore
-    }
-  }, []);
+    },
+    [address, setAddressSafe, shouldGeocode]
+  );
 
-  const animateTo = useCallback((r: Region, durationMs: number) => {
-    requestAnimationFrame(() => mapRef.current?.animateToRegion(r, durationMs));
-  }, []);
+  const animateTo = useCallback(
+    (r: Region, durationMs: number) => {
+      regionRef.current = r;
+      markProgrammaticMove();
+      requestAnimationFrame(() => mapRef.current?.animateToRegion(r, durationMs));
+    },
+    [markProgrammaticMove]
+  );
 
   const ensurePermission = useCallback(async () => {
     try {
       const perm = await Location.getForegroundPermissionsAsync();
-      if (perm?.granted) return true;
+      if ((perm as any)?.granted || (perm as any)?.status === "granted") return true;
 
       const req = await Location.requestForegroundPermissionsAsync();
-      return req?.granted === true;
+      return (req as any)?.granted === true || (req as any)?.status === "granted";
     } catch {
       return false;
     }
   }, []);
 
-  const moveToCurrent = useCallback(async () => {
+  const openSettings = useCallback(() => {
+    try {
+      Linking.openSettings?.();
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const autoLocateOnceOnOpen = useCallback(async () => {
+    if (didAutoLocateThisOpenRef.current) return;
+    didAutoLocateThisOpenRef.current = true;
+
+    setIsLocating(true);
+    try {
+      const granted = await ensurePermission();
+      setPermissionDenied(!granted);
+      if (!granted) return;
+
+      // ✅ 1) 빠른 1차: lastKnown (즉시성)
+      try {
+        const last = await Location.getLastKnownPositionAsync({
+          maxAge: 2 * 60 * 1000,
+          requiredAccuracy: 1500,
+        } as any);
+
+        const lat = Number(last?.coords?.latitude);
+        const lng = Number(last?.coords?.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const r = { ...DEFAULT_REGION, latitude: lat, longitude: lng };
+          animateTo(r, 0);
+          fetchAddress(lat, lng);
+        }
+      } catch {
+        // ignore
+      }
+
+      // ✅ 2) 정확한 2차: current (늦게 올 수 있음)
+      try {
+        const pos = await Location.getCurrentPositionAsync({});
+        const lat = Number(pos?.coords?.latitude);
+        const lng = Number(pos?.coords?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+        // ✅ 사용자가 이미 지도를 움직였으면 자동 복귀 금지
+        if (hasUserMovedRef.current) return;
+
+        const r = { ...DEFAULT_REGION, latitude: lat, longitude: lng };
+        animateTo(r, 350);
+        fetchAddress(lat, lng);
+      } catch {
+        // ignore
+      }
+    } finally {
+      setIsLocating(false);
+    }
+  }, [ensurePermission, animateTo, fetchAddress]);
+
+  const moveToCurrentByButton = useCallback(async () => {
     if (isLocating) return;
 
     setIsLocating(true);
@@ -1000,10 +1142,14 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
       if (!granted) return;
 
       const pos = await Location.getCurrentPositionAsync({});
-      const r = { ...DEFAULT_REGION, latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-      setRegion(r);
-      animateTo(r, 450);
-      fetchAddress(r.latitude, r.longitude);
+      const lat = Number(pos?.coords?.latitude);
+      const lng = Number(pos?.coords?.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      hasUserMovedRef.current = false; // ✅ 사용자가 명시적으로 눌렀으니 “현위치 기준”으로 리셋
+      const r = { ...DEFAULT_REGION, latitude: lat, longitude: lng };
+      animateTo(r, 350);
+      fetchAddress(lat, lng);
     } catch {
       // ignore
     } finally {
@@ -1014,50 +1160,71 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
   useEffect(() => {
     if (!visible) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      setPermissionDenied(false);
+      setIsAddressLoading(false);
+      // ✅ 다음 오픈을 위해 리셋
+      didAutoLocateThisOpenRef.current = false;
+      hasUserMovedRef.current = false;
       return;
     }
 
-    setPermissionDenied(false);
+    // ✅ 오픈 시 initialRegion 준비 (MapView uncontrolled라 key로 초기 위치 고정)
+    const r = initialLocation
+      ? { ...DEFAULT_REGION, latitude: Number(initialLocation.lat), longitude: Number(initialLocation.lng) }
+      : { ...DEFAULT_REGION };
 
-    if (initialLocation) {
-      const r = { ...DEFAULT_REGION, latitude: initialLocation.lat, longitude: initialLocation.lng };
-      setRegion(r);
-      setAddress(initialLocation.addressText);
-      animateTo(r, 0);
-      return;
+    regionRef.current = r;
+    lastGeocodeCoordRef.current = null; // ✅ 오픈 시점에는 geocode 기준 초기화(불필요한 갱신 방지)
+    setBootRegion(r);
+    setBootKey((k) => k + 1);
+
+    // ✅ 주소 초기값
+    if (initialLocation?.addressText) {
+      setAddressSafe(String(initialLocation.addressText));
+      setIsAddressLoading(false);
+    } else {
+      setAddressSafe("");
+      setIsAddressLoading(true);
     }
 
-    setAddress("");
-    moveToCurrent();
-  }, [visible, initialLocation, moveToCurrent, animateTo]);
+    // ✅ "현위치" 자동 이동은 오픈 직후 1회만 (initialLocation이 없을 때)
+    if (!initialLocation) {
+      autoLocateOnceOnOpen();
+    } else {
+      // ✅ 저장된 위치는 즉시 주소 확인(포맷 보정)
+      fetchAddress(r.latitude, r.longitude);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const onRegionChangeComplete = useCallback(
     (r: Region) => {
-      setRegion(r);
+      if (!visible) return;
+
+      regionRef.current = r;
+
+      // ✅ programmatic 이동이 아니면 사용자 조작으로 간주(이후 자동복귀 금지)
+      if (!isProgrammaticMove()) hasUserMovedRef.current = true;
 
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         fetchAddress(r.latitude, r.longitude);
       }, 350);
     },
-    [fetchAddress]
+    [fetchAddress, isProgrammaticMove, visible]
   );
 
   const confirm = useCallback(() => {
-    onConfirm({
-      addressText: address || "선택된 위치",
-      lat: region.latitude,
-      lng: region.longitude,
-    });
-  }, [onConfirm, address, region.latitude, region.longitude]);
+    const r = regionRef.current ?? bootRegion;
+    const lat = Number(r?.latitude);
+    const lng = Number(r?.longitude);
 
-  const openSettings = useCallback(() => {
-    try {
-      Linking.openSettings?.();
-    } catch {
-      // ignore
-    }
-  }, []);
+    onConfirm({
+      addressText: String(address || "선택된 위치"),
+      lat: Number.isFinite(lat) ? lat : DEFAULT_REGION.latitude,
+      lng: Number.isFinite(lng) ? lng : DEFAULT_REGION.longitude,
+    });
+  }, [onConfirm, address, bootRegion]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -1076,9 +1243,10 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
 
         <View style={s.mapWrap}>
           <MapView
+            key={`map-${bootKey}`}
             ref={mapRef}
             style={{ flex: 1 }}
-            region={region}
+            initialRegion={bootRegion}
             onRegionChangeComplete={onRegionChangeComplete}
             provider={PROVIDER_GOOGLE}
             rotateEnabled={false}
@@ -1090,7 +1258,7 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
           </View>
 
           <Pressable
-            onPress={moveToCurrent}
+            onPress={moveToCurrentByButton}
             hitSlop={10}
             style={({ pressed }) => [
               s.floatingBtn,
@@ -1135,8 +1303,18 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
             </View>
           ) : null}
 
-          <Text style={[t.typography.bodyMedium, { color: t.colors.textMain, marginTop: permissionDenied ? 12 : 0, textAlign: "center" }]} numberOfLines={2}>
-            {address || "주소 확인 중..."}
+          <Text
+            style={[
+              t.typography.bodyMedium,
+              {
+                color: t.colors.textMain,
+                marginTop: permissionDenied ? 12 : 0,
+                textAlign: "center",
+              },
+            ]}
+            numberOfLines={2}
+          >
+            {permissionDenied ? "권한이 없어서 위치를 가져올 수 없어요." : isAddressLoading ? "주소 확인 중..." : address || "선택된 위치"}
           </Text>
 
           <View style={{ marginTop: 14 }}>
@@ -1148,6 +1326,9 @@ const LocationPickerModal = React.memo(function LocationPickerModal({
   );
 });
 
-// 요약(3줄): neutral[0] 인덱싱 오류를 제거하고, 색상 접근을 50/100/200 중심으로만 사용하도록 정리했습니다.
-// 요약(3줄): 상세 설정에서 모집 인원 “빠른 선택 버튼”을 삭제하고 스텝퍼만 남겨 화면을 간소화했습니다.
-// 요약(3줄): 안내/부연 텍스트를 필수 에러 메시지 중심으로 줄여 초보자에게 덜 복잡하게 보이도록 했습니다.
+/*
+요약:
+1) MapView를 uncontrolled(initialRegion + ref)로 바꿔 드래그 중 리렌더/지연을 줄이고 자동 “내 위치 복귀”를 제거했습니다.
+2) 오픈 시에만 lastKnown→current 2단계로 빠르게 현위치를 잡되, 사용자가 지도를 움직이면 늦은 GPS 응답이 와도 중심을 다시 바꾸지 않습니다.
+3) reverseGeocode는 디바운스 + 15m 이동 임계값으로 호출을 크게 줄여 성능을 안정화했습니다.
+*/

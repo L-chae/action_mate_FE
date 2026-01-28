@@ -1,13 +1,15 @@
-//////////////////// src/shared/api/schemas.ts
-// OpenAPI(제공된 명세) 기반의 최소 TS 스키마 타입 모음.
-// - "서버 응답 Raw"는 여기 타입을 기준으로 받고
-// - UI에서 쓸 타입은 feature/shared model types로 정리 후 mapper로 변환합니다.
+// src/shared/api/schemas.ts
+// Backend Truth(제공된 서버 코드/정리) 기준의 최소 TS 스키마 타입 모음.
+// - 서버 응답이 ResponseEntity<?>인 케이스가 있어, UI단에서는 런타임 가드를 권장합니다(여기서는 타입만 확정).
 
 export type ErrorResponse = {
   code: string;
   message: string;
 };
 
+// -------------------------
+// Auth
+// -------------------------
 export type LoginRequest = {
   id: string;
   password: string;
@@ -18,133 +20,84 @@ export type TokenResponse = {
   refreshToken: string;
 };
 
-export type UserGender = "M" | "F";
+// -------------------------
+// Users / Profile
+// -------------------------
+export type Gender = "F" | "M";
 
 export type SignupRequest = {
   id: string;
   password: string;
-  birth?: string; // date (YYYY-MM-DD)
-  gender?: UserGender; // M/F
-  nickname?: string;
+  gender: Gender;
+  birth: string; // YYYY-MM-DD (ISO LocalDate)
+  nickname: string;
 };
 
-export type ExistsResponse = {
-  exists: boolean;
+// /users/exists 는 서버에서 boolean을 바로 반환(명세상 true=사용가능, false=사용불가)
+export type ExistsResponse = boolean;
+
+// ProfileRequest (확정)
+export type ProfileRequest = {
+  nickname: string;
+  gender: Gender;
+  birth: string; // YYYY-MM-DD
+  profile: string; // 서버는 실제로 user.profileImage 등을 넣어 내려줄 수 있음
+  userId: string;
 };
 
-// /users/{userId}/profile 응답
-export type ApiUserProfileResponse = {
-  id: string;
-  nickname?: string;
-  profileImageName?: string; // e.g. xxx.png
-  birth?: string; // date
-  gender?: UserGender; // M/F
-  avgRate: number;
-  orgTime: number;
+// -------------------------
+// Applicants
+// -------------------------
+export type ApplicantStatus = "HOST" | "MEMBER" | "REJECTED" | "PENDING";
+
+// ApplicantResponse (확정)
+export type ApplicantResponse = {
+  postId: number;
+  userId: string;
+  state: ApplicantStatus;
 };
 
-export type PostCategory = "운동" | "오락" | "식사" | "자유";
+// 상태 변경(PATCH) body는 반드시 JSON string: "MEMBER" | "REJECTED"
+export type DecideApplicantRequest = "MEMBER" | "REJECTED";
 
-export type PostState = "OPEN" | "STARTED" | "ENDED" | "FULL" | "CANCELED";
-
-export type JoinMode = "INSTANT" | "APPROVAL";
-
-export type MyParticipationStatus = "HOST" | "MEMBER" | "PENDING" | "REJECTED" | "NONE";
-
-export type Post = {
-  id: number;
-  category: PostCategory;
-  title: string;
+// -------------------------
+// Messages
+// -------------------------
+export type MessageResponse = {
+  messageId: number;
+  roomId: number;
+  postId: number;
+  senderId: string;
   content: string;
-
-  writerId?: string;
-  writerNickname?: string;
-  writerImageName?: string;
-
-  meetingTime: string; // date-time
-  locationName?: string;
-  longitude: number;
-  latitude: number;
-
-  currentCount?: number;
-  capacity?: number;
-
-  state: PostState;
-  joinMode: JoinMode;
-
-  lastModified: string; // date-time
-  myParticipationStatus?: MyParticipationStatus;
-};
-
-// /posts POST
-export type PostCreateRequest = {
-  category: PostCategory;
   title: string;
-  content: string;
-  meetingTime: string; // date-time
-  locationName?: string;
-  longitude: number;
-  latitude: number;
-  capacity?: number;
-  joinMode: JoinMode;
 };
 
-// /posts/id/{postId} PUT
-export type PostUpdateRequest = {
-  category?: PostCategory;
-  title?: string;
-  content?: string;
-  meetingTime?: string; // date-time
-  locationName?: string;
-  longitude?: number;
-  latitude?: number;
-  capacity?: number;
-  state?: "OPEN" | "STARTED" | "ENDED";
-  joinMode?: JoinMode;
+export type MessageRoomResponse = {
+  roomId: number;
+  opponentId: string;
+  postId: number;
+  lastMessage: string;
+  title: string;
+  notReadCount: number;
+  opponentNickname: string;
+  opponentProfileImage: string;
 };
 
-// /message POST (채팅방 없거나 모를 때)
 export type EnsureRoomAndSendMessageRequest = {
   postId: number;
   receiverId: string;
   content: string;
 };
 
-// /message/room/{roomId} POST (채팅방 id 알고 있을 때) - requestBody: text/plain
-export type SendChatToRoomBody = string;
+// -------------------------
+// Posts (기존 사용처 호환용: 값 고정 유지)
+// -------------------------
+export type PostStatus = "OPEN" | "STARTED" | "ENDED" | "FULL" | "CANCELED" | string;
+export type JoinMode = "INSTANT" | "APPROVAL" | string;
 
-// /posts/{postId}/applicants/{userId} PATCH 요청 바디
-export type DecideApplicantRequest = "APPROVED" | "REJECTED";
-
-// /message/room 목록 응답 스키마(명세 기준: 단일 객체 형태)
-export type MessageRoomResponse = {
-  roomId: number;
-  opponentId: string;
-  opponentNickname: string;
-  opponentProfileImageName?: string;
-  postId: number;
-  unReadCount: number;
-  lastMessageContent: string;
-};
-
-// /message/room/{roomId} 목록 아이템
-export type ApiMessage = {
-  messageId: number;
-  roomId: number;
-  postId: number;
-  postTitle: string;
-  senderId: string;
-  content: string;
-};
-
-// Applicant (명세의 enum 기준)
-export type ApiApplicant = {
-  postId: number;
-  userId: string;
-  state: "HOST" | "MEMBER" | "REJECTED" | "PENDING" | "NONE";
-};
-
-// Report
+// -------------------------
+// Reports / Ratings (기존 사용처 유지)
+// -------------------------
 export type ReportCreateRequest = {
   targetUserId: string;
   postId: number;
@@ -157,10 +110,9 @@ export type ReportResponse = {
   targetId: string;
   postId: number;
   description: string;
-  createdAt: string; // date-time
+  createdAt: string;
 };
 
-// Rating
 export type RatingRequest = {
   targetUserId: string;
   score: number; // 1~5
@@ -174,5 +126,10 @@ export type RatingResponse = {
   targetUserId: string;
   score: number;
   comment?: string;
-  createdAt: string; // date-time
+  createdAt: string;
 };
+
+// 요약(3줄)
+// - ApplicantStatus/ApplicantResponse/ProfileRequest/Message DTO를 서버 확정 스키마로 교체 및 값 고정(대문자) 유지.
+// - DecideApplicantRequest는 PATCH body 규격에 맞게 "MEMBER"|"REJECTED"로 수정.
+// - ResponseEntity<?> 변동 가능 구간은 타입은 확정하되, 실제 사용처에서 런타임 가드를 전제로 설계.

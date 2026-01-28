@@ -3,7 +3,8 @@ import type { Gender as SharedGender, ISODateString, Id, UserSummary } from "@/s
 
 /**
  * Auth 도메인 타입
- * - UI에서는 UserSummary(id: NormalizedId) 기반 User를 사용
+ * - 서버 명세상 로그인 id === userId(subject)
+ * - UI에서는 UserSummary 기반 User를 사용
  * - 서버 스키마/불안정성은 API 레이어(Mapper)에서 흡수
  */
 export type Gender = SharedGender;
@@ -11,7 +12,7 @@ export type Gender = SharedGender;
 export type User = UserSummary & {
   loginId: string; // 로그인 아이디(서버 명세상 id가 loginId 역할)
   gender: Gender;
-  birthDate: ISODateString; // "YYYY-MM-DD" (서버가 비워줄 수 있어도 일단 string으로 수용)
+  birthDate: ISODateString; // "YYYY-MM-DD" (서버가 비워줄 수 있어도 string 수용)
 };
 
 export type SignupInput = {
@@ -37,8 +38,8 @@ export type AuthApi = {
 
   /**
    * API 호출 파라미터는 유연하게(Id 허용)
-   * - 서버 명세에 user update가 없으므로 remote에서는 throw
-   * - local mock에서는 구현되어 있음
+   * - remote: /users/update(multipart data+image) 지원
+   * - local mock: 구현 유지
    */
   updateUser(id: Id, patch: Partial<User>): Promise<User>;
 
@@ -52,7 +53,9 @@ export type AuthApi = {
   clearCurrentLoginId(): Promise<void>;
 };
 
-// 3줄 요약
-// - User는 공용 UserSummary(avatarUrl/avatarImageName 포함) 기반으로 유지해 화면에서 이미지/닉네임을 안정적으로 사용합니다.
-// - 서버 명세상 id가 loginId 역할이므로 loginId는 string으로 유지합니다.
-// - 나머지 AuthApi 시그니처는 기존 호출부 호환을 위해 유지했습니다.
+/*
+요약(3줄)
+- User는 “서버 userId(subject) === loginId” 전제를 명시하고 UI에서 안정적으로 쓰는 최소 필드만 유지.
+- updateUser는 remote의 /users/update(multipart data+image)와 local mock 구현 모두를 수용하도록 Id 기반 시그니처 유지.
+- 서버 스키마 혼재/예외는 mappers와 네트워크 레이어에서 흡수하도록 역할을 분리.
+*/
