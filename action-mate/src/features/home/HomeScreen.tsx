@@ -40,7 +40,7 @@ import { useAuthStore } from "@/features/auth/model/authStore";
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 const HOT_CARD_WIDTH = 160;
-const HOT_CARD_HEIGHT = 200;
+const HOT_CARD_HEIGHT = 180;
 const HOT_CARD_GAP = 12;
 
 type FetchKind = "initial" | "refresh" | "filter";
@@ -498,17 +498,17 @@ function createStyles(t: ReturnType<typeof useAppTheme>) {
     stickyWrap: {
       backgroundColor: t.colors.background,
       zIndex: 30,
-      ...(Platform.OS === "android" ? { elevation: 4 } : null),
+      ...(Platform.OS === "android" ? { elevation: 2 } : null),
     },
     chipsTight: {
       // CategoryChips 내부 기본값이 이미 토큰 기반이라
       // 홈 sticky에서는 간격만 살짝 타이트하게
-      paddingVertical: sp.space[2],
+      paddingVertical: sp.space[3],
     },
 
     // Meeting list
     meetingItemWrap: {
-      marginBottom: sp.space[3], // 12
+      marginTop: sp.space[4], // 12
     },
 
     // Empty / Loading
