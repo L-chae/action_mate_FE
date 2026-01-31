@@ -5,7 +5,6 @@ import { client } from "@/shared/api/apiClient";
 import { endpoints } from "@/shared/api/endpoints";
 import { nowIso } from "@/shared/utils/timeText";
 
-import type { UserSummary } from "@/shared/model/types";
 import type {
   CategoryKey,
   Comment,
@@ -30,234 +29,15 @@ import {
   toPostUpdateRequest,
 } from "../model/mappers";
 
-// -----------------------------------------------------------------------------
-// Mock Data (mocks/meetingMockData.ts 통합 + 일부 축소)
-// -----------------------------------------------------------------------------
-const makeUser = (u: { id: string; nickname: string; avatarUrl?: string | null }): UserSummary =>
-  ({
-    id: u.id,
-    nickname: u.nickname,
-    avatarUrl: u.avatarUrl ?? undefined,
-  } as unknown as UserSummary);
+import {
+  MEETING_COMMENTS_MOCK,
+  HOST_USERS,
+  MOCK_MEETINGS_SEED,
+} from "./meetingMockData";
 
-export const MEETING_COMMENTS_MOCK: Comment[] = [
-  {
-    id: "cmt_001",
-    content: "집결은 몇 분 전까지 가면 될까요?",
-    createdAt: "2026-01-24T18:52:00+09:00",
-    author: makeUser({ id: "user_101", nickname: "서연", avatarUrl: "https://picsum.photos/seed/user_101/128/128" }),
-  },
-  {
-    id: "cmt_002",
-    parentId: "cmt_001",
-    content: "시작 10분 전까지 오시면 좋아요. 늦으면 채팅으로 위치 공유드릴게요!",
-    createdAt: "2026-01-24T18:56:40+09:00",
-    author: makeUser({
-      id: "user_host",
-      nickname: "호스트민지",
-      avatarUrl: "https://picsum.photos/seed/user_host/128/128",
-    }),
-  },
-  {
-    id: "cmt_003",
-    content: "준비물 따로 있을까요? 운동화만 챙기면 되나요?",
-    createdAt: "2026-01-24T19:10:10+09:00",
-    author: makeUser({ id: "user_202", nickname: "준호", avatarUrl: "https://picsum.photos/seed/user_202/128/128" }),
-  },
-  {
-    id: "cmt_004",
-    parentId: "cmt_003",
-    content: "운동화/편한 복장만 있으면 충분해요. 필요한 건 제가 여유분 조금 챙겨갈게요.",
-    createdAt: "2026-01-24T19:12:50+09:00",
-    author: makeUser({
-      id: "user_host",
-      nickname: "호스트민지",
-      avatarUrl: "https://picsum.photos/seed/user_host/128/128",
-    }),
-  },
-];
-
-export const HOST_USERS: Record<string, HostSummary> = {
-  user1: {
-    id: "u1",
-    nickname: "민수",
-    avgRate: 3.5,
-    orgTime: 12,
-    intro: "운동 좋아해요. 초보도 환영!",
-    avatarUrl: "https://i.pravatar.cc/150?u=u1",
-  },
-  user2: {
-    id: "u2",
-    nickname: "보드게임마스터",
-    avgRate: 5.0,
-    orgTime: 56,
-    intro: "룰 설명 가능 / 초보 환영!",
-    avatarUrl: "https://i.pravatar.cc/150?u=u2",
-  },
-  user3: {
-    id: "u3",
-    nickname: "새벽러너",
-    avgRate: 2.25,
-    orgTime: 3,
-    intro: "가볍게 달려요.",
-    avatarUrl: null,
-  },
-  me: {
-    id: "me",
-    nickname: "나(호스트)",
-    avgRate: 2.4,
-    orgTime: 0,
-    intro: "내가 만든 모임이에요.",
-    avatarUrl: "https://i.pravatar.cc/150?u=me",
-  },
-};
-
-const __now = Date.now();
-const h = (hoursFromNow: number) => new Date(__now + hoursFromNow * 3600_000).toISOString();
-const d = (daysFromNow: number, hour = 12, minute = 0) => {
-  const base = new Date(__now);
-  base.setDate(base.getDate() + daysFromNow);
-  base.setHours(hour, minute, 0, 0);
-  return base.toISOString();
-};
-
-/**
- * ✅ 축소된 seed(8개)
- * - 상태/승인/내상태 분산은 유지(OPEN/FULL/STARTED/CANCELED/ENDED + INSTANT/APPROVAL + NONE/MEMBER/PENDING/HOST)
- * - 강남권 중심 + 동탄 1개만 유지
- */
-export const MOCK_MEETINGS_SEED: MeetingPost[] = [
-  {
-    id: "101",
-    category: "SPORTS",
-    title: "강남역 배드민턴 더블 2게임",
-    content: "초보 환영! 워밍업 후 더블로 2게임. 라켓은 개인 지참 권장.",
-    meetingTime: h(2),
-    location: { name: "강남역 11번 출구 집결", latitude: 37.4986, longitude: 127.0279 } as any,
-    address: "서울 서초구 강남대로 396 (강남역 인근)",
-    distanceText: "0.4km",
-    capacity: { current: 2, max: 4, total: 4 } as any,
-    joinMode: "INSTANT",
-    status: "OPEN",
-    myState: { membershipStatus: "NONE", canJoin: true } as any,
-    durationMinutes: 110,
-    host: HOST_USERS.user1,
-  },
-  {
-    id: "103",
-    category: "SPORTS",
-    title: "역삼 탁구 랠리 1시간",
-    content: "랠리 위주로 진행. 라켓 1개 여유 있어요. 매너 플레이 부탁!",
-    meetingTime: h(3.5),
-    location: { name: "역삼역 1번 출구 근처", latitude: 37.5006, longitude: 127.0364 } as any,
-    address: "서울 강남구 테헤란로 142 (역삼역 인근)",
-    distanceText: "0.9km",
-    capacity: { current: 4, max: 4, total: 4 } as any,
-    joinMode: "INSTANT",
-    status: "FULL",
-    myState: { membershipStatus: "MEMBER", canJoin: false, reason: "참여중" } as any,
-    durationMinutes: 60,
-    host: HOST_USERS.user1,
-  },
-  {
-    id: "104",
-    category: "SPORTS",
-    title: "선릉 농구 3:3 한 판",
-    content: "하프코트 3:3로 60~90분. 거친 몸싸움은 지양합니다.",
-    conditions: "경력 1년 이상",
-    meetingTime: h(-0.6),
-    location: { name: "선릉역 인근 체육시설", latitude: 37.5045, longitude: 127.0488 } as any,
-    address: "서울 강남구 선릉로 일대 (선릉역 인근)",
-    distanceText: "1.7km",
-    capacity: { current: 6, max: 6, total: 6 } as any,
-    joinMode: "INSTANT",
-    status: "STARTED",
-    myState: { membershipStatus: "NONE", canJoin: false, reason: "이미 시작됨" } as any,
-    durationMinutes: 90,
-    host: HOST_USERS.user1,
-  },
-  {
-    id: "105",
-    category: "SPORTS",
-    title: "삼성 실내 수영 1시간",
-    content: "자유수영 1시간 + 정리 10분. 수영모/수경 필수.",
-    meetingTime: d(1, 7, 40),
-    location: { name: "삼성역 인근 스포츠센터", latitude: 37.5089, longitude: 127.0631 } as any,
-    address: "서울 강남구 봉은사로 일대 (삼성역 인근)",
-    distanceText: "2.3km",
-    capacity: { current: 1, max: 6, total: 6 } as any,
-    joinMode: "APPROVAL",
-    status: "CANCELED",
-    myState: { membershipStatus: "NONE", canJoin: false, reason: "취소됨" } as any,
-    durationMinutes: 60,
-    host: HOST_USERS.user3,
-  },
-  {
-    id: "201",
-    category: "MEAL",
-    title: "강남역 점심 김치찌개",
-    content: "점심에 빠르게 먹고 해산(45분). 1/N, 노쇼는 미리 연락!",
-    meetingTime: h(1.2),
-    location: { name: "강남역 10번 출구", latitude: 37.498, longitude: 127.0276 } as any,
-    address: "서울 서초구 강남대로 405 (강남역 인근)",
-    distanceText: "0.3km",
-    capacity: { current: 1, max: 4, total: 4 } as any,
-    joinMode: "INSTANT",
-    status: "OPEN",
-    myState: { membershipStatus: "HOST", canJoin: false, reason: "호스트" } as any,
-    durationMinutes: 45,
-    host: HOST_USERS.me,
-  },
-  {
-    id: "301",
-    category: "STUDY",
-    title: "강남역 모각코 2시간",
-    content: "각자 작업(대화 최소) + 마지막 10분만 공유. 노트북/이어폰 권장.",
-    conditions: "대화 최소",
-    meetingTime: d(1, 19, 30),
-    location: { name: "강남역 스터디카페", latitude: 37.4978, longitude: 127.0275 } as any,
-    address: "서울 서초구 서초대로 77길 일대 (강남역 인근)",
-    distanceText: "0.8km",
-    capacity: { current: 2, max: 6, total: 6 } as any,
-    joinMode: "APPROVAL",
-    status: "OPEN",
-    myState: { membershipStatus: "PENDING", canJoin: false, reason: "승인 대기중" } as any,
-    durationMinutes: 120,
-    host: HOST_USERS.user3,
-  },
-  {
-    id: "401",
-    category: "GAMES",
-    title: "강남 보드게임 한 판",
-    content: "파티게임/가벼운 전략 섞어서 진행. 초보 환영(룰 설명 가능).",
-    meetingTime: d(1, 16, 0),
-    location: { name: "강남역 보드게임 카페", latitude: 37.4974, longitude: 127.0292 } as any,
-    address: "서울 서초구 강남대로 420 (강남역 인근)",
-    distanceText: "0.9km",
-    capacity: { current: 2, max: 6, total: 6 } as any,
-    joinMode: "APPROVAL",
-    status: "OPEN",
-    myState: { membershipStatus: "NONE", canJoin: true } as any,
-    durationMinutes: 180,
-    host: HOST_USERS.user2,
-  },
-  {
-    id: "531",
-    category: "GAMES",
-    title: "동탄 보드게임 모임",
-    content: "파티게임 위주로 가볍게 진행했습니다. 다음에는 전략도 섞어볼게요.",
-    meetingTime: d(-4, 19, 0),
-    location: { name: "동탄 보드게임 카페", latitude: 37.2042, longitude: 127.0697 } as any,
-    address: "경기 화성시 동탄중심상가 일대",
-    distanceText: "1.1km",
-    capacity: { current: 6, max: 6, total: 6 } as any,
-    joinMode: "APPROVAL",
-    status: "ENDED",
-    myState: { membershipStatus: "MEMBER", canJoin: false } as any,
-    durationMinutes: 180,
-    host: HOST_USERS.user2,
-  },
-];
+// 외부 사용처 호환 유지 (기존 meetingApi.ts에서 export 하던 mock들을 그대로 노출)
+export { MEETING_COMMENTS_MOCK, HOST_USERS, MOCK_MEETINGS_SEED };
+export type { Comment, HostSummary };
 
 // -----------------------------------------------------------------------------
 // Mode (mock/remote)
@@ -401,13 +181,15 @@ function calcCanJoin(post: MeetingPost): { canJoin: boolean; reason?: string } {
 }
 
 function normalizeHost(raw: any) {
-  const fallback = HOST_USERS?.me ?? {
-    id: "me",
-    nickname: "나",
-    avatarUrl: null,
-    avgRate: 0,
-    orgTime: 0,
-  };
+  const fallback =
+    HOST_USERS?.me ??
+    ({
+      id: "me",
+      nickname: "나",
+      avatarUrl: null,
+      avgRate: 0,
+      orgTime: 0,
+    } as any);
 
   const id = str(raw?.id ?? fallback.id, fallback.id);
   const nickname = str(raw?.nickname ?? fallback.nickname, fallback.nickname);
@@ -1038,7 +820,9 @@ export const meetingApiRemote: MeetingApi = {
     await client.delete(endpoints.posts.byId(id));
 
     return {
-      post: before ? ({ ...(before as any), status: "CANCELED" } as MeetingPost) : ({ id: String(id), status: "CANCELED" } as unknown as MeetingPost),
+      post: before
+        ? ({ ...(before as any), status: "CANCELED" } as MeetingPost)
+        : ({ id: String(id), status: "CANCELED" } as unknown as MeetingPost),
     };
   },
 
@@ -1051,11 +835,9 @@ export const meetingApiRemote: MeetingApi = {
 
     // ✅ 가능하면 서버가 내려준 myState를 우선(불일치/지연 대비), 없으면 joinMode로 추론
     const serverStatus = post?.myState?.membershipStatus;
-    const fallback: MembershipStatus =
-      post?.joinMode === "APPROVAL" ? "PENDING" : "MEMBER";
+    const fallback: MembershipStatus = post?.joinMode === "APPROVAL" ? "PENDING" : "MEMBER";
 
-    const membershipStatus: MembershipStatus =
-      serverStatus && serverStatus !== "NONE" ? serverStatus : fallback;
+    const membershipStatus: MembershipStatus = serverStatus && serverStatus !== "NONE" ? serverStatus : fallback;
 
     return { post, membershipStatus };
   },

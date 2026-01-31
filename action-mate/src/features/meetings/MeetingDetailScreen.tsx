@@ -23,7 +23,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
 import { useAuthStore } from "@/features/auth/model/authStore";
-import { meetingApi, MEETING_COMMENTS_MOCK } from "@/features/meetings/api/meetingApi";
+import { meetingApi } from "@/features/meetings/api/meetingApi";
+import { getMeetingCommentsMock } from "@/features/meetings/api/meetingMockData";
 import { findDMThreadByMeetingId } from "@/features/dm/api/dmApi";
 import type { Comment, MeetingPost, Participant } from "@/features/meetings/model/types";
 
@@ -42,6 +43,116 @@ import { calculateDistance } from "@/shared/utils/distance";
 const TOPBAR_HEIGHT = 56;
 
 type AppTheme = ReturnType<typeof useAppTheme>;
+
+const COMMENTS_CACHE: Record<string, Comment[]> = {};
+
+function toIsoFromNowMinusMs(msAgo: number): string {
+  const ms = Number.isFinite(msAgo) ? msAgo : 0;
+  const t = Date.now() - Math.max(0, ms);
+  return new Date(t).toISOString();
+}
+
+function sortByCreatedAtAsc(list: Comment[]): Comment[] {
+  const arr = Array.isArray(list) ? list : [];
+  return [...arr].sort((a: any, b: any) => {
+    const ta = Date.parse(String(a?.createdAt ?? "")) || 0;
+    const tb = Date.parse(String(b?.createdAt ?? "")) || 0;
+    return ta - tb;
+  });
+}
+
+function dedupeAndFixParents(list: Comment[]): Comment[] {
+  const input = Array.isArray(list) ? list : [];
+  const seen = new Set<string>();
+  const deduped: Comment[] = [];
+
+  for (const c of input) {
+    const id = String((c as any)?.id ?? "").trim();
+    if (!id) continue;
+
+    if (seen.has(id)) {
+      // ✅ 중복 key 방지: 동일 id는 1개만 유지(서비스 데이터 가정)
+      continue;
+    }
+    seen.add(id);
+    deduped.push(c);
+  }
+
+  const idSet = new Set(deduped.map((c) => String((c as any)?.id ?? "").trim()).filter(Boolean));
+
+  return deduped.map((c: any) => {
+    const pidRaw = c?.parentId;
+    if (pidRaw == null) return c as Comment;
+
+    const pid = String(pidRaw).trim();
+    if (!pid || !idSet.has(pid)) {
+      // ✅ 부모가 없으면 답글 관계 끊기(렌더 안정성)
+      return { ...(c ?? {}), parentId: undefined } as Comment;
+    }
+    return c as Comment;
+  });
+}
+
+function ensureUniqueIdsFallback(list: Comment[]): Comment[] {
+  const arr = Array.isArray(list) ? list : [];
+  const seen = new Set<string>();
+  return arr.map((c, idx) => {
+    const id = String((c as any)?.id ?? "").trim();
+    if (!id) return { ...(c as any), id: `c_${Date.now()}_${idx}` } as any;
+
+    if (!seen.has(id)) {
+      seen.add(id);
+      return c;
+    }
+
+    // ✅ 혹시라도 남은 중복은 suffix로 강제 유니크
+    const nextId = `${id}__${idx}`;
+    seen.add(nextId);
+    return { ...(c as any), id: nextId } as any;
+  });
+}
+
+function normalizeLoadedComments(meetingKey: string, raw: unknown): Comment[] {
+  const key = String(meetingKey ?? "").trim() || "unknown_meeting";
+  const list = Array.isArray(raw) ? (raw as any[]) : [];
+
+  const normalized = list.map((c, idx) => {
+    const idRaw = String(c?.id ?? c?.commentId ?? `${key}_c_${idx}`).trim();
+    const content = String(c?.content ?? c?.text ?? c?.message ?? "").trim() || "내용이 없습니다.";
+    const createdAt =
+      String(c?.createdAt ?? c?.created_at ?? "").trim() || toIsoFromNowMinusMs((list.length - idx) * 3 * 60_000);
+
+    const a = c?.author ?? c?.user ?? {};
+    const authorId = String(a?.id ?? c?.authorId ?? "unknown");
+    const authorNickname = String(a?.nickname ?? c?.authorNickname ?? c?.nickname ?? "알 수 없음");
+    const authorAvatar = (a?.avatarUrl ?? c?.authorProfileImage ?? c?.profileImage ?? null) as any;
+
+    const parentIdRaw = c?.parentId ?? c?.parent_id ?? undefined;
+    const parentId = parentIdRaw == null ? undefined : String(parentIdRaw);
+
+    // ✅ meeting scope prefix (meeting별 id 충돌 방지)
+    const scopedId = idRaw.includes(key) ? idRaw : `${key}_${idRaw}`;
+
+    return {
+      ...(c ?? {}),
+      id: scopedId,
+      content,
+      createdAt,
+      parentId,
+      author: {
+        ...(a ?? {}),
+        id: authorId,
+        nickname: authorNickname,
+        avatarUrl: authorAvatar,
+      } as any,
+      authorNickname,
+      authorProfileImage: authorAvatar,
+    } as Comment;
+  });
+
+  const fixed = dedupeAndFixParents(sortByCreatedAtAsc(normalized));
+  return ensureUniqueIdsFallback(fixed);
+}
 
 function hexToRgba(hex: string, alpha: number) {
   const a = Math.max(0, Math.min(1, Number.isFinite(alpha) ? alpha : 1));
@@ -162,6 +273,23 @@ export default function MeetingDetailScreen() {
 
   const stickToBottomRef = useRef(true);
 
+  const meetingKey = useMemo(() => {
+    const key = String(meetingId ?? post?.id ?? "").trim();
+    return key || "unknown_meeting";
+  }, [meetingId, post?.id]);
+
+  const setCommentsWithCache = useCallback(
+    (updater: (prev: Comment[]) => Comment[]) => {
+      setComments((prev) => {
+        const next = updater(Array.isArray(prev) ? prev : []);
+        const safeNext = Array.isArray(next) ? next : [];
+        COMMENTS_CACHE[meetingKey] = safeNext;
+        return safeNext;
+      });
+    },
+    [meetingKey]
+  );
+
   const scrollToBottomSoon = useCallback((animated = true) => {
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated });
@@ -251,7 +379,11 @@ export default function MeetingDetailScreen() {
   const pendingCount = useMemo(() => participants.filter((p) => p.status === "PENDING").length, [participants]);
 
   const contentBottomPadding = useMemo(() => {
-    return (isKeyboardVisible ? 0 : bottomBarHeight) + 20 + (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0);
+    return (
+      (isKeyboardVisible ? 0 : bottomBarHeight) +
+      20 +
+      (Platform.OS === "android" && isKeyboardVisible ? keyboardHeight : 0)
+    );
   }, [bottomBarHeight, isKeyboardVisible, keyboardHeight]);
 
   const displayHost = useMemo(() => {
@@ -281,7 +413,8 @@ export default function MeetingDetailScreen() {
   const handleScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
-      const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
+      const distanceFromBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height) - contentBottomPadding;
       stickToBottomRef.current = distanceFromBottom < 24;
     },
     [contentBottomPadding]
@@ -298,7 +431,18 @@ export default function MeetingDetailScreen() {
       const m = await meetingApi.getMeeting(meetingId);
       setPost(m);
 
-      setComments(Array.isArray(MEETING_COMMENTS_MOCK) ? MEETING_COMMENTS_MOCK : []);
+      // ✅ meetingId별 댓글: 중복 id/키 문제 방지(dedupe + fallback unique)
+      const resolvedKey = String((m as any)?.id ?? meetingId ?? "").trim() || "unknown_meeting";
+      const cached = COMMENTS_CACHE[resolvedKey];
+
+      if (Array.isArray(cached)) {
+        setComments(cached);
+      } else {
+        const raw = getMeetingCommentsMock(resolvedKey);
+        const normalized = normalizeLoadedComments(resolvedKey, raw);
+        COMMENTS_CACHE[resolvedKey] = normalized;
+        setComments(normalized);
+      }
 
       const hostId = m.host?.id ? String(m.host.id) : "";
       if (m.myState?.membershipStatus === "HOST" || hostId === String(currentUserId)) {
@@ -405,35 +549,40 @@ export default function MeetingDetailScreen() {
     if (!commentText.trim()) return;
 
     if (editingComment) {
-      setComments((prev: Comment[]) =>
+      setCommentsWithCache((prev: Comment[]) =>
         prev.map((c: Comment) =>
-          String((c as any).id) === String((editingComment as any).id) ? { ...c, content: commentText } : c
+          String((c as any).id) === String((editingComment as any).id)
+            ? ({ ...(c as any), content: commentText } as any)
+            : c
         )
       );
       setEditingComment(null);
     } else {
-      const replyNickname = (replyTarget as any)?.author?.nickname ?? (replyTarget as any)?.authorNickname ?? "알 수 없음";
+      const replyNickname =
+        (replyTarget as any)?.author?.nickname ?? (replyTarget as any)?.authorNickname ?? "알 수 없음";
 
       const newComment: Comment = {
-        id: `new_${Date.now()}`,
+        id: `new_${meetingKey}_${Date.now()}`,
         content: replyTarget ? `@${replyNickname} ${commentText}` : commentText,
-        createdAt: new Date().toISOString(),
+        createdAt: toIsoFromNowMinusMs(0),
         parentId: (replyTarget as any)?.id,
         author: {
           id: currentUserId,
           nickname: me?.nickname || "나",
           avatarUrl: (me as any)?.avatarUrl,
         } as any,
-      };
+        authorNickname: me?.nickname || "나",
+        authorProfileImage: (me as any)?.avatarUrl,
+      } as any;
 
-      setComments((prev: Comment[]) => [...prev, newComment]);
+      setCommentsWithCache((prev: Comment[]) => ensureUniqueIdsFallback(sortByCreatedAtAsc([...prev, newComment])));
     }
 
     setCommentText("");
     setReplyTarget(null);
     Keyboard.dismiss();
     scrollToBottomSoon(true);
-  }, [commentText, editingComment, replyTarget, currentUserId, me, scrollToBottomSoon]);
+  }, [commentText, editingComment, replyTarget, currentUserId, me, scrollToBottomSoon, meetingKey, setCommentsWithCache]);
 
   if (loading || !post) {
     return (
@@ -557,7 +706,9 @@ export default function MeetingDetailScreen() {
               inputRef.current?.focus();
             }}
             onDeleteComment={(id: string) => {
-              setComments((prev: Comment[]) => prev.filter((c: Comment) => String((c as any).id) !== String(id)));
+              setCommentsWithCache((prev: Comment[]) =>
+                prev.filter((c: Comment) => String((c as any).id) !== String(id))
+              );
             }}
             onContentHeightChange={() => {}}
             onScrollViewHeightChange={() => {}}
@@ -603,10 +754,7 @@ export default function MeetingDetailScreen() {
   );
 }
 
-/*
-요약:
-1) 댓글 목업 import를 meetingApi로 통일하고, theme 접근은 optional 체이닝으로 크래시를 방지했습니다.
-2) 참여자/채팅 진입 파라미터를 방어적으로 구성해 누락 데이터에도 안전합니다.
-3) menu/뱃지/색상 접근에서 neutral/icon 필드 미존재 케이스를 기본값으로 처리했습니다.
-*/
-// END FILE
+// 3줄 요약
+// - 댓글 정규화 단계에서 중복 id를 dedupe하고, 남은 중복은 suffix로 강제 유니크 처리해 key 경고를 제거했습니다.
+// - parentId가 실제로 존재하지 않으면 자동으로 해제해 렌더 안정성을 확보했습니다.
+// - meetingId별 댓글 로드는 그대로 유지하며, 캐시에도 정제된 댓글만 저장되도록 보강했습니다.

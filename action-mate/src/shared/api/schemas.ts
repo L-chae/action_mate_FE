@@ -89,6 +89,13 @@ export type EnsureRoomAndSendMessageRequest = {
   content: string;
 };
 
+/**
+ * 호환용 alias
+ * - 기존 코드에서 "@/shared/api/schemas"의 ApiMessage를 import 중인 케이스를 깨지 않기 위한 타입 별칭입니다.
+ * - 실제 서버 메시지 DTO는 MessageResponse를 기준으로 유지합니다.
+ */
+export type ApiMessage = MessageResponse;
+
 // -------------------------
 // Posts (기존 사용처 호환용: 값 고정 유지)
 // -------------------------
@@ -130,6 +137,6 @@ export type RatingResponse = {
 };
 
 // 요약(3줄)
-// - ApplicantStatus/ApplicantResponse/ProfileRequest/Message DTO를 서버 확정 스키마로 교체 및 값 고정(대문자) 유지.
-// - DecideApplicantRequest는 PATCH body 규격에 맞게 "MEMBER"|"REJECTED"로 수정.
-// - ResponseEntity<?> 변동 가능 구간은 타입은 확정하되, 실제 사용처에서 런타임 가드를 전제로 설계.
+// - schemas.ts에 ApiMessage 타입 export가 없어 발생한 TS2305를, MessageResponse의 alias(ApiMessage)로 해결했습니다.
+// - 서버 기준 DTO는 MessageResponse를 유지하고, 기존 import 호환만 보장합니다.
+// - dmApi.ts 등 기존 코드 수정 없이 컴파일 에러를 제거합니다.
