@@ -1,5 +1,15 @@
 import "dotenv/config"; // .env 로드
 
+const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? "";
+const KAKAO_NATIVE_APP_KEY = process.env.KAKAO_NATIVE_APP_KEY ?? "";
+
+if (!GOOGLE_MAPS_KEY) {
+  console.warn("[app.config] EXPO_PUBLIC_GOOGLE_MAPS_KEY is missing. Google Maps may not work.");
+}
+if (!KAKAO_NATIVE_APP_KEY) {
+  console.warn("[app.config] KAKAO_NATIVE_APP_KEY is missing. Kakao login build/config may fail.");
+}
+
 export default {
   expo: {
     name: "action-mate",
@@ -11,11 +21,17 @@ export default {
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
 
+    extra: {
+      eas: {
+        projectId: "0968327b-5914-4a6e-b637-76d47a977ef9",
+      },
+    },
+
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.actionmate.app",
       config: {
-        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
+        googleMapsApiKey: GOOGLE_MAPS_KEY,
       },
     },
 
@@ -33,7 +49,7 @@ export default {
       softwareKeyboardLayoutMode: "resize",
       config: {
         googleMaps: {
-          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY,
+          apiKey: GOOGLE_MAPS_KEY,
         },
       },
     },
@@ -64,7 +80,7 @@ export default {
       [
         "@react-native-seoul/kakao-login",
         {
-          kakaoAppKey: process.env.KAKAO_NATIVE_APP_KEY,
+          kakaoAppKey: String(KAKAO_NATIVE_APP_KEY),
           kotlinVersion: "2.0.0",
         },
       ],

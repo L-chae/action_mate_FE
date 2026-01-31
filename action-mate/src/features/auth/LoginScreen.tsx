@@ -64,10 +64,6 @@ export default function LoginScreen() {
     setBusy(true);
 
     try {
-      if (!IS_MOCK_AUTH) {
-        Alert.alert("안내", "카카오 로그인은 서버 연동이 필요합니다.\n현재는 '이메일로 로그인'을 사용해주세요.");
-        return;
-      }
 
       await KakaoLogin.login();
       const profile = await KakaoLogin.getProfile();

@@ -27,12 +27,28 @@ import type { MeetingPost, Participant, MembershipStatus } from "@/features/meet
 
 type TabKey = "PENDING" | "CONFIRMED";
 
-type Row =
-  | { _type: "STICKY" }
-  | { _type: "EMPTY" }
-  | (Participant & { _type?: undefined });
+type ParticipantRow = Participant & { _rowKey: string; _type?: undefined };
+type Row = { _type: "STICKY" } | { _type: "EMPTY" } | { _type: "LOADING" } | ParticipantRow;
 
 const isConfirmedStatus = (s: MembershipStatus) => s === "MEMBER" || s === "HOST";
+
+// ✅ 화면 전환/재진입 시 즉시 보여주기 위한 캐시(인메모리)
+const PARTICIPANTS_CACHE: Record<string, Participant[]> = {};
+
+function makeUniqueParticipantRows(list: Participant[]): ParticipantRow[] {
+  const arr = Array.isArray(list) ? list : [];
+  const seen = new Map<string, number>();
+
+  return arr.map((p) => {
+    const baseId = String((p as any)?.id ?? "unknown").trim() || "unknown";
+    const n = (seen.get(baseId) ?? 0) + 1;
+    seen.set(baseId, n);
+
+    // ✅ key 중복 방지: id가 중복되면 suffix를 붙인 _rowKey만 유니크하게
+    const rowKey = n === 1 ? baseId : `${baseId}__${n}`;
+    return { ...(p as any), _rowKey: rowKey } as ParticipantRow;
+  });
+}
 
 export default function ManageParticipantsScreen() {
   const t = useAppTheme();
@@ -45,6 +61,7 @@ export default function ManageParticipantsScreen() {
   const currentUserId = me?.id ? String(me.id) : "guest";
 
   const [loading, setLoading] = useState(true);
+  const [participantsLoading, setParticipantsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const [post, setPost] = useState<MeetingPost | null>(null);
@@ -59,17 +76,25 @@ export default function ManageParticipantsScreen() {
   const [tab, setTab] = useState<TabKey>("PENDING");
   const [query, setQuery] = useState("");
 
+  const meetingIdKey = useMemo(() => String(id ?? "").trim(), [id]);
+
   const isHost =
     post?.myState?.membershipStatus === "HOST" || (post?.host?.id != null && String(post.host.id) === currentUserId);
 
-  const pending = useMemo(() => participants.filter((p) => p.status === "PENDING"), [participants]);
-  const confirmed = useMemo(() => participants.filter((p) => isConfirmedStatus(p.status)), [participants]);
+  const pending = useMemo(
+    () => (Array.isArray(participants) ? participants : []).filter((p) => (p as any)?.status === "PENDING"),
+    [participants]
+  );
+  const confirmed = useMemo(
+    () => (Array.isArray(participants) ? participants : []).filter((p) => isConfirmedStatus((p as any)?.status)),
+    [participants]
+  );
 
   const filtered = useMemo(() => {
     const base = tab === "PENDING" ? pending : confirmed;
     const q = query.trim().toLowerCase();
     if (!q) return base;
-    return base.filter((p) => String(p.nickname ?? "").toLowerCase().includes(q));
+    return base.filter((p) => String((p as any)?.nickname ?? "").toLowerCase().includes(q));
   }, [tab, pending, confirmed, query]);
 
   const isReady = !loading && !!post;
@@ -79,30 +104,53 @@ export default function ManageParticipantsScreen() {
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
-      if (!id) return;
+      const meetingId = String(id ?? "").trim();
+      if (!meetingId) return;
+
       const seq = ++loadSeq.current;
 
       if (!opts?.silent) setLoading(true);
+
       try {
-        const m = await meetingApi.getMeeting(id as any);
+        // ✅ 1) 모임 정보 먼저(화면을 빨리 띄우기 위해)
+        const m = await meetingApi.getMeeting(meetingId as any);
         if (seq !== loadSeq.current) return;
+
         setPost(m);
 
         const hostOk =
-          m.myState?.membershipStatus === "HOST" || (m.host?.id != null && String(m.host.id) === currentUserId);
+          (m as any)?.myState?.membershipStatus === "HOST" ||
+          ((m as any)?.host?.id != null && String((m as any).host.id) === currentUserId);
 
-        if (hostOk) {
-          const parts = await meetingApi.getParticipants(String(m.id) as any);
-          if (seq !== loadSeq.current) return;
-          setParticipants(Array.isArray(parts) ? parts : []);
-        } else {
+        if (!hostOk) {
           setParticipants([]);
+          setParticipantsLoading(false);
+          return;
         }
+
+        // ✅ 2) 캐시가 있으면 즉시 반영(지연 체감 감소)
+        const cacheKey = String((m as any)?.id ?? meetingId).trim();
+        const cached = PARTICIPANTS_CACHE[cacheKey];
+        if (Array.isArray(cached) && cached.length > 0) {
+          setParticipants(cached);
+        }
+
+        // ✅ 3) 참여자 목록은 별도 로딩(스크린 전체 로딩을 오래 잡지 않음)
+        setParticipantsLoading(true);
+        if (!opts?.silent) setLoading(false);
+
+        const parts = await meetingApi.getParticipants(String((m as any)?.id ?? meetingId) as any);
+        if (seq !== loadSeq.current) return;
+
+        const safeParts = Array.isArray(parts) ? parts : [];
+        setParticipants(safeParts);
+        PARTICIPANTS_CACHE[cacheKey] = safeParts;
       } catch (e) {
         console.error(e);
         Alert.alert("오류", "참여자 정보를 불러오지 못했습니다.");
       } finally {
         if (!opts?.silent) setLoading(false);
+        setParticipantsLoading(false);
       }
     },
     [id, currentUserId]
@@ -122,11 +170,15 @@ export default function ManageParticipantsScreen() {
   }, [load]);
 
   const updateParticipant = useCallback((userId: string, patch: Partial<Participant>) => {
-    setParticipants((prev) => prev.map((p) => (String(p.id) === String(userId) ? { ...p, ...patch } : p)));
+    setParticipants((prev) =>
+      (Array.isArray(prev) ? prev : []).map((p) =>
+        String((p as any).id) === String(userId) ? ({ ...(p as any), ...(patch as any) } as any) : p
+      )
+    );
   }, []);
 
   const removeParticipant = useCallback((userId: string) => {
-    setParticipants((prev) => prev.filter((p) => String(p.id) !== String(userId)));
+    setParticipants((prev) => (Array.isArray(prev) ? prev : []).filter((p) => String((p as any).id) !== String(userId)));
   }, []);
 
   const handleApprove = useCallback(
@@ -137,11 +189,15 @@ export default function ManageParticipantsScreen() {
       const prevSnapshot = participantsRef.current;
       setProcessingUserId(userId);
 
-      updateParticipant(userId, { status: "MEMBER" });
+      updateParticipant(userId, { status: "MEMBER" } as any);
 
       try {
-        const updated = await meetingApi.approveParticipant(String(post.id) as any, userId);
-        if (Array.isArray(updated)) setParticipants(updated);
+        const updated = await meetingApi.approveParticipant(String((post as any).id) as any, userId);
+        if (Array.isArray(updated)) {
+          setParticipants(updated);
+          const cacheKey = String((post as any)?.id ?? meetingIdKey).trim();
+          if (cacheKey) PARTICIPANTS_CACHE[cacheKey] = updated;
+        }
         Alert.alert("승인 완료", "참여가 확정되었습니다.");
       } catch {
         setParticipants(prevSnapshot);
@@ -150,12 +206,13 @@ export default function ManageParticipantsScreen() {
         setProcessingUserId(null);
       }
     },
-    [post, processingUserId, updateParticipant]
+    [post, processingUserId, updateParticipant, meetingIdKey]
   );
 
   const handleReject = useCallback(
     async (userId: string) => {
       if (!post) return;
+      if (processingUserId) return;
 
       Alert.alert("거절", "이 신청을 거절할까요?", [
         { text: "취소", style: "cancel" },
@@ -169,8 +226,12 @@ export default function ManageParticipantsScreen() {
             removeParticipant(userId);
 
             try {
-              const updated = await meetingApi.rejectParticipant(String(post.id) as any, userId);
-              if (Array.isArray(updated)) setParticipants(updated);
+              const updated = await meetingApi.rejectParticipant(String((post as any).id) as any, userId);
+              if (Array.isArray(updated)) {
+                setParticipants(updated);
+                const cacheKey = String((post as any)?.id ?? meetingIdKey).trim();
+                if (cacheKey) PARTICIPANTS_CACHE[cacheKey] = updated;
+              }
             } catch {
               setParticipants(prevSnapshot);
               Alert.alert("오류", "거절 처리에 실패했습니다.");
@@ -181,7 +242,7 @@ export default function ManageParticipantsScreen() {
         },
       ]);
     },
-    [post, removeParticipant]
+    [post, processingUserId, removeParticipant, meetingIdKey]
   );
 
   const primary = t?.colors?.primary ?? "#000000";
@@ -241,12 +302,15 @@ export default function ManageParticipantsScreen() {
           <TabButton active={tab === "CONFIRMED"} label={`확정 (${confirmed.length})`} onPress={() => setTab("CONFIRMED")} />
         </View>
 
-        <Text style={[t.typography.titleSmall, { color: t.colors.textMain, marginTop: 12 }]}>
-          {tab === "PENDING" ? "대기 중" : "확정됨"}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 12 }}>
+          <Text style={[t.typography.titleSmall, { color: t.colors.textMain, flex: 1 }]}>
+            {tab === "PENDING" ? "대기 중" : "확정됨"}
+          </Text>
+    
+        </View>
       </View>
     );
-  }, [t, tab, pending.length, confirmed.length]);
+  }, [t, tab, pending.length, confirmed.length, participantsLoading]);
 
   const EmptyState = useMemo(() => {
     if (loading) {
@@ -282,30 +346,50 @@ export default function ManageParticipantsScreen() {
     );
   }, [loading, accessDenied, t, emptyTitle, emptyDesc]);
 
+  const LoadingRow = useMemo(() => {
+    return (
+      <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+        <View style={[styles.emptyBox, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
+          <ActivityIndicator size="small" color={t.colors.primary} />
+          <Text style={[t.typography.bodySmall, { marginTop: 10, color: t.colors.textSub }]}>
+            참여자 목록을 불러오는 중…
+          </Text>
+        </View>
+      </View>
+    );
+  }, [t]);
+
   const listData: Row[] = useMemo(() => {
     const base: Row[] = [{ _type: "STICKY" }];
-    if (loading || accessDenied || filtered.length === 0) return base.concat([{ _type: "EMPTY" }]);
-    return base.concat(filtered as Row[]);
-  }, [loading, accessDenied, filtered]);
+
+    if (loading || accessDenied) return base.concat([{ _type: "EMPTY" }]);
+    if (participantsLoading && filtered.length === 0) return base.concat([{ _type: "LOADING" }]);
+    if (filtered.length === 0) return base.concat([{ _type: "EMPTY" }]);
+
+    return base.concat(makeUniqueParticipantRows(filtered));
+  }, [loading, accessDenied, participantsLoading, filtered]);
 
   const renderItem = useCallback(
     ({ item }: { item: Row }) => {
       if ("_type" in item) {
         if (item._type === "STICKY") return StickyHeader;
+        if (item._type === "LOADING") return LoadingRow;
         if (item._type === "EMPTY") return EmptyState;
         return <View />;
       }
 
-      const userId = String(item.id);
-      const isPending = item.status === "PENDING";
+      const userId = String((item as any)?.id ?? "");
+      const isPending = (item as any)?.status === "PENDING";
       const isProcessing = processingUserId === userId;
+
+      const onPrimary = (t as any)?.colors?.onPrimary ?? "#FFFFFF";
 
       return (
         <View style={{ paddingHorizontal: 16 }}>
           <View style={[styles.card, { backgroundColor: t.colors.surface, borderColor: t.colors.border }]}>
             <View style={styles.cardLeft}>
-              {item.avatarUrl ? (
-                <Image source={{ uri: item.avatarUrl }} style={styles.avatarImage} />
+              {(item as any)?.avatarUrl ? (
+                <Image source={{ uri: String((item as any)?.avatarUrl) }} style={styles.avatarImage} />
               ) : (
                 <View style={[styles.avatarPlaceholder, { backgroundColor: t.colors.neutral?.[100] ?? t.colors.border }]}>
                   <Ionicons name="person" size={18} color={t.colors.icon?.muted ?? t.colors.textSub} />
@@ -314,7 +398,7 @@ export default function ManageParticipantsScreen() {
 
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[t.typography.labelLarge, { color: t.colors.textMain }]} numberOfLines={1}>
-                  {item.nickname ?? "알 수 없음"}
+                  {(item as any)?.nickname ?? "알 수 없음"}
                 </Text>
                 <Text style={[t.typography.bodySmall, { color: t.colors.textSub, marginTop: 2 }]}>
                   {isPending ? "신청 대기" : "참여 확정"}
@@ -331,11 +415,11 @@ export default function ManageParticipantsScreen() {
                     onPress={() => handleReject(userId)}
                     hitSlop={10}
                     style={({ pressed }) => [
-                      styles.iconAction,
-                      { borderColor: t.colors.error, opacity: pressed ? 0.75 : 1 },
+                      styles.rejectAction,
+                      { borderColor: t.colors.error, opacity: pressed ? 0.85 : 1 },
                     ]}
                   >
-                    <Ionicons name="close" size={18} color={t.colors.error} />
+                    <Text style={[t.typography.labelSmall, { color: t.colors.error, fontWeight: "800" }]}>거절</Text>
                   </Pressable>
 
                   <View style={{ width: 8 }} />
@@ -343,9 +427,12 @@ export default function ManageParticipantsScreen() {
                   <Pressable
                     onPress={() => handleApprove(userId)}
                     hitSlop={10}
-                    style={({ pressed }) => [styles.primaryAction, { backgroundColor: t.colors.primary, opacity: pressed ? 0.85 : 1 }]}
+                    style={({ pressed }) => [
+                      styles.primaryAction,
+                      { backgroundColor: t.colors.primary, opacity: pressed ? 0.85 : 1 },
+                    ]}
                   >
-                    <Text style={[t.typography.labelSmall, { color: "white", fontWeight: "800" }]}>승인</Text>
+                    <Text style={[t.typography.labelSmall, { color: onPrimary, fontWeight: "800" }]}>승인</Text>
                   </Pressable>
                 </View>
               ) : (
@@ -359,12 +446,12 @@ export default function ManageParticipantsScreen() {
         </View>
       );
     },
-    [StickyHeader, EmptyState, processingUserId, t, handleReject, handleApprove]
+    [StickyHeader, EmptyState, LoadingRow, processingUserId, t, handleReject, handleApprove]
   );
 
   const keyExtractor = useCallback((item: Row) => {
-    if ("_type" in item) return item._type === "STICKY" ? "sticky" : "empty";
-    return String(item.id);
+    if ("_type" in item) return item._type === "STICKY" ? "sticky" : item._type === "LOADING" ? "loading" : "empty";
+    return String((item as any)?._rowKey ?? (item as any)?.id ?? "row");
   }, []);
 
   return (
@@ -396,6 +483,7 @@ export default function ManageParticipantsScreen() {
           confirmedCount: confirmed.length,
           denied: accessDenied,
           loading,
+          participantsLoading,
         }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={{
@@ -539,9 +627,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  iconAction: {
-    width: 34,
+  rejectAction: {
     height: 34,
+    paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1,
     alignItems: "center",
@@ -565,9 +653,8 @@ const styles = StyleSheet.create({
 });
 
 /*
-요약:
-1) theme 컬러 접근을 optional 체이닝+기본값으로 보강해 크래시를 방지했습니다.
-2) 리스트/탭/검색 로직은 유지하면서, API 응답이 비정상일 때도 배열로 안전 처리합니다.
-3) optimistic 업데이트는 그대로 두고, rollback 스냅샷을 항상 보장합니다.
+3줄 요약
+- 대기 상태 액션에서 X 아이콘 버튼을 “거절” 텍스트 버튼으로 교체했습니다.
+- 스타일은 Notification/Manage 공통 톤(높이 34, radius 10, border 1)으로 맞췄습니다.
+- 승인 버튼과 동일한 레이아웃을 유지해 시각적 일관성을 확보했습니다.
 */
-// END FILE
